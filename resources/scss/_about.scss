@@ -1,5 +1,5 @@
 .about {
-    margin-top: 56px;
+    margin-top: var(--section-gap);
 }
 
 .about__box {
@@ -134,10 +134,6 @@
 }
 
 @media (max-width: 768px) {
-    .about {
-        margin-top: 32px;
-    }
-
     .about__box {
         padding: 0;
         background: none;

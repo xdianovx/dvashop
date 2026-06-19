@@ -1,3 +1,46 @@
+import Swiper from 'swiper';
+import { Thumbs, Pagination } from 'swiper/modules';
+import 'swiper/css';
+import 'swiper/css/thumbs';
+import 'swiper/css/pagination';
+
+// Product gallery: main slider synced with thumbnails.
+if (document.querySelector('[data-gallery-main]')) {
+    const thumbs = new Swiper('[data-gallery-thumbs]', {
+        slidesPerView: 4,
+        spaceBetween: 10,
+        watchSlidesProgress: true,
+    });
+
+    new Swiper('[data-gallery-main]', {
+        modules: [Thumbs, Pagination],
+        thumbs: { swiper: thumbs },
+        pagination: { el: '.part-gallery__pagination', clickable: true },
+    });
+}
+
+// Profile tabs — single active toggle within each group.
+document.querySelectorAll('.part-tabs').forEach((group) => {
+    const tabs = group.querySelectorAll('.part-tab');
+    tabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+            tabs.forEach((t) => t.classList.remove('part-tab--active'));
+            tab.classList.add('part-tab--active');
+        });
+    });
+});
+
+// FAQ accordion.
+document.querySelectorAll('[data-faq-toggle]').forEach((toggle) => {
+    const item = toggle.closest('[data-faq-item]');
+    if (!item) return;
+
+    toggle.addEventListener('click', () => {
+        const open = item.classList.toggle('faq__item--open');
+        toggle.setAttribute('aria-expanded', String(open));
+    });
+});
+
 // Burger toggle. Mobile menu open/close will hook onto this state later.
 document.querySelectorAll('[data-burger]').forEach((burger) => {
     burger.addEventListener('click', () => {

@@ -1,0 +1,137 @@
+.faq {
+    margin-block: var(--section-gap);
+}
+
+.faq__title {
+    font-family: var(--font-display);
+    font-weight: var(--fw-bold);
+    font-size: var(--fs-4xl);
+    line-height: var(--lh-tight);
+    text-align: center;
+    text-transform: uppercase;
+    color: var(--color-primary-dark);
+}
+
+.faq__subtitle {
+    max-width: 926px;
+    margin: 20px auto 0;
+    font-size: var(--fs-lg);
+    line-height: var(--lh-snug);
+    text-align: center;
+    color: var(--color-ink);
+}
+
+.faq__link {
+    color: var(--color-primary);
+    text-decoration: underline;
+}
+
+.faq__list {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    margin-top: 40px;
+}
+
+.faq__item {
+    border: 2px solid var(--color-border);
+    border-radius: 22px;
+    background-color: rgba(249, 251, 250, 0.65);
+    overflow: hidden;
+}
+
+.faq__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    width: 100%;
+    min-height: 82px;
+    padding: 16px 16px 16px 24px;
+    text-align: left;
+}
+
+.faq__q {
+    font-family: var(--font-display);
+    font-weight: var(--fw-medium);
+    font-size: 20px;
+    color: var(--color-ink);
+}
+
+.faq__icon {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    color: var(--color-ink);
+    transition: transform 0.25s ease;
+}
+
+.faq__icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.faq__item--open .faq__icon {
+    transform: rotate(180deg);
+}
+
+.faq__body {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.25s ease;
+}
+
+.faq__item--open .faq__body {
+    grid-template-rows: 1fr;
+}
+
+.faq__a {
+    overflow: hidden;
+    padding: 0 24px;
+    font-size: var(--fs-base);
+    line-height: var(--lh-normal);
+    color: var(--color-muted);
+}
+
+.faq__item--open .faq__a {
+    padding-bottom: 24px;
+}
+
+.faq__cta {
+    display: flex;
+    width: 352px;
+    max-width: 100%;
+    height: 68px;
+    margin: 40px auto 0;
+    border-radius: 51px;
+    font-family: var(--font-body);
+    font-size: 20px;
+    color: var(--color-on-dark);
+    background-image: linear-gradient(-83deg, #1750b7 15%, #022253 143%);
+}
+
+.faq__cta:hover {
+    opacity: 0.92;
+}
+
+@media (max-width: 768px) {
+    .faq__title {
+        font-size: 22px;
+    }
+
+    .faq__subtitle {
+        font-size: var(--fs-base);
+    }
+
+    .faq__list {
+        margin-top: 24px;
+    }
+
+    .faq__q {
+        font-size: 16px;
+    }
+
+    .faq__cta {
+        font-size: 16px;
+    }
+}
