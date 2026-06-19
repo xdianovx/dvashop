@@ -4,4 +4,5 @@
 
 @section('content')
     <x-hero-circles />
+    <x-about />
 @endsection
