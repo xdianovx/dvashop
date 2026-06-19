@@ -1,0 +1,129 @@
+// Design tokens — single source of truth, extracted from the Figma "Главная" frame.
+// Authored as SCSS variables (compile-time), then emitted as CSS custom
+// properties on :root (runtime). Use $vars in SCSS math/functions and
+// var(--token) in component styles.
+
+// ── Colors ──────────────────────────────────────────────────
+$color-bg: #ebebeb; // page background
+$color-surface: #ffffff; // cards, search bar
+$color-surface-muted: #f4f4f4; // review cards
+$color-primary: #1750b7; // brand blue (buttons, banners)
+$color-primary-dark: #022253; // navy (banners, headings)
+$color-text: #000000; // default body text
+$color-ink: #1e2738; // dark UI text / footer bg
+$color-border: #dde3ec; // light card borders
+$color-muted: #868686; // muted text (top nav, placeholders)
+$color-muted-2: #9c9c9c; // footer muted text
+$color-on-dark: #ffffff; // text on dark/colored backgrounds
+$color-on-primary: #ebebeb; // text on the blue button
+$color-header-bg: rgba(255, 255, 255, 0.62); // sticky menu backdrop
+
+$gradient-company: linear-gradient(179deg, #1750b7 1.36%, #022253 122.71%);
+
+// ── Typography ──────────────────────────────────────────────
+$font-display: 'Montserrat', system-ui, sans-serif; // headings, banner buttons
+$font-body: 'Gilroy', 'Golos Text', system-ui, sans-serif; // body, links, UI
+$font-form: 'Golos Text', 'Gilroy', system-ui, sans-serif; // search form labels
+
+$fw-regular: 400;
+$fw-medium: 500;
+$fw-semibold: 600;
+$fw-bold: 700;
+
+$fs-micro: 10px; // "Бесплатный звонок"
+$fs-sm: 14px; // copyright
+$fs-base: 16px; // body
+$fs-phone: 18px; // phone number
+$fs-lg: 20px; // nav links, review names
+$fs-xl: 24px; // banner button labels
+$fs-2xl: 26px; // footer column headings
+$fs-3xl: 54px; // search title, stat numbers
+$fs-4xl: 60px; // section headings
+
+$lh-tight: 1;
+$lh-snug: 1.2;
+$lh-normal: 1.5;
+
+// ── Radii ───────────────────────────────────────────────────
+$radius-sm: 8px;
+$radius-md: 12px;
+$radius-lg: 22px;
+$radius-xl: 24px;
+$radius-2xl: 28px;
+$radius-card: 42px; // banner image cards
+$radius-pill: 9999px; // buttons, circular avatars
+
+// ── Spacing ─────────────────────────────────────────────────
+$space-2: 8px;
+$space-3: 12px;
+$space-4: 16px;
+$space-6: 24px;
+$space-8: 32px;
+$space-10: 40px;
+$space-16: 64px;
+
+// ── Layout ──────────────────────────────────────────────────
+$container: 1448px; // main content width
+$gutter: 15px; // min side padding on narrow viewports
+$header-height: 65px;
+
+// Mirror tokens to CSS custom properties for runtime use in component styles.
+:root {
+    --color-bg: #{$color-bg};
+    --color-surface: #{$color-surface};
+    --color-surface-muted: #{$color-surface-muted};
+    --color-primary: #{$color-primary};
+    --color-primary-dark: #{$color-primary-dark};
+    --color-text: #{$color-text};
+    --color-ink: #{$color-ink};
+    --color-border: #{$color-border};
+    --color-muted: #{$color-muted};
+    --color-muted-2: #{$color-muted-2};
+    --color-on-dark: #{$color-on-dark};
+    --color-on-primary: #{$color-on-primary};
+    --color-header-bg: #{$color-header-bg};
+    --gradient-company: #{$gradient-company};
+
+    --font-display: #{$font-display};
+    --font-body: #{$font-body};
+    --font-form: #{$font-form};
+
+    --fw-regular: #{$fw-regular};
+    --fw-medium: #{$fw-medium};
+    --fw-semibold: #{$fw-semibold};
+    --fw-bold: #{$fw-bold};
+
+    --fs-micro: #{$fs-micro};
+    --fs-sm: #{$fs-sm};
+    --fs-base: #{$fs-base};
+    --fs-phone: #{$fs-phone};
+    --fs-lg: #{$fs-lg};
+    --fs-xl: #{$fs-xl};
+    --fs-2xl: #{$fs-2xl};
+    --fs-3xl: #{$fs-3xl};
+    --fs-4xl: #{$fs-4xl};
+
+    --lh-tight: #{$lh-tight};
+    --lh-snug: #{$lh-snug};
+    --lh-normal: #{$lh-normal};
+
+    --radius-sm: #{$radius-sm};
+    --radius-md: #{$radius-md};
+    --radius-lg: #{$radius-lg};
+    --radius-xl: #{$radius-xl};
+    --radius-2xl: #{$radius-2xl};
+    --radius-card: #{$radius-card};
+    --radius-pill: #{$radius-pill};
+
+    --space-2: #{$space-2};
+    --space-3: #{$space-3};
+    --space-4: #{$space-4};
+    --space-6: #{$space-6};
+    --space-8: #{$space-8};
+    --space-10: #{$space-10};
+    --space-16: #{$space-16};
+
+    --container: #{$container};
+    --gutter: #{$gutter};
+    --header-height: #{$header-height};
+}

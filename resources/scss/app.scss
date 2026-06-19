@@ -1,0 +1,11 @@
+// Entry stylesheet. @use (modern Sass) loads partials once, in order.
+// Add component partials below base as the build grows.
+@use 'variables';
+@use 'fonts';
+@use 'base';
+@use 'buttons';
+@use 'logo';
+@use 'header';
+@use 'footer';
+@use 'burger';
+@use 'hero-circles';

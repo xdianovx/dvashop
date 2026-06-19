@@ -1,0 +1,24 @@
+// Reusable button. Used by the header CTA, footer newsletter, hero search, etc.
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: 14px 24px;
+    border-radius: var(--radius-pill);
+    font-family: var(--font-body);
+    font-size: var(--fs-lg);
+    line-height: var(--lh-tight);
+    text-align: center;
+    cursor: pointer;
+    transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.btn--primary {
+    background-color: var(--color-primary);
+    color: var(--color-on-primary);
+}
+
+.btn--primary:hover {
+    background-color: var(--color-primary-dark);
+}

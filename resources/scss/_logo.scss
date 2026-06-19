@@ -1,0 +1,30 @@
+// Text logo placeholder. Replace with the real brand asset when available.
+.logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-display);
+    font-weight: var(--fw-bold);
+    font-size: var(--fs-lg);
+    color: var(--color-ink);
+    white-space: nowrap;
+}
+
+.logo__mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background-color: #e21f26;
+    color: #fff;
+    border-radius: 6px;
+}
+
+.logo__tld {
+    color: #e21f26;
+}
+
+.logo--light {
+    color: var(--color-on-dark);
+}
