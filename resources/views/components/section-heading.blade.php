@@ -1,6 +1,6 @@
 @props(['title'])
 
-<div class="section-heading">
+<div {{ $attributes->merge(['class' => 'section-heading']) }}>
     @isset($icon)
         <span class="section-heading__icon" aria-hidden="true">{{ $icon }}</span>
     @endisset

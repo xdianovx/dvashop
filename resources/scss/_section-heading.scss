@@ -40,3 +40,11 @@
         font-size: 22px;
     }
 }
+
+.section-heading--catalog .section-heading__title {
+    @media (max-width: 768px) {
+        font-size: 14px;
+        font-weight: var(--fw-bold);
+        text-transform: uppercase;
+    }
+}
