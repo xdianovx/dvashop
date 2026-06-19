@@ -13,3 +13,7 @@ Route::get('/catalog', function () {
 Route::get('/car', function () {
     return view('car');
 });
+
+Route::get('/part', function () {
+    return view('part');
+});
