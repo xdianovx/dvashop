@@ -1,0 +1,165 @@
+// Top utility bar (scrolls away)
+.header__top {
+    padding-block: 32px;
+
+    @media (max-width: 900px) {
+        display: none;
+    }
+}
+
+.header__top-inner {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.header__utils {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 76px;
+
+    @media (max-width: 1200px) {
+        justify-content: space-between;
+        width: 100%;
+        gap: 16px;
+    }
+
+}
+
+.header__left {
+    display: flex;
+    align-items: center;
+}
+
+.header__util-link {
+    font-size: var(--fs-base);
+    color: var(--color-muted);
+}
+
+.header__util-link:hover {
+    color: var(--color-ink);
+}
+
+// Sticky main menu
+.header__bar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background-color: var(--color-header-bg);
+    backdrop-filter: blur(8px);
+}
+
+.header__bar-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 40px;
+    min-height: var(--header-height);
+
+    @media (max-width: 768px) {
+        height: 38px;
+        min-height: auto;
+    }
+}
+
+.header__logo {
+    display: inline-flex;
+}
+
+.header__logo img {
+    display: block;
+    height: 33px;
+    width: auto;
+
+    @media (max-width: 768px) {
+        height: 20px;
+    }
+}
+
+.header__nav {
+    display: flex;
+    align-items: center;
+    gap: 34px;
+
+    @media (max-width: 900px) {
+        display: none;
+    }
+}
+
+.header__nav-link {
+    font-weight: var(--fw-bold);
+    font-size: var(--fs-lg);
+    color: var(--color-ink);
+}
+
+.header__nav-link:hover {
+    color: var(--color-primary);
+}
+
+.header__nav-sep {
+    width: 1px;
+    height: 16px;
+    background-color: var(--color-ink);
+}
+
+// Phone
+.header__phone {
+    display: flex;
+    margin-right: 40px;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+    color: var(--color-ink);
+
+    @media (max-width: 1200px) {
+        display: none;
+    }
+
+
+
+
+}
+
+.header__phone-icon {
+    display: block;
+    width: 26px;
+    height: auto;
+}
+
+.header__phone-text {
+    display: flex;
+    flex-direction: column;
+}
+
+.header__phone-number {
+    font-family: var(--font-display);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-phone);
+    line-height: var(--lh-tight);
+}
+
+.header__phone-caption {
+    font-size: var(--fs-micro);
+    color: var(--color-muted);
+}
+
+// Actions (favorites, cart)
+.header__actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.header__action {
+    display: inline-flex;
+    align-items: center;
+}
+
+.header__action img {
+    display: block;
+    height: 26px;
+    width: auto;
+
+    @media (max-width: 768px) {
+        height: 18px;
+    }
+}
