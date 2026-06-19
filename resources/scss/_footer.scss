@@ -210,6 +210,11 @@
     width: 100%;
     margin-top: 12px;
     text-align: left;
+
+    @media (max-width: 350px) {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
 }
 
 .footer__bottom {
