@@ -1,0 +1,121 @@
+.search {
+    margin-top: 56px;
+
+    @media (max-width: 900px) {
+        margin-top: 32px;
+    }
+}
+
+.search__form {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    min-height: 103px;
+    padding: 20px;
+    background-color: var(--color-surface);
+    border-radius: 79px;
+
+    @media screen and (max-width: 1200px) {
+        padding: 8px;
+        min-height: auto;
+    }
+}
+
+.search__field {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    padding-left: 24px;
+    min-width: 0;
+    gap: 2px;
+    text-align: left;
+    color: var(--color-muted);
+    opacity: 0.74;
+}
+
+.search__field-label {
+    font-family: var(--font-body);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    line-height: var(--lh-snug);
+    text-transform: uppercase;
+}
+
+.search__field-value {
+    font-family: var(--font-body);
+    font-weight: var(--fw-regular);
+    font-size: var(--fs-base);
+    line-height: var(--lh-snug);
+}
+
+.search__divider {
+    flex-shrink: 0;
+    width: 1px;
+    height: 57px;
+    background-color: var(--color-border);
+}
+
+.search__submit {
+    flex-shrink: 0;
+    width: 308px;
+    height: 63px;
+}
+
+@media (max-width: 1024px) {
+
+    .search__divider,
+    .search__field--model {
+        display: none;
+    }
+
+    .search__field-label {
+        display: none;
+    }
+
+    .search__field {
+        padding-left: 33px;
+    }
+
+    .search__submit {
+        height: 59px;
+    }
+}
+
+.search__submit-icon {
+    display: none;
+    width: 24px;
+    height: 24px;
+}
+
+.search__submit-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+@media (max-width: 768px) {
+    .search__form {
+        gap: 8px;
+        padding: 6px 6px 6px 20px;
+        min-height: 56px;
+    }
+
+    .search__submit {
+        width: auto;
+        height: auto;
+        padding: 8px;
+        background-color: transparent;
+        color: var(--color-primary-dark);
+    }
+
+    .search__submit:hover {
+        background-color: transparent;
+    }
+
+    .search__submit-text {
+        display: none;
+    }
+
+    .search__submit-icon {
+        display: block;
+    }
+}
