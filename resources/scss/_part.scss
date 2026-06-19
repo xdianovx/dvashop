@@ -345,6 +345,93 @@
     opacity: 0.92;
 }
 
+// ── Description + specs ─────────────────────────────────
+.part-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px 109px;
+    margin-bottom: var(--section-gap);
+    padding: 64px;
+    border: 1px solid var(--color-border);
+    border-radius: 42px;
+    background-color: var(--color-surface);
+}
+
+.part-info__heading {
+    margin-bottom: 24px;
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    font-size: 28px;
+    color: var(--color-ink);
+}
+
+.part-desc {
+    font-family: var(--font-display);
+    font-weight: var(--fw-regular);
+    font-size: 16px;
+    line-height: 1.4;
+    color: var(--color-ink);
+}
+
+.part-desc+.part-desc {
+    margin-top: 20px;
+}
+
+.part-desc strong {
+    font-weight: var(--fw-semibold);
+}
+
+.part-specs {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.part-specs__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 4px;
+    border-bottom: 0.5px solid var(--color-ink);
+}
+
+.part-specs__key {
+    font-family: var(--font-display);
+    font-weight: var(--fw-regular);
+    font-size: 16px;
+    color: var(--color-ink);
+}
+
+.part-specs__val {
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    font-size: 16px;
+    text-align: right;
+    color: var(--color-ink);
+}
+
+@media (max-width: 1200px) {
+    .part-info {
+        gap: 32px 48px;
+        padding: 32px;
+        border-radius: 28px;
+    }
+}
+
+@media (max-width: 768px) {
+    .part-info {
+        grid-template-columns: 1fr;
+        gap: 32px;
+        padding: 24px;
+    }
+
+    .part-info__heading {
+        margin-bottom: 16px;
+        font-size: 20px;
+    }
+}
+
 // ── Related products ────────────────────────────────────
 .part-related {
     margin-bottom: 0;

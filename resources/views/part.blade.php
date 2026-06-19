@@ -138,6 +138,50 @@
             </div>
         </div>
 
+        <section class="part-info">
+            <div class="part-info__col">
+                <h2 class="part-info__heading">Описание</h2>
+                <p class="part-desc">
+                    Ремкомплекты порогов для <strong>Alfa Romeo 33</strong> предназначены для ремонта внешних порогов
+                    при коррозии, а также деформации и незначительном повреждении при мелких ДТП. Имеют
+                    <strong>запас по длине 5 см</strong> для упрощения подгонки при установке. Ремкомплекты порогов
+                    выполнены <strong>из высококачественной стали ГОСТ 19904-90,</strong> что гарантирует срок службы
+                    до 10 лет.
+                </p>
+                <p class="part-desc">
+                    Благодаря использованию современного оборудования и усиленному контролю качества,
+                    <strong>вся продукция полностью соответствует оригинальным деталям,</strong> и единственная на
+                    рынке имеет сертификат РосТест №0304639.
+                </p>
+            </div>
+
+            <div class="part-info__col">
+                <h2 class="part-info__heading">Характеристики</h2>
+                <dl class="part-specs">
+                    <div class="part-specs__row">
+                        <dt class="part-specs__key">Артикул</dt>
+                        <dd class="part-specs__val">01.AR0033XXXX.ALL.0.00</dd>
+                    </div>
+                    <div class="part-specs__row">
+                        <dt class="part-specs__key">Марка</dt>
+                        <dd class="part-specs__val">Автопороги.ру</dd>
+                    </div>
+                    <div class="part-specs__row">
+                        <dt class="part-specs__key">Производство</dt>
+                        <dd class="part-specs__val">Россия</dd>
+                    </div>
+                    <div class="part-specs__row">
+                        <dt class="part-specs__key">Материал</dt>
+                        <dd class="part-specs__val">Сталь ГОСТ 19904-90</dd>
+                    </div>
+                    <div class="part-specs__row">
+                        <dt class="part-specs__key">Сертификат</dt>
+                        <dd class="part-specs__val">№0098556</dd>
+                    </div>
+                </dl>
+            </div>
+        </section>
+
         <section class="part-related">
             <h2 class="part-related__title">С этим товаром покупают</h2>
             <ul class="products">
