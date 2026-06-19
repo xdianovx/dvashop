@@ -1,0 +1,177 @@
+.product-card {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+    height: 100%;
+}
+
+.product-card__image {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    padding: 60px 40px;
+    border-radius: 22px;
+    background-color: var(--color-surface);
+    overflow: hidden;
+}
+
+.product-card__image img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.product-card__fav {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    opacity: 0.5;
+    transition: opacity 0.15s ease;
+}
+
+.product-card__fav:hover {
+    opacity: 1;
+}
+
+.product-card__fav img {
+    width: 32px;
+    height: 32px;
+}
+
+.product-card__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.product-card__name {
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-2xl);
+    color: var(--color-ink);
+}
+
+.product-card__price {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--fs-2xl);
+    color: var(--color-primary);
+    white-space: nowrap;
+    text-align: right;
+}
+
+.product-card__price--sale {
+    color: #f40b0b;
+}
+
+.product-card__old {
+    font-family: var(--font-body);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-2xl);
+    color: #a7a7a7;
+    text-decoration: line-through;
+}
+
+.product-card__more,
+.product-card__buy {
+    width: 100%;
+    height: 68px;
+    font-family: var(--font-form);
+    font-size: var(--fs-lg);
+}
+
+.product-card__more {
+    margin-top: auto;
+}
+
+.product-card__buy {
+    color: var(--color-on-dark);
+    background-image: linear-gradient(-83deg, #1750b7 15%, #022253 143%);
+}
+
+.product-card__buy:hover {
+    opacity: 0.92;
+}
+
+.product-card__buy-short {
+    display: none;
+}
+
+// ── Mobile: single glass card ───────────────────────────
+@media (max-width: 768px) {
+    .product-card {
+        gap: 8px;
+        padding: 0 13px 13px;
+        border: 1px solid rgba(229, 231, 235, 0.9);
+        border-radius: 16px;
+        background-color: rgba(255, 255, 255, 0.65);
+        box-shadow: 0 18px 40px rgba(17, 24, 39, 0.06);
+        overflow: hidden;
+    }
+
+    .product-card__image {
+        aspect-ratio: auto;
+        height: 193px;
+        margin: 0 -13px;
+        padding: 30px 40px;
+        border-radius: 0;
+        background-color: #f6f7f9;
+    }
+
+    .product-card__fav {
+        top: 12px;
+        right: 12px;
+    }
+
+    .product-card__row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        margin-top: 4px;
+    }
+
+    .product-card__name {
+        font-size: 16px;
+        color: var(--color-primary-dark);
+    }
+
+    // Price: current + old inline on one row.
+    .product-card__price {
+        flex-direction: row;
+        align-items: baseline;
+        gap: 8px;
+        font-size: 20px;
+    }
+
+    .product-card__old {
+        font-size: 13px;
+    }
+
+    .product-card__more,
+    .product-card__buy {
+        height: 36px;
+        font-size: 12px;
+        border-radius: 999px;
+    }
+
+    .product-card__buy {
+        box-shadow: 0 14px 13px rgba(31, 79, 191, 0.24);
+    }
+
+    .product-card__buy-full {
+        display: none;
+    }
+
+    .product-card__buy-short {
+        display: inline;
+    }
+}

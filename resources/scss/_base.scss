@@ -27,6 +27,10 @@ body {
     text-rendering: optimizeLegibility;
 }
 
+body.is-scroll-locked {
+    overflow: hidden;
+}
+
 main {
     flex: 1 0 auto;
 }

@@ -37,7 +37,21 @@
         margin-bottom: 16px;
     }
 
+    .breadcrumbs {
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .breadcrumbs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .breadcrumbs__list {
+        flex-wrap: nowrap;
+    }
+
     .breadcrumbs__item {
         font-size: var(--fs-sm);
+        white-space: nowrap;
     }
 }
