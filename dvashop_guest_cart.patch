@@ -1,0 +1,839 @@
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/app/Enums/CartStatus.php b/app/Enums/CartStatus.php
+--- a/app/Enums/CartStatus.php	1970-01-01 00:00:00.000000000 +0000
++++ b/app/Enums/CartStatus.php	2026-06-30 15:47:17.209852452 +0000
+@@ -0,0 +1,10 @@
++<?php
++
++namespace App\Enums;
++
++enum CartStatus: string
++{
++    case Active = 'active';
++    case Ordered = 'ordered';
++    case Abandoned = 'abandoned';
++}
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/app/Http/Controllers/CartController.php b/app/Http/Controllers/CartController.php
+--- a/app/Http/Controllers/CartController.php	1970-01-01 00:00:00.000000000 +0000
++++ b/app/Http/Controllers/CartController.php	2026-06-30 15:48:04.155475207 +0000
+@@ -0,0 +1,68 @@
++<?php
++
++namespace App\Http\Controllers;
++
++use App\Models\CartItem;
++use App\Services\CartManager;
++use Illuminate\Http\RedirectResponse;
++use Illuminate\Http\Request;
++use Illuminate\View\View;
++
++class CartController extends Controller
++{
++    public function show(Request $request, CartManager $cartManager): View
++    {
++        $cart = $cartManager->current($request);
++        $items = $cart->items()
++            ->with(['variant.product'])
++            ->orderBy('id')
++            ->get();
++
++        return view('cart', [
++            'cart' => $cart,
++            'items' => $items,
++            'totals' => $cartManager->totals($cart),
++        ]);
++    }
++
++    public function storeItem(Request $request, CartManager $cartManager): RedirectResponse
++    {
++        $data = $request->validate([
++            'product_variant_id' => ['required', 'integer'],
++            'quantity' => ['nullable', 'integer', 'min:1', 'max:999'],
++        ]);
++
++        $cartManager->addItem(
++            $request,
++            (int) $data['product_variant_id'],
++            (int) ($data['quantity'] ?? 1)
++        );
++
++        return redirect()->route('cart.show');
++    }
++
++    public function updateItem(Request $request, CartItem $item, CartManager $cartManager): RedirectResponse
++    {
++        $data = $request->validate([
++            'quantity' => ['required', 'integer', 'min:1', 'max:999'],
++        ]);
++
++        $cartManager->updateQuantity($request, $item, (int) $data['quantity']);
++
++        return redirect()->route('cart.show');
++    }
++
++    public function destroyItem(Request $request, CartItem $item, CartManager $cartManager): RedirectResponse
++    {
++        $cartManager->removeItem($request, $item);
++
++        return redirect()->route('cart.show');
++    }
++
++    public function clear(Request $request, CartManager $cartManager): RedirectResponse
++    {
++        $cartManager->clear($request);
++
++        return redirect()->route('cart.show');
++    }
++}
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/app/Models/Cart.php b/app/Models/Cart.php
+--- a/app/Models/Cart.php	1970-01-01 00:00:00.000000000 +0000
++++ b/app/Models/Cart.php	2026-06-30 15:47:27.122593680 +0000
+@@ -0,0 +1,62 @@
++<?php
++
++namespace App\Models;
++
++use App\Enums\CartStatus;
++use Database\Factories\CartFactory;
++use Illuminate\Database\Eloquent\Attributes\Fillable;
++use Illuminate\Database\Eloquent\Attributes\Scope;
++use Illuminate\Database\Eloquent\Builder;
++use Illuminate\Database\Eloquent\Factories\HasFactory;
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\BelongsTo;
++use Illuminate\Database\Eloquent\Relations\HasMany;
++use Illuminate\Support\Str;
++
++#[Fillable([
++    'token',
++    'user_id',
++    'status',
++    'expires_at',
++])]
++class Cart extends Model
++{
++    /** @use HasFactory<CartFactory> */
++    use HasFactory;
++
++    public function user(): BelongsTo
++    {
++        return $this->belongsTo(User::class);
++    }
++
++    public function items(): HasMany
++    {
++        return $this->hasMany(CartItem::class);
++    }
++
++    #[Scope]
++    protected function active(Builder $query): void
++    {
++        $query
++            ->where('status', CartStatus::Active->value)
++            ->where(function (Builder $query): void {
++                $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
++            });
++    }
++
++    protected static function booted(): void
++    {
++        static::creating(function (self $cart): void {
++            $cart->token ??= (string) Str::uuid();
++            $cart->status ??= CartStatus::Active;
++        });
++    }
++
++    protected function casts(): array
++    {
++        return [
++            'status' => CartStatus::class,
++            'expires_at' => 'datetime',
++        ];
++    }
++}
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/app/Models/CartItem.php b/app/Models/CartItem.php
+--- a/app/Models/CartItem.php	1970-01-01 00:00:00.000000000 +0000
++++ b/app/Models/CartItem.php	2026-06-30 15:47:27.130586344 +0000
+@@ -0,0 +1,47 @@
++<?php
++
++namespace App\Models;
++
++use Database\Factories\CartItemFactory;
++use Illuminate\Database\Eloquent\Attributes\Fillable;
++use Illuminate\Database\Eloquent\Factories\HasFactory;
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\BelongsTo;
++
++#[Fillable([
++    'cart_id',
++    'product_variant_id',
++    'quantity',
++    'price_snapshot',
++    'title_snapshot',
++])]
++class CartItem extends Model
++{
++    /** @use HasFactory<CartItemFactory> */
++    use HasFactory;
++
++    public function cart(): BelongsTo
++    {
++        return $this->belongsTo(Cart::class);
++    }
++
++    public function variant(): BelongsTo
++    {
++        return $this->belongsTo(ProductVariant::class, 'product_variant_id');
++    }
++
++    protected static function booted(): void
++    {
++        static::saving(function (self $item): void {
++            $item->quantity = max(1, (int) $item->quantity);
++        });
++    }
++
++    protected function casts(): array
++    {
++        return [
++            'quantity' => 'integer',
++            'price_snapshot' => 'decimal:2',
++        ];
++    }
++}
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/app/Models/ProductVariant.php b/app/Models/ProductVariant.php
+--- a/app/Models/ProductVariant.php	2026-06-30 15:45:16.287606758 +0000
++++ b/app/Models/ProductVariant.php	2026-06-30 15:47:34.460766085 +0000
+@@ -37,6 +37,11 @@
+         return $this->hasMany(ProductImage::class);
+     }
+ 
++    public function cartItems(): HasMany
++    {
++        return $this->hasMany(CartItem::class);
++    }
++
+     protected static function booted(): void
+     {
+         static::saving(function (self $variant): void {
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/app/Models/User.php b/app/Models/User.php
+--- a/app/Models/User.php	2026-06-30 11:27:34.000000000 +0000
++++ b/app/Models/User.php	2026-06-30 15:47:44.361965341 +0000
+@@ -10,6 +10,7 @@
+ use Illuminate\Database\Eloquent\Attributes\Fillable;
+ use Illuminate\Database\Eloquent\Attributes\Hidden;
+ use Illuminate\Database\Eloquent\Factories\HasFactory;
++use Illuminate\Database\Eloquent\Relations\HasMany;
+ use Illuminate\Foundation\Auth\User as Authenticatable;
+ use Illuminate\Notifications\Notifiable;
+ 
+@@ -20,6 +21,11 @@
+     /** @use HasFactory<UserFactory> */
+     use HasFactory, Notifiable;
+ 
++    public function carts(): HasMany
++    {
++        return $this->hasMany(Cart::class);
++    }
++
+     public function canAccessPanel(Panel $panel): bool
+     {
+         return $panel->getId() === 'admin'
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/app/Services/CartManager.php b/app/Services/CartManager.php
+--- a/app/Services/CartManager.php	1970-01-01 00:00:00.000000000 +0000
++++ b/app/Services/CartManager.php	2026-06-30 15:48:04.149616337 +0000
+@@ -0,0 +1,169 @@
++<?php
++
++namespace App\Services;
++
++use App\Enums\CartStatus;
++use App\Enums\ProductStatus;
++use App\Models\Cart;
++use App\Models\CartItem;
++use App\Models\ProductVariant;
++use Illuminate\Contracts\Auth\Authenticatable;
++use Illuminate\Http\Request;
++use Illuminate\Support\Facades\Cookie;
++use Illuminate\Validation\ValidationException;
++
++class CartManager
++{
++    public const COOKIE_NAME = 'cart_token';
++
++    private const COOKIE_MINUTES = 60 * 24 * 60;
++
++    private const CART_TTL_DAYS = 60;
++
++    public function current(Request $request): Cart
++    {
++        $cart = $this->findActiveCart((string) $request->cookie(self::COOKIE_NAME));
++
++        if (! $cart) {
++            $cart = $this->createCart($request->user());
++        }
++
++        $this->queueCookie($cart);
++
++        return $cart;
++    }
++
++    public function addItem(Request $request, int $productVariantId, int $quantity = 1): CartItem
++    {
++        $cart = $this->current($request);
++        $variant = $this->findAvailableVariant($productVariantId);
++
++        $item = $cart->items()->firstOrNew([
++            'product_variant_id' => $variant->getKey(),
++        ]);
++
++        if ($item->exists) {
++            $item->quantity += max(1, $quantity);
++            $item->save();
++
++            return $item->refresh();
++        }
++
++        $item->fill([
++            'quantity' => max(1, $quantity),
++            'price_snapshot' => $variant->price,
++            'title_snapshot' => $this->titleSnapshot($variant),
++        ]);
++
++        $item->save();
++
++        return $item->refresh();
++    }
++
++    public function updateQuantity(Request $request, CartItem $item, int $quantity): CartItem
++    {
++        $cart = $this->current($request);
++        $this->ensureItemBelongsToCart($item, $cart);
++
++        $item->update(['quantity' => max(1, $quantity)]);
++
++        return $item->refresh();
++    }
++
++    public function removeItem(Request $request, CartItem $item): void
++    {
++        $cart = $this->current($request);
++        $this->ensureItemBelongsToCart($item, $cart);
++
++        $item->delete();
++    }
++
++    public function clear(Request $request): void
++    {
++        $this->current($request)->items()->delete();
++    }
++
++    /**
++     * @return array{items_count: int, subtotal: float}
++     */
++    public function totals(Cart $cart): array
++    {
++        $items = $cart->items()->get(['quantity', 'price_snapshot']);
++
++        return [
++            'items_count' => (int) $items->sum('quantity'),
++            'subtotal' => round((float) $items->sum(
++                fn (CartItem $item): float => (float) $item->price_snapshot * $item->quantity
++            ), 2),
++        ];
++    }
++
++    private function findActiveCart(string $token): ?Cart
++    {
++        if ($token === '') {
++            return null;
++        }
++
++        return Cart::query()
++            ->active()
++            ->where('token', $token)
++            ->first();
++    }
++
++    private function createCart(?Authenticatable $user): Cart
++    {
++        return Cart::query()->create([
++            'user_id' => $user?->getAuthIdentifier(),
++            'status' => CartStatus::Active,
++            'expires_at' => now()->addDays(self::CART_TTL_DAYS),
++        ]);
++    }
++
++    private function findAvailableVariant(int $productVariantId): ProductVariant
++    {
++        $variant = ProductVariant::query()
++            ->with('product')
++            ->whereKey($productVariantId)
++            ->where('is_active', true)
++            ->whereHas('product', fn ($query) => $query->where('status', ProductStatus::Active->value))
++            ->first();
++
++        if (! $variant) {
++            throw ValidationException::withMessages([
++                'product_variant_id' => 'Товар недоступен для добавления в корзину.',
++            ]);
++        }
++
++        return $variant;
++    }
++
++    private function titleSnapshot(ProductVariant $variant): string
++    {
++        $parts = array_filter([
++            $variant->product?->title,
++            $variant->title,
++        ]);
++
++        return implode(' — ', $parts) ?: 'Товар';
++    }
++
++    private function ensureItemBelongsToCart(CartItem $item, Cart $cart): void
++    {
++        abort_unless((int) $item->cart_id === (int) $cart->getKey(), 404);
++    }
++
++    private function queueCookie(Cart $cart): void
++    {
++        Cookie::queue(cookie(
++            self::COOKIE_NAME,
++            $cart->token,
++            self::COOKIE_MINUTES,
++            null,
++            null,
++            null,
++            true,
++            false,
++            'lax'
++        ));
++    }
++}
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/database/factories/CartFactory.php b/database/factories/CartFactory.php
+--- a/database/factories/CartFactory.php	1970-01-01 00:00:00.000000000 +0000
++++ b/database/factories/CartFactory.php	2026-06-30 15:48:36.033756254 +0000
+@@ -0,0 +1,42 @@
++<?php
++
++namespace Database\Factories;
++
++use App\Enums\CartStatus;
++use App\Models\Cart;
++use App\Models\User;
++use Illuminate\Database\Eloquent\Factories\Factory;
++use Illuminate\Support\Str;
++
++/**
++ * @extends Factory<Cart>
++ */
++class CartFactory extends Factory
++{
++    protected $model = Cart::class;
++
++    public function definition(): array
++    {
++        return [
++            'token' => (string) Str::uuid(),
++            'user_id' => null,
++            'status' => CartStatus::Active,
++            'expires_at' => now()->addDays(60),
++        ];
++    }
++
++    public function forUser(User $user): static
++    {
++        return $this->state(fn (): array => ['user_id' => $user->getKey()]);
++    }
++
++    public function ordered(): static
++    {
++        return $this->state(fn (): array => ['status' => CartStatus::Ordered]);
++    }
++
++    public function abandoned(): static
++    {
++        return $this->state(fn (): array => ['status' => CartStatus::Abandoned]);
++    }
++}
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/database/factories/CartItemFactory.php b/database/factories/CartItemFactory.php
+--- a/database/factories/CartItemFactory.php	1970-01-01 00:00:00.000000000 +0000
++++ b/database/factories/CartItemFactory.php	2026-06-30 15:49:46.752067835 +0000
+@@ -0,0 +1,41 @@
++<?php
++
++namespace Database\Factories;
++
++use App\Models\Cart;
++use App\Models\CartItem;
++use App\Models\ProductVariant;
++use Illuminate\Database\Eloquent\Factories\Factory;
++
++/**
++ * @extends Factory<CartItem>
++ */
++class CartItemFactory extends Factory
++{
++    protected $model = CartItem::class;
++
++    public function definition(): array
++    {
++        return [
++            'cart_id' => Cart::factory(),
++            'product_variant_id' => ProductVariant::factory(),
++            'quantity' => fake()->numberBetween(1, 5),
++            'price_snapshot' => fake()->randomFloat(2, 1000, 50000),
++            'title_snapshot' => fake()->words(4, true),
++        ];
++    }
++
++    public function forCart(Cart $cart): static
++    {
++        return $this->state(fn (): array => ['cart_id' => $cart->getKey()]);
++    }
++
++    public function forVariant(ProductVariant $variant): static
++    {
++        return $this->state(fn (): array => [
++            'product_variant_id' => $variant->getKey(),
++            'price_snapshot' => $variant->price,
++            'title_snapshot' => $variant->product->title,
++        ]);
++    }
++}
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/database/migrations/2026_06_30_000900_create_carts_table.php b/database/migrations/2026_06_30_000900_create_carts_table.php
+--- a/database/migrations/2026_06_30_000900_create_carts_table.php	1970-01-01 00:00:00.000000000 +0000
++++ b/database/migrations/2026_06_30_000900_create_carts_table.php	2026-06-30 15:47:17.215461316 +0000
+@@ -0,0 +1,27 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('carts', function (Blueprint $table): void {
++            $table->id();
++            $table->uuid('token')->unique();
++            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
++            $table->string('status')->default('active')->index();
++            $table->timestamp('expires_at')->nullable()->index();
++            $table->timestamps();
++
++            $table->index(['user_id', 'status']);
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('carts');
++    }
++};
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/database/migrations/2026_06_30_001000_create_cart_items_table.php b/database/migrations/2026_06_30_001000_create_cart_items_table.php
+--- a/database/migrations/2026_06_30_001000_create_cart_items_table.php	1970-01-01 00:00:00.000000000 +0000
++++ b/database/migrations/2026_06_30_001000_create_cart_items_table.php	2026-06-30 15:47:17.220989582 +0000
+@@ -0,0 +1,28 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('cart_items', function (Blueprint $table): void {
++            $table->id();
++            $table->foreignId('cart_id')->constrained('carts')->cascadeOnDelete();
++            $table->foreignId('product_variant_id')->constrained('product_variants')->cascadeOnDelete();
++            $table->unsignedInteger('quantity')->default(1);
++            $table->decimal('price_snapshot', 12, 2);
++            $table->string('title_snapshot');
++            $table->timestamps();
++
++            $table->unique(['cart_id', 'product_variant_id']);
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('cart_items');
++    }
++};
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/resources/views/cart.blade.php b/resources/views/cart.blade.php
+--- a/resources/views/cart.blade.php	2026-06-26 13:31:36.000000000 +0000
++++ b/resources/views/cart.blade.php	2026-06-30 15:48:26.539738682 +0000
+@@ -3,10 +3,21 @@
+ @section('title', 'Моя корзина — 2POROGA')
+ 
+ @php
+-    $items = [
+-        ['name' => 'Кузовной порог для Alfa Romeo 33 (1990–1994)', 'options' => 'Оцинкованная • 1 мм • левый', 'qty' => 2, 'price' => '3 500 руб.', 'unit' => '1 750 руб. за шт.'],
+-        ['name' => 'Арка для Alfa Romeo 33 (1990–1994)', 'options' => 'Оцинкованная • 1 мм • левый', 'qty' => 1, 'price' => '1 750 руб.', 'unit' => '1 750 руб. за шт.'],
+-    ];
++    $money = static fn ($value) => number_format((float) $value, 0, ',', ' ') . ' руб.';
++    $plural = static function (int $count): string {
++        $mod10 = $count % 10;
++        $mod100 = $count % 100;
++
++        if ($mod10 === 1 && $mod100 !== 11) {
++            return $count . ' товар';
++        }
++
++        if ($mod10 >= 2 && $mod10 <= 4 && ($mod100 < 12 || $mod100 > 14)) {
++            return $count . ' товара';
++        }
++
++        return $count . ' товаров';
++    };
+ @endphp
+ 
+ @section('content')
+@@ -17,13 +28,33 @@
+ 
+         <div class="cart-layout">
+             <div class="cart-list">
+-                @foreach ($items as $item)
+-                    <x-cart-item :name="$item['name']" :options="$item['options']" :qty="$item['qty']"
+-                        :price="$item['price']" :unit="$item['unit']" />
+-                @endforeach
++                @forelse ($items as $item)
++                    @php
++                        $lineTotal = (float) $item->price_snapshot * $item->quantity;
++                        $options = collect($item->variant?->options ?? [])
++                            ->map(fn ($value, $key) => is_string($key) ? $key . ': ' . $value : $value)
++                            ->filter()
++                            ->implode(' • ');
++                    @endphp
++
++                    <x-cart-item
++                        :item="$item"
++                        :name="$item->title_snapshot"
++                        :options="$options ?: ($item->variant?->title ?? '')"
++                        :qty="$item->quantity"
++                        :price="$money($lineTotal)"
++                        :unit="$money($item->price_snapshot) . ' за шт.'"
++                    />
++                @empty
++                    <p>Корзина пока пуста.</p>
++                @endforelse
+             </div>
+ 
+-            <x-cart-summary count="3 товара" subtotal="5 250 руб." total="5 250 руб." />
++            <x-cart-summary
++                :count="$plural($totals['items_count'])"
++                :subtotal="$money($totals['subtotal'])"
++                :total="$money($totals['subtotal'])"
++            />
+         </div>
+     </div>
+ @endsection
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/resources/views/components/cart-item.blade.php b/resources/views/components/cart-item.blade.php
+--- a/resources/views/components/cart-item.blade.php	2026-06-26 13:31:36.000000000 +0000
++++ b/resources/views/components/cart-item.blade.php	2026-06-30 15:48:26.533994032 +0000
+@@ -1,4 +1,5 @@
+ @props([
++    'item' => null,
+     'name' => '',
+     'options' => '',
+     'qty' => 1,
+@@ -15,7 +16,16 @@
+     <div class="cart-item__info">
+         <a href="#" class="cart-item__name">{{ $name }}</a>
+         <p class="cart-item__opts">{{ $options }}</p>
+-        <button type="button" class="cart-item__remove">Удалить</button>
++
++        @if ($item)
++            <form method="POST" action="{{ route('cart.items.destroy', $item) }}">
++                @csrf
++                @method('DELETE')
++                <button type="submit" class="cart-item__remove">Удалить</button>
++            </form>
++        @else
++            <button type="button" class="cart-item__remove">Удалить</button>
++        @endif
+     </div>
+ 
+     <div class="cart-item__qty" data-qty>
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/routes/web.php b/routes/web.php
+--- a/routes/web.php	2026-06-26 13:31:36.000000000 +0000
++++ b/routes/web.php	2026-06-30 15:48:14.442116891 +0000
+@@ -1,5 +1,6 @@
+ <?php
+ 
++use App\Http\Controllers\CartController;
+ use Illuminate\Support\Facades\Route;
+ 
+ Route::get('/', function () {
+@@ -18,9 +19,11 @@
+     return view('part');
+ });
+ 
+-Route::get('/cart', function () {
+-    return view('cart');
+-});
++Route::get('/cart', [CartController::class, 'show'])->name('cart.show');
++Route::post('/cart/items', [CartController::class, 'storeItem'])->name('cart.items.store');
++Route::patch('/cart/items/{item}', [CartController::class, 'updateItem'])->name('cart.items.update');
++Route::delete('/cart/items/{item}', [CartController::class, 'destroyItem'])->name('cart.items.destroy');
++Route::delete('/cart', [CartController::class, 'clear'])->name('cart.clear');
+ 
+ Route::get('/checkout', function () {
+     return view('checkout');
+diff -ruN '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=storage/framework/views/*' '--exclude=storage/logs/*' a/tests/Feature/Cart/GuestCartTest.php b/tests/Feature/Cart/GuestCartTest.php
+--- a/tests/Feature/Cart/GuestCartTest.php	1970-01-01 00:00:00.000000000 +0000
++++ b/tests/Feature/Cart/GuestCartTest.php	2026-06-30 15:49:01.539879692 +0000
+@@ -0,0 +1,147 @@
++<?php
++
++use App\Models\Cart;
++use App\Models\CartItem;
++use App\Models\Product;
++use App\Models\ProductVariant;
++use App\Services\CartManager;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Illuminate\Testing\TestResponse;
++use Symfony\Component\HttpFoundation\Cookie as SymfonyCookie;
++
++uses(RefreshDatabase::class);
++
++function cartTestVariant(array $productState = [], array $variantState = []): ProductVariant
++{
++    $product = Product::factory()->create(array_merge([
++        'title' => 'Порог левый Toyota Camry',
++        'slug' => fake()->unique()->slug(),
++    ], $productState));
++
++    return ProductVariant::factory()
++        ->forProduct($product)
++        ->create(array_merge([
++            'title' => 'Стандарт',
++            'price' => 2500,
++            'is_active' => true,
++        ], $variantState));
++}
++
++function rawCartCookie(TestResponse $response): string
++{
++    $cookie = collect($response->headers->getCookies())->first(
++        fn (SymfonyCookie $cookie): bool => $cookie->getName() === CartManager::COOKIE_NAME
++    );
++
++    expect($cookie)->not->toBeNull();
++
++    return $cookie->getValue();
++}
++
++test('guest receives cart cookie', function () {
++    $response = $this->get('/cart');
++
++    $response->assertOk();
++    $response->assertCookie(CartManager::COOKIE_NAME);
++
++    expect(Cart::query()->count())->toBe(1)
++        ->and(Cart::query()->first()->user_id)->toBeNull();
++});
++
++test('product variant is added to cart', function () {
++    $variant = cartTestVariant();
++
++    $response = $this->post('/cart/items', [
++        'product_variant_id' => $variant->getKey(),
++        'quantity' => 2,
++    ]);
++
++    $response->assertRedirect(route('cart.show'));
++    $response->assertCookie(CartManager::COOKIE_NAME);
++
++    $item = CartItem::query()->firstOrFail();
++
++    expect(Cart::query()->count())->toBe(1)
++        ->and($item->product_variant_id)->toBe($variant->getKey())
++        ->and($item->quantity)->toBe(2)
++        ->and($item->price_snapshot)->toBe('2500.00')
++        ->and($item->title_snapshot)->toBe('Порог левый Toyota Camry — Стандарт');
++});
++
++test('adding same variant again increments quantity', function () {
++    $variant = cartTestVariant();
++
++    $firstResponse = $this->post('/cart/items', [
++        'product_variant_id' => $variant->getKey(),
++        'quantity' => 1,
++    ]);
++
++    $cookie = rawCartCookie($firstResponse);
++
++    $this
++        ->withCookie(CartManager::COOKIE_NAME, $cookie)
++        ->post('/cart/items', [
++            'product_variant_id' => $variant->getKey(),
++            'quantity' => 3,
++        ])
++        ->assertRedirect(route('cart.show'));
++
++    $item = CartItem::query()->firstOrFail();
++
++    expect(Cart::query()->count())->toBe(1)
++        ->and(CartItem::query()->count())->toBe(1)
++        ->and($item->quantity)->toBe(4);
++});
++
++test('cart item quantity is updated', function () {
++    $variant = cartTestVariant();
++
++    $response = $this->post('/cart/items', [
++        'product_variant_id' => $variant->getKey(),
++        'quantity' => 1,
++    ]);
++
++    $cookie = rawCartCookie($response);
++    $item = CartItem::query()->firstOrFail();
++
++    $this
++        ->withCookie(CartManager::COOKIE_NAME, $cookie)
++        ->patch('/cart/items/' . $item->getKey(), ['quantity' => 5])
++        ->assertRedirect(route('cart.show'));
++
++    expect($item->fresh()->quantity)->toBe(5);
++});
++
++test('cart item is removed', function () {
++    $variant = cartTestVariant();
++
++    $response = $this->post('/cart/items', [
++        'product_variant_id' => $variant->getKey(),
++        'quantity' => 1,
++    ]);
++
++    $cookie = rawCartCookie($response);
++    $item = CartItem::query()->firstOrFail();
++
++    $this
++        ->withCookie(CartManager::COOKIE_NAME, $cookie)
++        ->delete('/cart/items/' . $item->getKey())
++        ->assertRedirect(route('cart.show'));
++
++    expect(CartItem::query()->count())->toBe(0);
++});
++
++test('inactive variant cannot be added', function () {
++    $variant = cartTestVariant([], ['is_active' => false]);
++
++    $this
++        ->from('/catalog')
++        ->post('/cart/items', [
++            'product_variant_id' => $variant->getKey(),
++            'quantity' => 1,
++        ])
++        ->assertRedirect('/catalog')
++        ->assertSessionHasErrors('product_variant_id');
++
++    expect(CartItem::query()->count())->toBe(0);
++});

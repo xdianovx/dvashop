@@ -1,60 +1,161 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# DvaShop
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Laravel 13 Blade-монолит для будущего интернет-магазина автотоваров.
 
-## About Laravel
+На этом этапе в проекте подготовлена только базовая инфраструктура: Docker-окружение, web/session-авторизация, Filament-админка `/admin`, простые роли пользователей и smoke-тесты. Бизнес-логика магазина и текущая Blade-верстка не менялись.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Сервисы Docker
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+`docker-compose.yml` поднимает:
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- `app` — PHP-FPM 8.4, Laravel-приложение;
+- `nginx` — web-сервер, порт по умолчанию `8080`;
+- `mysql` — MySQL 8.4, порт хоста по умолчанию `33066`;
+- `redis` — Redis 7, порт хоста по умолчанию `63790`;
+- `queue` — `php artisan queue:work`;
+- `scheduler` — `php artisan schedule:run` каждую минуту;
+- `node` — Vite dev-server, порт по умолчанию `5173`;
+- `mailpit` — локальная почта, web-интерфейс `8025`;
+- `adminer` — web-интерфейс к БД, порт `8081`.
 
-## Learning Laravel
+`queue` и `scheduler` ждут появления `vendor/autoload.php`, поэтому первый запуск до `composer install` не валит окружение постоянными PHP-ошибками.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Первый запуск в Docker
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+cp .env.docker.example .env
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Перед миграциями поменяй в `.env` данные первого администратора:
 
-## Contributing
+```dotenv
+ADMIN_NAME="DvaShop Super Admin"
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=change-me
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+Запуск контейнеров:
 
-## Code of Conduct
+```bash
+docker compose up -d --build
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Установка PHP-зависимостей:
 
-## Security Vulnerabilities
+```bash
+docker compose exec app composer install
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Если `composer.lock` еще не обновлен после добавления Filament, один раз выполни:
 
-## License
+```bash
+docker compose exec app composer update filament/filament --with-dependencies
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Ключ приложения:
 
-# dvashop
+```bash
+docker compose exec app php artisan key:generate
+```
+
+Миграции и сидер первого `super_admin`:
+
+```bash
+docker compose exec app php artisan migrate --seed
+```
+
+Сборка фронтенда:
+
+```bash
+docker compose run --rm node npm run build
+```
+
+Dev-режим Vite уже запускается сервисом `node`. Если нужно запустить вручную:
+
+```bash
+docker compose run --rm --service-ports node npm run dev -- --host 0.0.0.0
+```
+
+Тесты:
+
+```bash
+docker compose exec app php artisan test
+```
+
+## Локальные команды без Docker
+
+```bash
+composer install
+php artisan key:generate
+php artisan migrate --seed
+npm install
+npm run build
+npm run dev
+php artisan test
+```
+
+## Админка
+
+Админ-панель доступна по адресу:
+
+```text
+/admin
+```
+
+Используется стандартный Laravel `web` guard на сессиях. Passport и API-авторизация не подключались.
+
+Роли пользователей хранятся простым полем `users.role`:
+
+- `super_admin`;
+- `admin`;
+- `manager`;
+- `customer`.
+
+В админку допускаются `super_admin`, `admin`, `manager`. `customer` остается обычным клиентским пользователем без доступа к `/admin`.
+
+Первый `super_admin` создается сидером `Database\Seeders\AdminUserSeeder` из переменных окружения `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`.
+
+## Проверка после запуска
+
+```bash
+curl -I http://localhost:8080/
+curl -I http://localhost:8080/catalog
+curl -I http://localhost:8080/admin
+```
+
+Ожидаемо:
+
+- `/` отвечает `200`;
+- `/catalog` отвечает `200`;
+- `/admin` для гостя редиректит на страницу входа Filament;
+- пользователь с ролью `super_admin` входит в админку.
+
+## Импорт каталога
+
+Инфраструктура импорта доступна в Filament-админке:
+
+```text
+/admin/imports/catalog
+```
+
+Импорт на этом этапе только загружает файл, читает заголовки и строки чанками, пишет прогресс и логи. Создание товаров из строк и загрузка изображений в этом этапе не выполняются.
+
+Очереди для импорта:
+
+```text
+imports
+imports-images
+```
+
+Локальный queue worker в Docker слушает `default,imports,imports-images`. Для ручного запуска можно использовать:
+
+```bash
+docker compose exec app php artisan queue:work --queue=default,imports,imports-images --sleep=3 --tries=3 --timeout=90
+```
+
+Проверка инфраструктуры импорта:
+
+```bash
+docker compose exec app php artisan migrate
+docker compose exec app php artisan test tests/Feature/Import/CatalogImportInfrastructureTest.php
+```

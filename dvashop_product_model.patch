@@ -1,0 +1,1395 @@
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/app/Enums/ProductStatus.php dvashop_products_work/app/Enums/ProductStatus.php
+--- dvashop_products_orig/app/Enums/ProductStatus.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/app/Enums/ProductStatus.php	2026-06-30 15:07:37.011749792 +0000
+@@ -0,0 +1,29 @@
++<?php
++
++namespace App\Enums;
++
++enum ProductStatus: string
++{
++    case Draft = 'draft';
++    case Active = 'active';
++    case Archived = 'archived';
++
++    public function label(): string
++    {
++        return match ($this) {
++            self::Draft => 'Черновик',
++            self::Active => 'Активен',
++            self::Archived => 'Архив',
++        };
++    }
++
++    /**
++     * @return array<string, string>
++     */
++    public static function options(): array
++    {
++        return collect(self::cases())
++            ->mapWithKeys(fn (self $status): array => [$status->value => $status->label()])
++            ->all();
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/app/Enums/StockStatus.php dvashop_products_work/app/Enums/StockStatus.php
+--- dvashop_products_orig/app/Enums/StockStatus.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/app/Enums/StockStatus.php	2026-06-30 15:07:37.017024465 +0000
+@@ -0,0 +1,29 @@
++<?php
++
++namespace App\Enums;
++
++enum StockStatus: string
++{
++    case InStock = 'in_stock';
++    case OutOfStock = 'out_of_stock';
++    case PreOrder = 'pre_order';
++
++    public function label(): string
++    {
++        return match ($this) {
++            self::InStock => 'В наличии',
++            self::OutOfStock => 'Нет в наличии',
++            self::PreOrder => 'Предзаказ',
++        };
++    }
++
++    /**
++     * @return array<string, string>
++     */
++    public static function options(): array
++    {
++        return collect(self::cases())
++            ->mapWithKeys(fn (self $status): array => [$status->value => $status->label()])
++            ->all();
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/app/Filament/Resources/Products/Pages/CreateProduct.php dvashop_products_work/app/Filament/Resources/Products/Pages/CreateProduct.php
+--- dvashop_products_orig/app/Filament/Resources/Products/Pages/CreateProduct.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/app/Filament/Resources/Products/Pages/CreateProduct.php	2026-06-30 15:09:47.905419226 +0000
+@@ -0,0 +1,11 @@
++<?php
++
++namespace App\Filament\Resources\Products\Pages;
++
++use App\Filament\Resources\Products\ProductResource;
++use Filament\Resources\Pages\CreateRecord;
++
++class CreateProduct extends CreateRecord
++{
++    protected static string $resource = ProductResource::class;
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/app/Filament/Resources/Products/Pages/EditProduct.php dvashop_products_work/app/Filament/Resources/Products/Pages/EditProduct.php
+--- dvashop_products_orig/app/Filament/Resources/Products/Pages/EditProduct.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/app/Filament/Resources/Products/Pages/EditProduct.php	2026-06-30 15:09:47.911622643 +0000
+@@ -0,0 +1,23 @@
++<?php
++
++namespace App\Filament\Resources\Products\Pages;
++
++use App\Filament\Resources\Products\ProductResource;
++use Filament\Actions\DeleteAction;
++use Filament\Actions\ForceDeleteAction;
++use Filament\Actions\RestoreAction;
++use Filament\Resources\Pages\EditRecord;
++
++class EditProduct extends EditRecord
++{
++    protected static string $resource = ProductResource::class;
++
++    protected function getHeaderActions(): array
++    {
++        return [
++            DeleteAction::make(),
++            RestoreAction::make(),
++            ForceDeleteAction::make(),
++        ];
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/app/Filament/Resources/Products/Pages/ListProducts.php dvashop_products_work/app/Filament/Resources/Products/Pages/ListProducts.php
+--- dvashop_products_orig/app/Filament/Resources/Products/Pages/ListProducts.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/app/Filament/Resources/Products/Pages/ListProducts.php	2026-06-30 15:09:47.899552154 +0000
+@@ -0,0 +1,19 @@
++<?php
++
++namespace App\Filament\Resources\Products\Pages;
++
++use App\Filament\Resources\Products\ProductResource;
++use Filament\Actions\CreateAction;
++use Filament\Resources\Pages\ListRecords;
++
++class ListProducts extends ListRecords
++{
++    protected static string $resource = ProductResource::class;
++
++    protected function getHeaderActions(): array
++    {
++        return [
++            CreateAction::make(),
++        ];
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/app/Filament/Resources/Products/ProductResource.php dvashop_products_work/app/Filament/Resources/Products/ProductResource.php
+--- dvashop_products_orig/app/Filament/Resources/Products/ProductResource.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/app/Filament/Resources/Products/ProductResource.php	2026-06-30 15:09:47.893203570 +0000
+@@ -0,0 +1,343 @@
++<?php
++
++namespace App\Filament\Resources\Products;
++
++use App\Enums\ProductStatus;
++use App\Enums\StockStatus;
++use App\Filament\Resources\Products\Pages\CreateProduct;
++use App\Filament\Resources\Products\Pages\EditProduct;
++use App\Filament\Resources\Products\Pages\ListProducts;
++use App\Models\Product;
++use App\Models\ProductCategory;
++use App\Models\VehicleGeneration;
++use BackedEnum;
++use Filament\Actions\BulkActionGroup;
++use Filament\Actions\DeleteAction;
++use Filament\Actions\DeleteBulkAction;
++use Filament\Actions\EditAction;
++use Filament\Actions\ForceDeleteAction;
++use Filament\Actions\ForceDeleteBulkAction;
++use Filament\Actions\RestoreAction;
++use Filament\Actions\RestoreBulkAction;
++use Filament\Forms\Components\KeyValue;
++use Filament\Forms\Components\Repeater;
++use Filament\Forms\Components\Select;
++use Filament\Forms\Components\Textarea;
++use Filament\Forms\Components\TextInput;
++use Filament\Forms\Components\Toggle;
++use Filament\Resources\Resource;
++use Filament\Schemas\Components\Tabs;
++use Filament\Schemas\Components\Tabs\Tab;
++use Filament\Schemas\Schema;
++use Filament\Tables\Columns\IconColumn;
++use Filament\Tables\Columns\TextColumn;
++use Filament\Tables\Filters\SelectFilter;
++use Filament\Tables\Filters\TernaryFilter;
++use Filament\Tables\Filters\TrashedFilter;
++use Filament\Tables\Table;
++use Illuminate\Database\Eloquent\Builder;
++use Illuminate\Database\Eloquent\SoftDeletingScope;
++
++class ProductResource extends Resource
++{
++    protected static ?string $model = Product::class;
++
++    protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-shopping-bag';
++
++    protected static ?string $recordTitleAttribute = 'title';
++
++    protected static ?int $navigationSort = 20;
++
++    public static function getNavigationGroup(): ?string
++    {
++        return 'Каталог';
++    }
++
++    public static function getModelLabel(): string
++    {
++        return 'товар';
++    }
++
++    public static function getPluralModelLabel(): string
++    {
++        return 'Товары';
++    }
++
++    public static function form(Schema $schema): Schema
++    {
++        return $schema->components([
++            Tabs::make('Product tabs')
++                ->tabs([
++                    Tab::make('Основное')
++                        ->schema([
++                            TextInput::make('title')
++                                ->label('Название')
++                                ->required()
++                                ->maxLength(255),
++                            TextInput::make('slug')
++                                ->label('Slug')
++                                ->maxLength(255)
++                                ->unique(ignoreRecord: true)
++                                ->helperText('Можно оставить пустым — будет создан из названия.'),
++                            TextInput::make('sku')
++                                ->label('SKU товара')
++                                ->maxLength(255)
++                                ->unique(ignoreRecord: true),
++                            Select::make('product_category_id')
++                                ->label('Основная категория')
++                                ->searchable()
++                                ->preload()
++                                ->options(fn (): array => ProductCategory::query()
++                                    ->orderBy('full_slug')
++                                    ->get()
++                                    ->mapWithKeys(fn (ProductCategory $category): array => [
++                                        $category->getKey() => $category->display_title.' · '.$category->full_slug,
++                                    ])
++                                    ->all())
++                                ->nullable(),
++                            Select::make('status')
++                                ->label('Статус')
++                                ->options(ProductStatus::options())
++                                ->default(ProductStatus::Draft->value)
++                                ->required(),
++                            TextInput::make('position')
++                                ->label('Позиция')
++                                ->numeric()
++                                ->default(0)
++                                ->required(),
++                            Toggle::make('is_featured')
++                                ->label('Рекомендуемый')
++                                ->default(false),
++                            Textarea::make('short_description')
++                                ->label('Краткое описание')
++                                ->rows(3)
++                                ->columnSpanFull(),
++                            Textarea::make('description')
++                                ->label('Описание')
++                                ->rows(6)
++                                ->columnSpanFull(),
++                            TextInput::make('import_key')
++                                ->label('Import key')
++                                ->maxLength(255)
++                                ->unique(ignoreRecord: true),
++                            TextInput::make('last_import_run_id')
++                                ->label('Last import run ID')
++                                ->maxLength(255),
++                        ])
++                        ->columns(2),
++                    Tab::make('Цена/наличие')
++                        ->schema([
++                            TextInput::make('price')
++                                ->label('Цена')
++                                ->numeric()
++                                ->prefix('₽'),
++                            TextInput::make('old_price')
++                                ->label('Старая цена')
++                                ->numeric()
++                                ->prefix('₽'),
++                            Select::make('stock_status')
++                                ->label('Наличие')
++                                ->options(StockStatus::options())
++                                ->default(StockStatus::InStock->value)
++                                ->required(),
++                            Repeater::make('variants')
++                                ->label('Варианты товара')
++                                ->relationship()
++                                ->schema([
++                                    TextInput::make('sku')
++                                        ->label('SKU варианта')
++                                        ->maxLength(255)
++                                        ->unique(ignoreRecord: true),
++                                    TextInput::make('title')
++                                        ->label('Название варианта')
++                                        ->maxLength(255),
++                                    KeyValue::make('options')
++                                        ->label('Опции')
++                                        ->keyLabel('Опция')
++                                        ->valueLabel('Значение'),
++                                    TextInput::make('price')
++                                        ->label('Цена')
++                                        ->numeric()
++                                        ->prefix('₽')
++                                        ->required(),
++                                    TextInput::make('old_price')
++                                        ->label('Старая цена')
++                                        ->numeric()
++                                        ->prefix('₽'),
++                                    TextInput::make('stock_quantity')
++                                        ->label('Остаток')
++                                        ->numeric(),
++                                    Select::make('stock_status')
++                                        ->label('Наличие')
++                                        ->options(StockStatus::options())
++                                        ->default(StockStatus::InStock->value)
++                                        ->required(),
++                                    Toggle::make('is_default')
++                                        ->label('Default')
++                                        ->default(false),
++                                    Toggle::make('is_active')
++                                        ->label('Активен')
++                                        ->default(true),
++                                ])
++                                ->defaultItems(1)
++                                ->columns(3)
++                                ->addActionLabel('Добавить вариант')
++                                ->columnSpanFull(),
++                        ])
++                        ->columns(2),
++                    Tab::make('Изображения')
++                        ->schema([
++                            Repeater::make('images')
++                                ->label('Изображения')
++                                ->relationship()
++                                ->orderColumn('position')
++                                ->schema([
++                                    TextInput::make('path')
++                                        ->label('Путь')
++                                        ->required()
++                                        ->maxLength(255)
++                                        ->columnSpanFull(),
++                                    TextInput::make('alt')
++                                        ->label('Alt')
++                                        ->maxLength(255),
++                                    TextInput::make('position')
++                                        ->label('Позиция')
++                                        ->numeric()
++                                        ->default(0)
++                                        ->required(),
++                                    Toggle::make('is_main')
++                                        ->label('Главное')
++                                        ->default(false),
++                                ])
++                                ->columns(3)
++                                ->addActionLabel('Добавить изображение')
++                                ->columnSpanFull(),
++                        ]),
++                    Tab::make('Применимость')
++                        ->schema([
++                            Repeater::make('fitments')
++                                ->label('Поколения авто')
++                                ->relationship()
++                                ->schema([
++                                    Select::make('vehicle_generation_id')
++                                        ->label('Поколение')
++                                        ->searchable()
++                                        ->preload()
++                                        ->options(fn (): array => VehicleGeneration::query()
++                                            ->with('model.make')
++                                            ->get()
++                                            ->sortBy('display_title')
++                                            ->mapWithKeys(fn (VehicleGeneration $generation): array => [
++                                                $generation->getKey() => $generation->display_title,
++                                            ])
++                                            ->all())
++                                        ->required(),
++                                    TextInput::make('note')
++                                        ->label('Примечание')
++                                        ->maxLength(255),
++                                    Toggle::make('is_primary')
++                                        ->label('Основная применимость')
++                                        ->default(false),
++                                ])
++                                ->columns(3)
++                                ->addActionLabel('Добавить применимость')
++                                ->columnSpanFull(),
++                        ]),
++                    Tab::make('SEO')
++                        ->schema([
++                            TextInput::make('meta_title')
++                                ->label('Meta title')
++                                ->maxLength(255),
++                            Textarea::make('meta_description')
++                                ->label('Meta description')
++                                ->rows(3)
++                                ->columnSpanFull(),
++                        ]),
++                ])
++                ->columnSpanFull(),
++        ]);
++    }
++
++    public static function table(Table $table): Table
++    {
++        return $table
++            ->defaultSort('position')
++            ->columns([
++                TextColumn::make('title')
++                    ->label('Название')
++                    ->searchable()
++                    ->sortable(),
++                TextColumn::make('sku')
++                    ->label('SKU')
++                    ->searchable()
++                    ->toggleable(),
++                TextColumn::make('category.title')
++                    ->label('Категория')
++                    ->sortable(),
++                TextColumn::make('status')
++                    ->label('Статус')
++                    ->badge()
++                    ->formatStateUsing(fn (ProductStatus | string | null $state): string => $state instanceof ProductStatus ? $state->label() : (ProductStatus::tryFrom((string) $state)?->label() ?? '—')),
++                TextColumn::make('price')
++                    ->label('Цена')
++                    ->sortable(),
++                TextColumn::make('stock_status')
++                    ->label('Наличие')
++                    ->badge()
++                    ->formatStateUsing(fn (StockStatus | string | null $state): string => $state instanceof StockStatus ? $state->label() : (StockStatus::tryFrom((string) $state)?->label() ?? '—')),
++                TextColumn::make('variants_count')
++                    ->label('Варианты')
++                    ->counts('variants')
++                    ->sortable(),
++                IconColumn::make('is_featured')
++                    ->label('Реком.')
++                    ->boolean(),
++                TextColumn::make('updated_at')
++                    ->label('Обновлено')
++                    ->dateTime('d.m.Y H:i')
++                    ->sortable()
++                    ->toggleable(isToggledHiddenByDefault: true),
++            ])
++            ->filters([
++                SelectFilter::make('status')
++                    ->label('Статус')
++                    ->options(ProductStatus::options()),
++                SelectFilter::make('stock_status')
++                    ->label('Наличие')
++                    ->options(StockStatus::options()),
++                TernaryFilter::make('is_featured')
++                    ->label('Рекомендуемый'),
++                TrashedFilter::make(),
++            ])
++            ->recordActions([
++                EditAction::make(),
++                DeleteAction::make(),
++                RestoreAction::make(),
++                ForceDeleteAction::make(),
++            ])
++            ->toolbarActions([
++                BulkActionGroup::make([
++                    DeleteBulkAction::make(),
++                    RestoreBulkAction::make(),
++                    ForceDeleteBulkAction::make(),
++                ]),
++            ]);
++    }
++
++    public static function getEloquentQuery(): Builder
++    {
++        return parent::getEloquentQuery()
++            ->withoutGlobalScopes([
++                SoftDeletingScope::class,
++            ]);
++    }
++
++    public static function getPages(): array
++    {
++        return [
++            'index' => ListProducts::route('/'),
++            'create' => CreateProduct::route('/create'),
++            'edit' => EditProduct::route('/{record}/edit'),
++        ];
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/app/Models/Product.php dvashop_products_work/app/Models/Product.php
+--- dvashop_products_orig/app/Models/Product.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/app/Models/Product.php	2026-06-30 15:07:57.567205308 +0000
+@@ -0,0 +1,103 @@
++<?php
++
++namespace App\Models;
++
++use App\Enums\ProductStatus;
++use App\Enums\StockStatus;
++use App\Support\CatalogText;
++use Database\Factories\ProductFactory;
++use Illuminate\Database\Eloquent\Attributes\Fillable;
++use Illuminate\Database\Eloquent\Attributes\Scope;
++use Illuminate\Database\Eloquent\Builder;
++use Illuminate\Database\Eloquent\Factories\HasFactory;
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\BelongsTo;
++use Illuminate\Database\Eloquent\Relations\BelongsToMany;
++use Illuminate\Database\Eloquent\Relations\HasMany;
++use Illuminate\Database\Eloquent\Relations\HasOne;
++use Illuminate\Database\Eloquent\SoftDeletes;
++
++#[Fillable([
++    'product_category_id',
++    'title',
++    'slug',
++    'sku',
++    'status',
++    'short_description',
++    'description',
++    'price',
++    'old_price',
++    'stock_status',
++    'position',
++    'is_featured',
++    'meta_title',
++    'meta_description',
++    'import_key',
++    'last_import_run_id',
++])]
++class Product extends Model
++{
++    /** @use HasFactory<ProductFactory> */
++    use HasFactory, SoftDeletes;
++
++    public function category(): BelongsTo
++    {
++        return $this->belongsTo(ProductCategory::class, 'product_category_id');
++    }
++
++    public function variants(): HasMany
++    {
++        return $this->hasMany(ProductVariant::class);
++    }
++
++    public function defaultVariant(): HasOne
++    {
++        return $this->hasOne(ProductVariant::class)->where('is_default', true);
++    }
++
++    public function images(): HasMany
++    {
++        return $this->hasMany(ProductImage::class);
++    }
++
++    public function fitments(): HasMany
++    {
++        return $this->hasMany(ProductFitment::class);
++    }
++
++    public function vehicleGenerations(): BelongsToMany
++    {
++        return $this->belongsToMany(VehicleGeneration::class, 'product_fitments')
++            ->withPivot(['note', 'is_primary'])
++            ->withTimestamps();
++    }
++
++    #[Scope]
++    protected function active(Builder $query): void
++    {
++        $query->where('status', ProductStatus::Active->value);
++    }
++
++    protected static function booted(): void
++    {
++        static::saving(function (self $product): void {
++            $product->slug = CatalogText::slug($product->slug ?: $product->title);
++            $product->status ??= ProductStatus::Draft;
++            $product->stock_status ??= StockStatus::InStock;
++            $product->position ??= 0;
++            $product->is_featured ??= false;
++        });
++    }
++
++    protected function casts(): array
++    {
++        return [
++            'status' => ProductStatus::class,
++            'stock_status' => StockStatus::class,
++            'price' => 'decimal:2',
++            'old_price' => 'decimal:2',
++            'position' => 'integer',
++            'is_featured' => 'boolean',
++        ];
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/app/Models/ProductCategory.php dvashop_products_work/app/Models/ProductCategory.php
+--- dvashop_products_orig/app/Models/ProductCategory.php	2026-06-30 14:44:41.994550634 +0000
++++ dvashop_products_work/app/Models/ProductCategory.php	2026-06-30 15:08:06.108221586 +0000
+@@ -35,6 +35,12 @@
+         return $this->belongsTo(self::class, 'parent_id');
+     }
+ 
++
++    public function products(): HasMany
++    {
++        return $this->hasMany(Product::class);
++    }
++
+     public function children(): HasMany
+     {
+         return $this->hasMany(self::class, 'parent_id');
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/app/Models/ProductFitment.php dvashop_products_work/app/Models/ProductFitment.php
+--- dvashop_products_orig/app/Models/ProductFitment.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/app/Models/ProductFitment.php	2026-06-30 15:07:57.586535356 +0000
+@@ -0,0 +1,38 @@
++<?php
++
++namespace App\Models;
++
++use Database\Factories\ProductFitmentFactory;
++use Illuminate\Database\Eloquent\Attributes\Fillable;
++use Illuminate\Database\Eloquent\Factories\HasFactory;
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\BelongsTo;
++
++#[Fillable([
++    'product_id',
++    'vehicle_generation_id',
++    'note',
++    'is_primary',
++])]
++class ProductFitment extends Model
++{
++    /** @use HasFactory<ProductFitmentFactory> */
++    use HasFactory;
++
++    public function product(): BelongsTo
++    {
++        return $this->belongsTo(Product::class);
++    }
++
++    public function generation(): BelongsTo
++    {
++        return $this->belongsTo(VehicleGeneration::class, 'vehicle_generation_id');
++    }
++
++    protected function casts(): array
++    {
++        return [
++            'is_primary' => 'boolean',
++        ];
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/app/Models/ProductImage.php dvashop_products_work/app/Models/ProductImage.php
+--- dvashop_products_orig/app/Models/ProductImage.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/app/Models/ProductImage.php	2026-06-30 15:07:57.581055122 +0000
+@@ -0,0 +1,41 @@
++<?php
++
++namespace App\Models;
++
++use Database\Factories\ProductImageFactory;
++use Illuminate\Database\Eloquent\Attributes\Fillable;
++use Illuminate\Database\Eloquent\Factories\HasFactory;
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\BelongsTo;
++
++#[Fillable([
++    'product_id',
++    'product_variant_id',
++    'path',
++    'alt',
++    'position',
++    'is_main',
++])]
++class ProductImage extends Model
++{
++    /** @use HasFactory<ProductImageFactory> */
++    use HasFactory;
++
++    public function product(): BelongsTo
++    {
++        return $this->belongsTo(Product::class);
++    }
++
++    public function variant(): BelongsTo
++    {
++        return $this->belongsTo(ProductVariant::class, 'product_variant_id');
++    }
++
++    protected function casts(): array
++    {
++        return [
++            'position' => 'integer',
++            'is_main' => 'boolean',
++        ];
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/app/Models/ProductVariant.php dvashop_products_work/app/Models/ProductVariant.php
+--- dvashop_products_orig/app/Models/ProductVariant.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/app/Models/ProductVariant.php	2026-06-30 15:07:57.575349945 +0000
+@@ -0,0 +1,76 @@
++<?php
++
++namespace App\Models;
++
++use App\Enums\StockStatus;
++use Database\Factories\ProductVariantFactory;
++use Illuminate\Database\Eloquent\Attributes\Fillable;
++use Illuminate\Database\Eloquent\Factories\HasFactory;
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\BelongsTo;
++use Illuminate\Database\Eloquent\Relations\HasMany;
++
++#[Fillable([
++    'product_id',
++    'sku',
++    'title',
++    'options',
++    'price',
++    'old_price',
++    'stock_quantity',
++    'stock_status',
++    'is_default',
++    'is_active',
++])]
++class ProductVariant extends Model
++{
++    /** @use HasFactory<ProductVariantFactory> */
++    use HasFactory;
++
++    public function product(): BelongsTo
++    {
++        return $this->belongsTo(Product::class);
++    }
++
++    public function images(): HasMany
++    {
++        return $this->hasMany(ProductImage::class);
++    }
++
++    protected static function booted(): void
++    {
++        static::saving(function (self $variant): void {
++            $variant->stock_status ??= StockStatus::InStock;
++            $variant->is_active ??= true;
++            $variant->is_default ??= false;
++
++            if (! $variant->exists && $variant->product_id && ! self::query()->where('product_id', $variant->product_id)->exists()) {
++                $variant->is_default = true;
++            }
++        });
++
++        static::saved(function (self $variant): void {
++            if (! $variant->is_default) {
++                return;
++            }
++
++            self::query()
++                ->where('product_id', $variant->product_id)
++                ->whereKeyNot($variant->getKey())
++                ->update(['is_default' => false]);
++        });
++    }
++
++    protected function casts(): array
++    {
++        return [
++            'options' => 'array',
++            'price' => 'decimal:2',
++            'old_price' => 'decimal:2',
++            'stock_quantity' => 'integer',
++            'stock_status' => StockStatus::class,
++            'is_default' => 'boolean',
++            'is_active' => 'boolean',
++        ];
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/app/Models/VehicleGeneration.php dvashop_products_work/app/Models/VehicleGeneration.php
+--- dvashop_products_orig/app/Models/VehicleGeneration.php	2026-06-30 14:44:41.994628850 +0000
++++ dvashop_products_work/app/Models/VehicleGeneration.php	2026-06-30 15:08:06.108475491 +0000
+@@ -10,6 +10,8 @@
+ use Illuminate\Database\Eloquent\Factories\HasFactory;
+ use Illuminate\Database\Eloquent\Model;
+ use Illuminate\Database\Eloquent\Relations\BelongsTo;
++use Illuminate\Database\Eloquent\Relations\BelongsToMany;
++use Illuminate\Database\Eloquent\Relations\HasMany;
+ use Illuminate\Database\Eloquent\SoftDeletes;
+ 
+ #[Fillable([
+@@ -35,6 +37,18 @@
+         return $this->belongsTo(VehicleModel::class, 'vehicle_model_id');
+     }
+ 
++    public function fitments(): HasMany
++    {
++        return $this->hasMany(ProductFitment::class);
++    }
++
++    public function products(): BelongsToMany
++    {
++        return $this->belongsToMany(Product::class, 'product_fitments')
++            ->withPivot(['note', 'is_primary'])
++            ->withTimestamps();
++    }
++
+     public function getDisplayTitleAttribute(): string
+     {
+         return trim(($this->model?->display_title ? $this->model->display_title.' ' : '').$this->title);
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/app/Policies/ProductPolicy.php dvashop_products_work/app/Policies/ProductPolicy.php
+--- dvashop_products_orig/app/Policies/ProductPolicy.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/app/Policies/ProductPolicy.php	2026-06-30 15:08:59.620836601 +0000
+@@ -0,0 +1,49 @@
++<?php
++
++namespace App\Policies;
++
++use App\Models\Product;
++use App\Models\User;
++
++class ProductPolicy
++{
++    public function viewAny(User $user): bool
++    {
++        return $this->canManageProducts($user);
++    }
++
++    public function view(User $user, Product $product): bool
++    {
++        return $this->canManageProducts($user);
++    }
++
++    public function create(User $user): bool
++    {
++        return $this->canManageProducts($user);
++    }
++
++    public function update(User $user, Product $product): bool
++    {
++        return $this->canManageProducts($user);
++    }
++
++    public function delete(User $user, Product $product): bool
++    {
++        return $this->canManageProducts($user);
++    }
++
++    public function restore(User $user, Product $product): bool
++    {
++        return $this->canManageProducts($user);
++    }
++
++    public function forceDelete(User $user, Product $product): bool
++    {
++        return $user->isSuperAdmin();
++    }
++
++    private function canManageProducts(User $user): bool
++    {
++        return $user->role?->canAccessAdminPanel() ?? false;
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/database/factories/ProductFactory.php dvashop_products_work/database/factories/ProductFactory.php
+--- dvashop_products_orig/database/factories/ProductFactory.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/database/factories/ProductFactory.php	2026-06-30 15:08:40.496963668 +0000
+@@ -0,0 +1,76 @@
++<?php
++
++namespace Database\Factories;
++
++use App\Enums\ProductStatus;
++use App\Enums\StockStatus;
++use App\Models\Product;
++use App\Models\ProductCategory;
++use Illuminate\Database\Eloquent\Factories\Factory;
++use Illuminate\Support\Str;
++
++/**
++ * @extends Factory<Product>
++ */
++class ProductFactory extends Factory
++{
++    protected $model = Product::class;
++
++    public function definition(): array
++    {
++        $title = fake()->unique()->bothify('Порог кузовной ##??');
++
++        return [
++            'product_category_id' => ProductCategory::factory(),
++            'title' => $title,
++            'slug' => Str::slug($title),
++            'sku' => fake()->unique()->optional()->bothify('SKU-#####'),
++            'status' => ProductStatus::Active,
++            'short_description' => fake()->optional()->sentence(),
++            'description' => fake()->optional()->paragraph(),
++            'price' => fake()->randomFloat(2, 1000, 50000),
++            'old_price' => null,
++            'stock_status' => StockStatus::InStock,
++            'position' => fake()->numberBetween(0, 500),
++            'is_featured' => false,
++            'meta_title' => null,
++            'meta_description' => null,
++            'import_key' => null,
++            'last_import_run_id' => null,
++        ];
++    }
++
++    public function forCategory(ProductCategory $category): static
++    {
++        return $this->state(fn (): array => ['product_category_id' => $category->getKey()]);
++    }
++
++    public function draft(): static
++    {
++        return $this->state(fn (): array => ['status' => ProductStatus::Draft]);
++    }
++
++    public function archived(): static
++    {
++        return $this->state(fn (): array => ['status' => ProductStatus::Archived]);
++    }
++
++    public function featured(): static
++    {
++        return $this->state(fn (): array => ['is_featured' => true]);
++    }
++
++    public function withDefaultVariant(): static
++    {
++        return $this->afterCreating(function (Product $product): void {
++            ProductVariantFactory::new()
++                ->forProduct($product)
++                ->default()
++                ->create([
++                    'price' => $product->price ?? 0,
++                    'old_price' => $product->old_price,
++                    'stock_status' => $product->stock_status,
++                ]);
++        });
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/database/factories/ProductFitmentFactory.php dvashop_products_work/database/factories/ProductFitmentFactory.php
+--- dvashop_products_orig/database/factories/ProductFitmentFactory.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/database/factories/ProductFitmentFactory.php	2026-06-30 15:08:40.513863900 +0000
+@@ -0,0 +1,41 @@
++<?php
++
++namespace Database\Factories;
++
++use App\Models\Product;
++use App\Models\ProductFitment;
++use App\Models\VehicleGeneration;
++use Illuminate\Database\Eloquent\Factories\Factory;
++
++/**
++ * @extends Factory<ProductFitment>
++ */
++class ProductFitmentFactory extends Factory
++{
++    protected $model = ProductFitment::class;
++
++    public function definition(): array
++    {
++        return [
++            'product_id' => Product::factory(),
++            'vehicle_generation_id' => VehicleGeneration::factory(),
++            'note' => fake()->optional()->sentence(4),
++            'is_primary' => false,
++        ];
++    }
++
++    public function forProduct(Product $product): static
++    {
++        return $this->state(fn (): array => ['product_id' => $product->getKey()]);
++    }
++
++    public function forVehicleGeneration(VehicleGeneration $generation): static
++    {
++        return $this->state(fn (): array => ['vehicle_generation_id' => $generation->getKey()]);
++    }
++
++    public function primary(): static
++    {
++        return $this->state(fn (): array => ['is_primary' => true]);
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/database/factories/ProductImageFactory.php dvashop_products_work/database/factories/ProductImageFactory.php
+--- dvashop_products_orig/database/factories/ProductImageFactory.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/database/factories/ProductImageFactory.php	2026-06-30 15:08:40.508106788 +0000
+@@ -0,0 +1,46 @@
++<?php
++
++namespace Database\Factories;
++
++use App\Models\Product;
++use App\Models\ProductImage;
++use App\Models\ProductVariant;
++use Illuminate\Database\Eloquent\Factories\Factory;
++
++/**
++ * @extends Factory<ProductImage>
++ */
++class ProductImageFactory extends Factory
++{
++    protected $model = ProductImage::class;
++
++    public function definition(): array
++    {
++        return [
++            'product_id' => Product::factory(),
++            'product_variant_id' => null,
++            'path' => 'products/'.fake()->uuid().'.jpg',
++            'alt' => fake()->optional()->sentence(3),
++            'position' => fake()->numberBetween(0, 50),
++            'is_main' => false,
++        ];
++    }
++
++    public function forProduct(Product $product): static
++    {
++        return $this->state(fn (): array => ['product_id' => $product->getKey()]);
++    }
++
++    public function forVariant(ProductVariant $variant): static
++    {
++        return $this->state(fn (): array => [
++            'product_id' => $variant->product_id,
++            'product_variant_id' => $variant->getKey(),
++        ]);
++    }
++
++    public function main(): static
++    {
++        return $this->state(fn (): array => ['is_main' => true]);
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/database/factories/ProductVariantFactory.php dvashop_products_work/database/factories/ProductVariantFactory.php
+--- dvashop_products_orig/database/factories/ProductVariantFactory.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/database/factories/ProductVariantFactory.php	2026-06-30 15:08:40.502574221 +0000
+@@ -0,0 +1,47 @@
++<?php
++
++namespace Database\Factories;
++
++use App\Enums\StockStatus;
++use App\Models\Product;
++use App\Models\ProductVariant;
++use Illuminate\Database\Eloquent\Factories\Factory;
++
++/**
++ * @extends Factory<ProductVariant>
++ */
++class ProductVariantFactory extends Factory
++{
++    protected $model = ProductVariant::class;
++
++    public function definition(): array
++    {
++        return [
++            'product_id' => Product::factory(),
++            'sku' => fake()->unique()->optional()->bothify('VAR-#####'),
++            'title' => fake()->optional()->randomElement(['Стандарт', 'Комплект левый/правый', 'Усиленная версия']),
++            'options' => null,
++            'price' => fake()->randomFloat(2, 1000, 50000),
++            'old_price' => null,
++            'stock_quantity' => fake()->optional()->numberBetween(0, 50),
++            'stock_status' => StockStatus::InStock,
++            'is_default' => false,
++            'is_active' => true,
++        ];
++    }
++
++    public function forProduct(Product $product): static
++    {
++        return $this->state(fn (): array => ['product_id' => $product->getKey()]);
++    }
++
++    public function default(): static
++    {
++        return $this->state(fn (): array => ['is_default' => true]);
++    }
++
++    public function inactive(): static
++    {
++        return $this->state(fn (): array => ['is_active' => false]);
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/database/migrations/2026_06_30_000500_create_products_table.php dvashop_products_work/database/migrations/2026_06_30_000500_create_products_table.php
+--- dvashop_products_orig/database/migrations/2026_06_30_000500_create_products_table.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/database/migrations/2026_06_30_000500_create_products_table.php	2026-06-30 15:08:20.896212270 +0000
+@@ -0,0 +1,41 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('products', function (Blueprint $table): void {
++            $table->id();
++            $table->foreignId('product_category_id')->nullable()->constrained('product_categories')->nullOnDelete();
++            $table->string('title');
++            $table->string('slug')->unique();
++            $table->string('sku')->nullable()->unique();
++            $table->string('status')->default('draft')->index();
++            $table->text('short_description')->nullable();
++            $table->longText('description')->nullable();
++            $table->decimal('price', 12, 2)->nullable();
++            $table->decimal('old_price', 12, 2)->nullable();
++            $table->string('stock_status')->default('in_stock')->index();
++            $table->unsignedInteger('position')->default(0);
++            $table->boolean('is_featured')->default(false)->index();
++            $table->string('meta_title')->nullable();
++            $table->text('meta_description')->nullable();
++            $table->string('import_key')->nullable()->unique();
++            $table->string('last_import_run_id')->nullable()->index();
++            $table->timestamps();
++            $table->softDeletes();
++
++            $table->index(['product_category_id', 'status']);
++            $table->index(['status', 'position']);
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('products');
++    }
++};
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/database/migrations/2026_06_30_000600_create_product_variants_table.php dvashop_products_work/database/migrations/2026_06_30_000600_create_product_variants_table.php
+--- dvashop_products_orig/database/migrations/2026_06_30_000600_create_product_variants_table.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/database/migrations/2026_06_30_000600_create_product_variants_table.php	2026-06-30 15:08:20.904236974 +0000
+@@ -0,0 +1,34 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('product_variants', function (Blueprint $table): void {
++            $table->id();
++            $table->foreignId('product_id')->constrained('products')->cascadeOnDelete();
++            $table->string('sku')->nullable()->unique();
++            $table->string('title')->nullable();
++            $table->json('options')->nullable();
++            $table->decimal('price', 12, 2)->default(0);
++            $table->decimal('old_price', 12, 2)->nullable();
++            $table->unsignedInteger('stock_quantity')->nullable();
++            $table->string('stock_status')->default('in_stock')->index();
++            $table->boolean('is_default')->default(false)->index();
++            $table->boolean('is_active')->default(true)->index();
++            $table->timestamps();
++
++            $table->index(['product_id', 'is_default']);
++            $table->index(['product_id', 'is_active']);
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('product_variants');
++    }
++};
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/database/migrations/2026_06_30_000700_create_product_images_table.php dvashop_products_work/database/migrations/2026_06_30_000700_create_product_images_table.php
+--- dvashop_products_orig/database/migrations/2026_06_30_000700_create_product_images_table.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/database/migrations/2026_06_30_000700_create_product_images_table.php	2026-06-30 15:08:20.911255634 +0000
+@@ -0,0 +1,30 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('product_images', function (Blueprint $table): void {
++            $table->id();
++            $table->foreignId('product_id')->constrained('products')->cascadeOnDelete();
++            $table->foreignId('product_variant_id')->nullable()->constrained('product_variants')->nullOnDelete();
++            $table->string('path');
++            $table->string('alt')->nullable();
++            $table->unsignedInteger('position')->default(0);
++            $table->boolean('is_main')->default(false)->index();
++            $table->timestamps();
++
++            $table->index(['product_id', 'position']);
++            $table->index(['product_variant_id', 'position']);
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('product_images');
++    }
++};
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/database/migrations/2026_06_30_000800_create_product_fitments_table.php dvashop_products_work/database/migrations/2026_06_30_000800_create_product_fitments_table.php
+--- dvashop_products_orig/database/migrations/2026_06_30_000800_create_product_fitments_table.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/database/migrations/2026_06_30_000800_create_product_fitments_table.php	2026-06-30 15:08:20.917687167 +0000
+@@ -0,0 +1,28 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('product_fitments', function (Blueprint $table): void {
++            $table->id();
++            $table->foreignId('product_id')->constrained('products')->cascadeOnDelete();
++            $table->foreignId('vehicle_generation_id')->constrained('vehicle_generations')->cascadeOnDelete();
++            $table->string('note')->nullable();
++            $table->boolean('is_primary')->default(false)->index();
++            $table->timestamps();
++
++            $table->unique(['product_id', 'vehicle_generation_id']);
++            $table->index(['vehicle_generation_id', 'is_primary']);
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('product_fitments');
++    }
++};
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/database/seeders/DatabaseSeeder.php dvashop_products_work/database/seeders/DatabaseSeeder.php
+--- dvashop_products_orig/database/seeders/DatabaseSeeder.php	2026-06-30 14:44:41.995860180 +0000
++++ dvashop_products_work/database/seeders/DatabaseSeeder.php	2026-06-30 15:08:52.982611113 +0000
+@@ -18,6 +18,7 @@
+             AdminUserSeeder::class,
+             ProductCatalogSeeder::class,
+             VehicleCatalogSeeder::class,
++            ProductSeeder::class,
+         ]);
+     }
+ }
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/database/seeders/ProductSeeder.php dvashop_products_work/database/seeders/ProductSeeder.php
+--- dvashop_products_orig/database/seeders/ProductSeeder.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/database/seeders/ProductSeeder.php	2026-06-30 15:08:52.011895468 +0000
+@@ -0,0 +1,65 @@
++<?php
++
++namespace Database\Seeders;
++
++use App\Models\Product;
++use App\Models\ProductCategory;
++use App\Models\ProductFitment;
++use App\Models\ProductImage;
++use App\Models\ProductVariant;
++use App\Models\VehicleGeneration;
++use Illuminate\Database\Seeder;
++
++class ProductSeeder extends Seeder
++{
++    public function run(): void
++    {
++        $category = ProductCategory::query()->where('slug', 'porogi')->first()
++            ?? ProductCategory::query()->orderBy('id')->first();
++
++        $generation = VehicleGeneration::query()->with('model.make')->orderBy('id')->first();
++
++        $product = Product::query()->firstOrCreate(
++            ['slug' => 'demo-porogi-toyota-camry'],
++            [
++                'product_category_id' => $category?->getKey(),
++                'title' => 'Демо пороги Toyota Camry',
++                'sku' => 'DEMO-POROGI-CAMRY',
++                'status' => 'active',
++                'short_description' => 'Демонстрационный товар для проверки структуры каталога.',
++                'price' => 12500,
++                'stock_status' => 'in_stock',
++                'position' => 10,
++                'is_featured' => true,
++            ],
++        );
++
++        ProductVariant::query()->firstOrCreate(
++            ['sku' => 'DEMO-POROGI-CAMRY-BASE'],
++            [
++                'product_id' => $product->getKey(),
++                'title' => 'Базовый комплект',
++                'price' => 12500,
++                'stock_status' => 'in_stock',
++                'is_default' => true,
++                'is_active' => true,
++            ],
++        );
++
++        ProductImage::query()->firstOrCreate(
++            ['product_id' => $product->getKey(), 'path' => 'products/demo-porogi-camry.jpg'],
++            [
++                'alt' => 'Демо пороги Toyota Camry',
++                'position' => 0,
++                'is_main' => true,
++            ],
++        );
++
++        if ($generation) {
++            ProductFitment::query()->firstOrCreate(
++                ['product_id' => $product->getKey(), 'vehicle_generation_id' => $generation->getKey()],
++                ['note' => 'Проверочная применимость', 'is_primary' => true],
++            );
++        }
++    }
++}
+diff -ruN '--exclude=.git' '--exclude=vendor' '--exclude=node_modules' '--exclude=.env' '--exclude=dvashop_base_infra_filament.patch' dvashop_products_orig/tests/Feature/Catalog/ProductTest.php dvashop_products_work/tests/Feature/Catalog/ProductTest.php
+--- dvashop_products_orig/tests/Feature/Catalog/ProductTest.php	1970-01-01 00:00:00.000000000 +0000
++++ dvashop_products_work/tests/Feature/Catalog/ProductTest.php	2026-06-30 15:10:01.209007089 +0000
+@@ -0,0 +1,84 @@
++<?php
++
++use App\Models\Product;
++use App\Models\ProductCategory;
++use App\Models\ProductFitment;
++use App\Models\ProductImage;
++use App\Models\ProductVariant;
++use App\Models\VehicleGeneration;
++use Illuminate\Database\QueryException;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++
++uses(RefreshDatabase::class);
++
++test('product can be created with category and base fields', function () {
++    $category = ProductCategory::factory()->create(['title' => 'Пороги', 'slug' => 'porogi']);
++
++    $product = Product::factory()->forCategory($category)->create([
++        'title' => 'Порог левый Toyota Camry',
++        'slug' => 'toyota-camry-left-threshold',
++        'sku' => 'CAMRY-L-001',
++    ]);
++
++    expect($product->fresh())
++        ->title->toBe('Порог левый Toyota Camry')
++        ->slug->toBe('toyota-camry-left-threshold')
++        ->sku->toBe('CAMRY-L-001')
++        ->and($product->category->is($category))->toBeTrue();
++});
++
++test('product slug and import key are unique', function () {
++    Product::factory()->create(['slug' => 'unique-product', 'import_key' => 'import-1']);
++
++    Product::factory()->create(['slug' => 'unique-product', 'import_key' => 'import-2']);
++})->throws(QueryException::class);
++
++test('first variant becomes default and only one default variant remains', function () {
++    $product = Product::factory()->create();
++
++    $first = ProductVariant::factory()->forProduct($product)->create(['is_default' => false]);
++    $second = ProductVariant::factory()->forProduct($product)->default()->create();
++
++    expect($first->fresh()->is_default)->toBeFalse()
++        ->and($second->fresh()->is_default)->toBeTrue()
++        ->and($product->fresh()->defaultVariant->is($second))->toBeTrue()
++        ->and($product->variants()->where('is_default', true)->count())->toBe(1);
++});
++
++test('variant sku is unique', function () {
++    ProductVariant::factory()->create(['sku' => 'VAR-UNIQUE']);
++
++    ProductVariant::factory()->create(['sku' => 'VAR-UNIQUE']);
++})->throws(QueryException::class);
++
++test('product has images and vehicle generation fitments', function () {
++    $category = ProductCategory::factory()->create();
++    $generation = VehicleGeneration::factory()->create();
++    $product = Product::factory()->forCategory($category)->create();
++    $variant = ProductVariant::factory()->forProduct($product)->default()->create();
++
++    ProductImage::factory()->forVariant($variant)->main()->create([
++        'path' => 'products/test-image.jpg',
++    ]);
++
++    ProductFitment::factory()
++        ->forProduct($product)
++        ->forVehicleGeneration($generation)
++        ->primary()
++        ->create();
++
++    expect($product->fresh())
++        ->images->toHaveCount(1)
++        ->fitments->toHaveCount(1)
++        ->and($product->category->is($category))->toBeTrue()
++        ->and($product->vehicleGenerations()->first()->is($generation))->toBeTrue()
++        ->and($generation->fresh()->products()->first()->is($product))->toBeTrue();
++});
++
++test('product fitment is unique per vehicle generation', function () {
++    $product = Product::factory()->create();
++    $generation = VehicleGeneration::factory()->create();
++
++    ProductFitment::factory()->forProduct($product)->forVehicleGeneration($generation)->create();
++    ProductFitment::factory()->forProduct($product)->forVehicleGeneration($generation)->create();
++})->throws(QueryException::class);

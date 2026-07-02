@@ -1,0 +1,2081 @@
+--- /dev/null
++++ b/app/Filament/Resources/ProductCategories/Pages/CreateProductCategory.php
+@@ -0,0 +1,11 @@
++<?php
++
++namespace App\Filament\Resources\ProductCategories\Pages;
++
++use App\Filament\Resources\ProductCategories\ProductCategoryResource;
++use Filament\Resources\Pages\CreateRecord;
++
++class CreateProductCategory extends CreateRecord
++{
++    protected static string $resource = ProductCategoryResource::class;
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/ProductCategories/Pages/EditProductCategory.php
+@@ -0,0 +1,23 @@
++<?php
++
++namespace App\Filament\Resources\ProductCategories\Pages;
++
++use App\Filament\Resources\ProductCategories\ProductCategoryResource;
++use Filament\Actions\DeleteAction;
++use Filament\Actions\ForceDeleteAction;
++use Filament\Actions\RestoreAction;
++use Filament\Resources\Pages\EditRecord;
++
++class EditProductCategory extends EditRecord
++{
++    protected static string $resource = ProductCategoryResource::class;
++
++    protected function getHeaderActions(): array
++    {
++        return [
++            DeleteAction::make(),
++            RestoreAction::make(),
++            ForceDeleteAction::make(),
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/ProductCategories/Pages/ListProductCategories.php
+@@ -0,0 +1,19 @@
++<?php
++
++namespace App\Filament\Resources\ProductCategories\Pages;
++
++use App\Filament\Resources\ProductCategories\ProductCategoryResource;
++use Filament\Actions\CreateAction;
++use Filament\Resources\Pages\ListRecords;
++
++class ListProductCategories extends ListRecords
++{
++    protected static string $resource = ProductCategoryResource::class;
++
++    protected function getHeaderActions(): array
++    {
++        return [
++            CreateAction::make(),
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/ProductCategories/ProductCategoryResource.php
+@@ -0,0 +1,176 @@
++<?php
++
++namespace App\Filament\Resources\ProductCategories;
++
++use App\Filament\Resources\ProductCategories\Pages\CreateProductCategory;
++use App\Filament\Resources\ProductCategories\Pages\EditProductCategory;
++use App\Filament\Resources\ProductCategories\Pages\ListProductCategories;
++use App\Models\ProductCategory;
++use BackedEnum;
++use Filament\Actions\BulkActionGroup;
++use Filament\Actions\DeleteAction;
++use Filament\Actions\DeleteBulkAction;
++use Filament\Actions\EditAction;
++use Filament\Actions\ForceDeleteAction;
++use Filament\Actions\ForceDeleteBulkAction;
++use Filament\Actions\RestoreAction;
++use Filament\Actions\RestoreBulkAction;
++use Filament\Forms\Components\Select;
++use Filament\Forms\Components\Textarea;
++use Filament\Forms\Components\TextInput;
++use Filament\Forms\Components\Toggle;
++use Filament\Resources\Resource;
++use Filament\Schemas\Schema;
++use Filament\Tables\Columns\IconColumn;
++use Filament\Tables\Columns\TextColumn;
++use Filament\Tables\Filters\TernaryFilter;
++use Filament\Tables\Filters\TrashedFilter;
++use Filament\Tables\Table;
++use Illuminate\Database\Eloquent\Builder;
++use Illuminate\Database\Eloquent\SoftDeletingScope;
++
++class ProductCategoryResource extends Resource
++{
++    protected static ?string $model = ProductCategory::class;
++
++    protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-folder';
++
++    protected static ?string $recordTitleAttribute = 'title';
++
++    protected static ?int $navigationSort = 10;
++
++    public static function getNavigationGroup(): ?string
++    {
++        return 'Каталог';
++    }
++
++    public static function getModelLabel(): string
++    {
++        return 'категория товаров';
++    }
++
++    public static function getPluralModelLabel(): string
++    {
++        return 'Категории товаров';
++    }
++
++    public static function form(Schema $schema): Schema
++    {
++        return $schema->components([
++            Select::make('parent_id')
++                ->label('Родительская категория')
++                ->searchable()
++                ->preload()
++                ->options(fn (?ProductCategory $record): array => ProductCategory::query()
++                    ->when($record?->exists, fn (Builder $query): Builder => $query
++                        ->whereKeyNot($record->getKey())
++                        ->whereNotIn('id', $record->descendantIds()))
++                    ->orderBy('full_slug')
++                    ->get()
++                    ->mapWithKeys(fn (ProductCategory $category): array => [
++                        $category->getKey() => $category->display_title.' · '.$category->full_slug,
++                    ])
++                    ->all())
++                ->nullable(),
++            TextInput::make('title')
++                ->label('Название')
++                ->required()
++                ->maxLength(255),
++            TextInput::make('slug')
++                ->label('Slug')
++                ->maxLength(255)
++                ->helperText('Можно оставить пустым — будет создан из названия.'),
++            TextInput::make('full_slug')
++                ->label('Полный slug')
++                ->disabled()
++                ->dehydrated(false),
++            TextInput::make('depth')
++                ->label('Глубина')
++                ->disabled()
++                ->dehydrated(false),
++            TextInput::make('position')
++                ->label('Позиция')
++                ->numeric()
++                ->default(0)
++                ->required(),
++            Toggle::make('is_active')
++                ->label('Активна')
++                ->default(true),
++            TextInput::make('meta_title')
++                ->label('Meta title')
++                ->maxLength(255),
++            Textarea::make('meta_description')
++                ->label('Meta description')
++                ->rows(3)
++                ->columnSpanFull(),
++        ]);
++    }
++
++    public static function table(Table $table): Table
++    {
++        return $table
++            ->defaultSort('position')
++            ->columns([
++                TextColumn::make('title')
++                    ->label('Название')
++                    ->state(fn (ProductCategory $record): string => $record->display_title)
++                    ->searchable()
++                    ->sortable(),
++                TextColumn::make('full_slug')
++                    ->label('Полный slug')
++                    ->searchable()
++                    ->sortable(),
++                TextColumn::make('parent.title')
++                    ->label('Родитель')
++                    ->sortable(),
++                TextColumn::make('position')
++                    ->label('Позиция')
++                    ->sortable(),
++                IconColumn::make('is_active')
++                    ->label('Активна')
++                    ->boolean(),
++                TextColumn::make('updated_at')
++                    ->label('Обновлено')
++                    ->dateTime('d.m.Y H:i')
++                    ->sortable()
++                    ->toggleable(isToggledHiddenByDefault: true),
++            ])
++            ->filters([
++                TernaryFilter::make('is_active')
++                    ->label('Активность')
++                    ->trueLabel('Только активные')
++                    ->falseLabel('Только неактивные'),
++                TrashedFilter::make(),
++            ])
++            ->recordActions([
++                EditAction::make(),
++                DeleteAction::make(),
++                RestoreAction::make(),
++                ForceDeleteAction::make(),
++            ])
++            ->toolbarActions([
++                BulkActionGroup::make([
++                    DeleteBulkAction::make(),
++                    RestoreBulkAction::make(),
++                    ForceDeleteBulkAction::make(),
++                ]),
++            ]);
++    }
++
++    public static function getEloquentQuery(): Builder
++    {
++        return parent::getEloquentQuery()
++            ->withoutGlobalScopes([
++                SoftDeletingScope::class,
++            ]);
++    }
++
++    public static function getPages(): array
++    {
++        return [
++            'index' => ListProductCategories::route('/'),
++            'create' => CreateProductCategory::route('/create'),
++            'edit' => EditProductCategory::route('/{record}/edit'),
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/VehicleGenerations/Pages/CreateVehicleGeneration.php
+@@ -0,0 +1,11 @@
++<?php
++
++namespace App\Filament\Resources\VehicleGenerations\Pages;
++
++use App\Filament\Resources\VehicleGenerations\VehicleGenerationResource;
++use Filament\Resources\Pages\CreateRecord;
++
++class CreateVehicleGeneration extends CreateRecord
++{
++    protected static string $resource = VehicleGenerationResource::class;
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/VehicleGenerations/Pages/EditVehicleGeneration.php
+@@ -0,0 +1,23 @@
++<?php
++
++namespace App\Filament\Resources\VehicleGenerations\Pages;
++
++use App\Filament\Resources\VehicleGenerations\VehicleGenerationResource;
++use Filament\Actions\DeleteAction;
++use Filament\Actions\ForceDeleteAction;
++use Filament\Actions\RestoreAction;
++use Filament\Resources\Pages\EditRecord;
++
++class EditVehicleGeneration extends EditRecord
++{
++    protected static string $resource = VehicleGenerationResource::class;
++
++    protected function getHeaderActions(): array
++    {
++        return [
++            DeleteAction::make(),
++            RestoreAction::make(),
++            ForceDeleteAction::make(),
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/VehicleGenerations/Pages/ListVehicleGenerations.php
+@@ -0,0 +1,19 @@
++<?php
++
++namespace App\Filament\Resources\VehicleGenerations\Pages;
++
++use App\Filament\Resources\VehicleGenerations\VehicleGenerationResource;
++use Filament\Actions\CreateAction;
++use Filament\Resources\Pages\ListRecords;
++
++class ListVehicleGenerations extends ListRecords
++{
++    protected static string $resource = VehicleGenerationResource::class;
++
++    protected function getHeaderActions(): array
++    {
++        return [
++            CreateAction::make(),
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/VehicleGenerations/VehicleGenerationResource.php
+@@ -0,0 +1,193 @@
++<?php
++
++namespace App\Filament\Resources\VehicleGenerations;
++
++use App\Filament\Resources\VehicleGenerations\Pages\CreateVehicleGeneration;
++use App\Filament\Resources\VehicleGenerations\Pages\EditVehicleGeneration;
++use App\Filament\Resources\VehicleGenerations\Pages\ListVehicleGenerations;
++use App\Models\VehicleGeneration;
++use BackedEnum;
++use Filament\Actions\BulkActionGroup;
++use Filament\Actions\DeleteAction;
++use Filament\Actions\DeleteBulkAction;
++use Filament\Actions\EditAction;
++use Filament\Actions\ForceDeleteAction;
++use Filament\Actions\ForceDeleteBulkAction;
++use Filament\Actions\RestoreAction;
++use Filament\Actions\RestoreBulkAction;
++use Filament\Forms\Components\FileUpload;
++use Filament\Forms\Components\Select;
++use Filament\Forms\Components\Textarea;
++use Filament\Forms\Components\TextInput;
++use Filament\Forms\Components\Toggle;
++use Filament\Resources\Resource;
++use Filament\Schemas\Schema;
++use Filament\Tables\Columns\IconColumn;
++use Filament\Tables\Columns\ImageColumn;
++use Filament\Tables\Columns\TextColumn;
++use Filament\Tables\Filters\SelectFilter;
++use Filament\Tables\Filters\TernaryFilter;
++use Filament\Tables\Filters\TrashedFilter;
++use Filament\Tables\Table;
++use Illuminate\Database\Eloquent\Builder;
++use Illuminate\Database\Eloquent\SoftDeletingScope;
++
++class VehicleGenerationResource extends Resource
++{
++    protected static ?string $model = VehicleGeneration::class;
++
++    protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-squares-2x2';
++
++    protected static ?string $recordTitleAttribute = 'title';
++
++    protected static ?int $navigationSort = 40;
++
++    public static function getNavigationGroup(): ?string
++    {
++        return 'Авто';
++    }
++
++    public static function getModelLabel(): string
++    {
++        return 'поколение авто';
++    }
++
++    public static function getPluralModelLabel(): string
++    {
++        return 'Поколения авто';
++    }
++
++    public static function form(Schema $schema): Schema
++    {
++        return $schema->components([
++            Select::make('vehicle_model_id')
++                ->label('Модель')
++                ->relationship('model', 'title')
++                ->getOptionLabelFromRecordUsing(fn ($record): string => $record->display_title)
++                ->searchable(['title', 'slug', 'norm_key'])
++                ->preload()
++                ->required(),
++            TextInput::make('title')
++                ->label('Название')
++                ->required()
++                ->maxLength(255),
++            TextInput::make('slug')
++                ->label('Slug')
++                ->maxLength(255)
++                ->helperText('Уникален внутри выбранной модели. Можно оставить пустым.'),
++            TextInput::make('norm_key')
++                ->label('Norm key')
++                ->maxLength(255)
++                ->helperText('Уникален внутри выбранной модели. Можно оставить пустым.'),
++            TextInput::make('years_label')
++                ->label('Годы выпуска')
++                ->maxLength(255),
++            TextInput::make('body')
++                ->label('Кузов')
++                ->maxLength(255),
++            FileUpload::make('image')
++                ->label('Изображение')
++                ->image()
++                ->directory('vehicle-generations'),
++            TextInput::make('position')
++                ->label('Позиция')
++                ->numeric()
++                ->default(0)
++                ->required(),
++            Toggle::make('is_active')
++                ->label('Активна')
++                ->default(true),
++            TextInput::make('meta_title')
++                ->label('Meta title')
++                ->maxLength(255),
++            Textarea::make('meta_description')
++                ->label('Meta description')
++                ->rows(3)
++                ->columnSpanFull(),
++        ]);
++    }
++
++    public static function table(Table $table): Table
++    {
++        return $table
++            ->defaultSort('position')
++            ->columns([
++                ImageColumn::make('image')
++                    ->label('Фото')
++                    ->square()
++                    ->toggleable(),
++                TextColumn::make('model.make.title')
++                    ->label('Марка')
++                    ->searchable()
++                    ->sortable(),
++                TextColumn::make('model.title')
++                    ->label('Модель')
++                    ->searchable()
++                    ->sortable(),
++                TextColumn::make('title')
++                    ->label('Поколение')
++                    ->searchable()
++                    ->sortable(),
++                TextColumn::make('years_label')
++                    ->label('Годы')
++                    ->searchable()
++                    ->toggleable(),
++                TextColumn::make('body')
++                    ->label('Кузов')
++                    ->searchable()
++                    ->toggleable(),
++                TextColumn::make('norm_key')
++                    ->label('Norm key')
++                    ->searchable()
++                    ->toggleable(isToggledHiddenByDefault: true),
++                TextColumn::make('position')
++                    ->label('Позиция')
++                    ->sortable(),
++                IconColumn::make('is_active')
++                    ->label('Активна')
++                    ->boolean(),
++            ])
++            ->filters([
++                SelectFilter::make('vehicle_model_id')
++                    ->label('Модель')
++                    ->relationship('model', 'title')
++                    ->searchable()
++                    ->preload(),
++                TernaryFilter::make('is_active')
++                    ->label('Активность')
++                    ->trueLabel('Только активные')
++                    ->falseLabel('Только неактивные'),
++                TrashedFilter::make(),
++            ])
++            ->recordActions([
++                EditAction::make(),
++                DeleteAction::make(),
++                RestoreAction::make(),
++                ForceDeleteAction::make(),
++            ])
++            ->toolbarActions([
++                BulkActionGroup::make([
++                    DeleteBulkAction::make(),
++                    RestoreBulkAction::make(),
++                    ForceDeleteBulkAction::make(),
++                ]),
++            ]);
++    }
++
++    public static function getEloquentQuery(): Builder
++    {
++        return parent::getEloquentQuery()
++            ->withoutGlobalScopes([
++                SoftDeletingScope::class,
++            ]);
++    }
++
++    public static function getPages(): array
++    {
++        return [
++            'index' => ListVehicleGenerations::route('/'),
++            'create' => CreateVehicleGeneration::route('/create'),
++            'edit' => EditVehicleGeneration::route('/{record}/edit'),
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/VehicleMakes/Pages/CreateVehicleMake.php
+@@ -0,0 +1,11 @@
++<?php
++
++namespace App\Filament\Resources\VehicleMakes\Pages;
++
++use App\Filament\Resources\VehicleMakes\VehicleMakeResource;
++use Filament\Resources\Pages\CreateRecord;
++
++class CreateVehicleMake extends CreateRecord
++{
++    protected static string $resource = VehicleMakeResource::class;
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/VehicleMakes/Pages/EditVehicleMake.php
+@@ -0,0 +1,23 @@
++<?php
++
++namespace App\Filament\Resources\VehicleMakes\Pages;
++
++use App\Filament\Resources\VehicleMakes\VehicleMakeResource;
++use Filament\Actions\DeleteAction;
++use Filament\Actions\ForceDeleteAction;
++use Filament\Actions\RestoreAction;
++use Filament\Resources\Pages\EditRecord;
++
++class EditVehicleMake extends EditRecord
++{
++    protected static string $resource = VehicleMakeResource::class;
++
++    protected function getHeaderActions(): array
++    {
++        return [
++            DeleteAction::make(),
++            RestoreAction::make(),
++            ForceDeleteAction::make(),
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/VehicleMakes/Pages/ListVehicleMakes.php
+@@ -0,0 +1,19 @@
++<?php
++
++namespace App\Filament\Resources\VehicleMakes\Pages;
++
++use App\Filament\Resources\VehicleMakes\VehicleMakeResource;
++use Filament\Actions\CreateAction;
++use Filament\Resources\Pages\ListRecords;
++
++class ListVehicleMakes extends ListRecords
++{
++    protected static string $resource = VehicleMakeResource::class;
++
++    protected function getHeaderActions(): array
++    {
++        return [
++            CreateAction::make(),
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/VehicleMakes/VehicleMakeResource.php
+@@ -0,0 +1,166 @@
++<?php
++
++namespace App\Filament\Resources\VehicleMakes;
++
++use App\Filament\Resources\VehicleMakes\Pages\CreateVehicleMake;
++use App\Filament\Resources\VehicleMakes\Pages\EditVehicleMake;
++use App\Filament\Resources\VehicleMakes\Pages\ListVehicleMakes;
++use App\Models\VehicleMake;
++use BackedEnum;
++use Filament\Actions\BulkActionGroup;
++use Filament\Actions\DeleteAction;
++use Filament\Actions\DeleteBulkAction;
++use Filament\Actions\EditAction;
++use Filament\Actions\ForceDeleteAction;
++use Filament\Actions\ForceDeleteBulkAction;
++use Filament\Actions\RestoreAction;
++use Filament\Actions\RestoreBulkAction;
++use Filament\Forms\Components\FileUpload;
++use Filament\Forms\Components\Textarea;
++use Filament\Forms\Components\TextInput;
++use Filament\Forms\Components\Toggle;
++use Filament\Resources\Resource;
++use Filament\Schemas\Schema;
++use Filament\Tables\Columns\IconColumn;
++use Filament\Tables\Columns\ImageColumn;
++use Filament\Tables\Columns\TextColumn;
++use Filament\Tables\Filters\TernaryFilter;
++use Filament\Tables\Filters\TrashedFilter;
++use Filament\Tables\Table;
++use Illuminate\Database\Eloquent\Builder;
++use Illuminate\Database\Eloquent\SoftDeletingScope;
++
++class VehicleMakeResource extends Resource
++{
++    protected static ?string $model = VehicleMake::class;
++
++    protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-truck';
++
++    protected static ?string $recordTitleAttribute = 'title';
++
++    protected static ?int $navigationSort = 20;
++
++    public static function getNavigationGroup(): ?string
++    {
++        return 'Авто';
++    }
++
++    public static function getModelLabel(): string
++    {
++        return 'марка авто';
++    }
++
++    public static function getPluralModelLabel(): string
++    {
++        return 'Марки авто';
++    }
++
++    public static function form(Schema $schema): Schema
++    {
++        return $schema->components([
++            TextInput::make('title')
++                ->label('Название')
++                ->required()
++                ->maxLength(255),
++            TextInput::make('slug')
++                ->label('Slug')
++                ->maxLength(255)
++                ->helperText('Можно оставить пустым — будет создан из названия.'),
++            TextInput::make('norm_key')
++                ->label('Norm key')
++                ->maxLength(255)
++                ->unique(ignoreRecord: true)
++                ->helperText('Нормализованный ключ для импорта/поиска. Можно оставить пустым.'),
++            FileUpload::make('image')
++                ->label('Изображение')
++                ->image()
++                ->directory('vehicle-makes'),
++            TextInput::make('position')
++                ->label('Позиция')
++                ->numeric()
++                ->default(0)
++                ->required(),
++            Toggle::make('is_active')
++                ->label('Активна')
++                ->default(true),
++            TextInput::make('meta_title')
++                ->label('Meta title')
++                ->maxLength(255),
++            Textarea::make('meta_description')
++                ->label('Meta description')
++                ->rows(3)
++                ->columnSpanFull(),
++        ]);
++    }
++
++    public static function table(Table $table): Table
++    {
++        return $table
++            ->defaultSort('position')
++            ->columns([
++                ImageColumn::make('image')
++                    ->label('Фото')
++                    ->square()
++                    ->toggleable(),
++                TextColumn::make('title')
++                    ->label('Название')
++                    ->searchable()
++                    ->sortable(),
++                TextColumn::make('slug')
++                    ->label('Slug')
++                    ->searchable()
++                    ->toggleable(),
++                TextColumn::make('norm_key')
++                    ->label('Norm key')
++                    ->searchable()
++                    ->toggleable(),
++                TextColumn::make('models_count')
++                    ->label('Модели')
++                    ->counts('models')
++                    ->sortable(),
++                TextColumn::make('position')
++                    ->label('Позиция')
++                    ->sortable(),
++                IconColumn::make('is_active')
++                    ->label('Активна')
++                    ->boolean(),
++            ])
++            ->filters([
++                TernaryFilter::make('is_active')
++                    ->label('Активность')
++                    ->trueLabel('Только активные')
++                    ->falseLabel('Только неактивные'),
++                TrashedFilter::make(),
++            ])
++            ->recordActions([
++                EditAction::make(),
++                DeleteAction::make(),
++                RestoreAction::make(),
++                ForceDeleteAction::make(),
++            ])
++            ->toolbarActions([
++                BulkActionGroup::make([
++                    DeleteBulkAction::make(),
++                    RestoreBulkAction::make(),
++                    ForceDeleteBulkAction::make(),
++                ]),
++            ]);
++    }
++
++    public static function getEloquentQuery(): Builder
++    {
++        return parent::getEloquentQuery()
++            ->withoutGlobalScopes([
++                SoftDeletingScope::class,
++            ]);
++    }
++
++    public static function getPages(): array
++    {
++        return [
++            'index' => ListVehicleMakes::route('/'),
++            'create' => CreateVehicleMake::route('/create'),
++            'edit' => EditVehicleMake::route('/{record}/edit'),
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/VehicleModels/Pages/CreateVehicleModel.php
+@@ -0,0 +1,11 @@
++<?php
++
++namespace App\Filament\Resources\VehicleModels\Pages;
++
++use App\Filament\Resources\VehicleModels\VehicleModelResource;
++use Filament\Resources\Pages\CreateRecord;
++
++class CreateVehicleModel extends CreateRecord
++{
++    protected static string $resource = VehicleModelResource::class;
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/VehicleModels/Pages/EditVehicleModel.php
+@@ -0,0 +1,23 @@
++<?php
++
++namespace App\Filament\Resources\VehicleModels\Pages;
++
++use App\Filament\Resources\VehicleModels\VehicleModelResource;
++use Filament\Actions\DeleteAction;
++use Filament\Actions\ForceDeleteAction;
++use Filament\Actions\RestoreAction;
++use Filament\Resources\Pages\EditRecord;
++
++class EditVehicleModel extends EditRecord
++{
++    protected static string $resource = VehicleModelResource::class;
++
++    protected function getHeaderActions(): array
++    {
++        return [
++            DeleteAction::make(),
++            RestoreAction::make(),
++            ForceDeleteAction::make(),
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/VehicleModels/Pages/ListVehicleModels.php
+@@ -0,0 +1,19 @@
++<?php
++
++namespace App\Filament\Resources\VehicleModels\Pages;
++
++use App\Filament\Resources\VehicleModels\VehicleModelResource;
++use Filament\Actions\CreateAction;
++use Filament\Resources\Pages\ListRecords;
++
++class ListVehicleModels extends ListRecords
++{
++    protected static string $resource = VehicleModelResource::class;
++
++    protected function getHeaderActions(): array
++    {
++        return [
++            CreateAction::make(),
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Filament/Resources/VehicleModels/VehicleModelResource.php
+@@ -0,0 +1,172 @@
++<?php
++
++namespace App\Filament\Resources\VehicleModels;
++
++use App\Filament\Resources\VehicleModels\Pages\CreateVehicleModel;
++use App\Filament\Resources\VehicleModels\Pages\EditVehicleModel;
++use App\Filament\Resources\VehicleModels\Pages\ListVehicleModels;
++use App\Models\VehicleModel;
++use BackedEnum;
++use Filament\Actions\BulkActionGroup;
++use Filament\Actions\DeleteAction;
++use Filament\Actions\DeleteBulkAction;
++use Filament\Actions\EditAction;
++use Filament\Actions\ForceDeleteAction;
++use Filament\Actions\ForceDeleteBulkAction;
++use Filament\Actions\RestoreAction;
++use Filament\Actions\RestoreBulkAction;
++use Filament\Forms\Components\Select;
++use Filament\Forms\Components\Textarea;
++use Filament\Forms\Components\TextInput;
++use Filament\Forms\Components\Toggle;
++use Filament\Resources\Resource;
++use Filament\Schemas\Schema;
++use Filament\Tables\Columns\IconColumn;
++use Filament\Tables\Columns\TextColumn;
++use Filament\Tables\Filters\SelectFilter;
++use Filament\Tables\Filters\TernaryFilter;
++use Filament\Tables\Filters\TrashedFilter;
++use Filament\Tables\Table;
++use Illuminate\Database\Eloquent\Builder;
++use Illuminate\Database\Eloquent\SoftDeletingScope;
++
++class VehicleModelResource extends Resource
++{
++    protected static ?string $model = VehicleModel::class;
++
++    protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-rectangle-stack';
++
++    protected static ?string $recordTitleAttribute = 'title';
++
++    protected static ?int $navigationSort = 30;
++
++    public static function getNavigationGroup(): ?string
++    {
++        return 'Авто';
++    }
++
++    public static function getModelLabel(): string
++    {
++        return 'модель авто';
++    }
++
++    public static function getPluralModelLabel(): string
++    {
++        return 'Модели авто';
++    }
++
++    public static function form(Schema $schema): Schema
++    {
++        return $schema->components([
++            Select::make('vehicle_make_id')
++                ->label('Марка')
++                ->relationship('make', 'title')
++                ->searchable()
++                ->preload()
++                ->required(),
++            TextInput::make('title')
++                ->label('Название')
++                ->required()
++                ->maxLength(255),
++            TextInput::make('slug')
++                ->label('Slug')
++                ->maxLength(255)
++                ->helperText('Уникален внутри выбранной марки. Можно оставить пустым.'),
++            TextInput::make('norm_key')
++                ->label('Norm key')
++                ->maxLength(255)
++                ->helperText('Уникален внутри выбранной марки. Можно оставить пустым.'),
++            TextInput::make('position')
++                ->label('Позиция')
++                ->numeric()
++                ->default(0)
++                ->required(),
++            Toggle::make('is_active')
++                ->label('Активна')
++                ->default(true),
++            TextInput::make('meta_title')
++                ->label('Meta title')
++                ->maxLength(255),
++            Textarea::make('meta_description')
++                ->label('Meta description')
++                ->rows(3)
++                ->columnSpanFull(),
++        ]);
++    }
++
++    public static function table(Table $table): Table
++    {
++        return $table
++            ->defaultSort('position')
++            ->columns([
++                TextColumn::make('make.title')
++                    ->label('Марка')
++                    ->searchable()
++                    ->sortable(),
++                TextColumn::make('title')
++                    ->label('Модель')
++                    ->searchable()
++                    ->sortable(),
++                TextColumn::make('slug')
++                    ->label('Slug')
++                    ->searchable()
++                    ->toggleable(),
++                TextColumn::make('norm_key')
++                    ->label('Norm key')
++                    ->searchable()
++                    ->toggleable(),
++                TextColumn::make('generations_count')
++                    ->label('Поколения')
++                    ->counts('generations')
++                    ->sortable(),
++                TextColumn::make('position')
++                    ->label('Позиция')
++                    ->sortable(),
++                IconColumn::make('is_active')
++                    ->label('Активна')
++                    ->boolean(),
++            ])
++            ->filters([
++                SelectFilter::make('vehicle_make_id')
++                    ->label('Марка')
++                    ->relationship('make', 'title')
++                    ->searchable()
++                    ->preload(),
++                TernaryFilter::make('is_active')
++                    ->label('Активность')
++                    ->trueLabel('Только активные')
++                    ->falseLabel('Только неактивные'),
++                TrashedFilter::make(),
++            ])
++            ->recordActions([
++                EditAction::make(),
++                DeleteAction::make(),
++                RestoreAction::make(),
++                ForceDeleteAction::make(),
++            ])
++            ->toolbarActions([
++                BulkActionGroup::make([
++                    DeleteBulkAction::make(),
++                    RestoreBulkAction::make(),
++                    ForceDeleteBulkAction::make(),
++                ]),
++            ]);
++    }
++
++    public static function getEloquentQuery(): Builder
++    {
++        return parent::getEloquentQuery()
++            ->withoutGlobalScopes([
++                SoftDeletingScope::class,
++            ]);
++    }
++
++    public static function getPages(): array
++    {
++        return [
++            'index' => ListVehicleModels::route('/'),
++            'create' => CreateVehicleModel::route('/create'),
++            'edit' => EditVehicleModel::route('/{record}/edit'),
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Models/ProductCategory.php
+@@ -0,0 +1,111 @@
++<?php
++
++namespace App\Models;
++
++use App\Support\CatalogText;
++use Database\Factories\ProductCategoryFactory;
++use Illuminate\Database\Eloquent\Attributes\Fillable;
++use Illuminate\Database\Eloquent\Attributes\Scope;
++use Illuminate\Database\Eloquent\Builder;
++use Illuminate\Database\Eloquent\Factories\HasFactory;
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\BelongsTo;
++use Illuminate\Database\Eloquent\Relations\HasMany;
++use Illuminate\Database\Eloquent\SoftDeletes;
++use Illuminate\Support\Collection;
++
++#[Fillable([
++    'parent_id',
++    'title',
++    'slug',
++    'full_slug',
++    'depth',
++    'position',
++    'is_active',
++    'meta_title',
++    'meta_description',
++])]
++class ProductCategory extends Model
++{
++    /** @use HasFactory<ProductCategoryFactory> */
++    use HasFactory, SoftDeletes;
++
++    public function parent(): BelongsTo
++    {
++        return $this->belongsTo(self::class, 'parent_id');
++    }
++
++    public function children(): HasMany
++    {
++        return $this->hasMany(self::class, 'parent_id');
++    }
++
++    public function descendants(): HasMany
++    {
++        return $this->children()->with('descendants');
++    }
++
++    public function getDisplayTitleAttribute(): string
++    {
++        return str_repeat('— ', max(0, $this->depth)).$this->title;
++    }
++
++    /**
++     * @return array<int, int>
++     */
++    public function descendantIds(): array
++    {
++        return $this->children()
++            ->with('descendants')
++            ->get()
++            ->flatMap(fn (self $child): Collection => collect([$child->getKey()])->merge($child->descendantIds()))
++            ->values()
++            ->all();
++    }
++
++    #[Scope]
++    protected function active(Builder $query): void
++    {
++        $query->where('is_active', true);
++    }
++
++    protected static function booted(): void
++    {
++        static::saving(function (self $category): void {
++            $category->slug = CatalogText::slug($category->slug ?: $category->title);
++            $category->position ??= 0;
++            $category->is_active ??= true;
++            $category->rebuildPathFields();
++        });
++
++        static::saved(function (self $category): void {
++            if ($category->wasChanged(['slug', 'parent_id', 'full_slug', 'depth'])) {
++                $category->children()->get()->each->save();
++            }
++        });
++    }
++
++    public function rebuildPathFields(): void
++    {
++        $parent = $this->parent;
++
++        if ($parent instanceof self) {
++            $this->depth = $parent->depth + 1;
++            $this->full_slug = $parent->full_slug.'/'.$this->slug;
++
++            return;
++        }
++
++        $this->depth = 0;
++        $this->full_slug = $this->slug;
++    }
++
++    protected function casts(): array
++    {
++        return [
++            'is_active' => 'boolean',
++            'position' => 'integer',
++            'depth' => 'integer',
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Models/VehicleGeneration.php
+@@ -0,0 +1,66 @@
++<?php
++
++namespace App\Models;
++
++use App\Support\CatalogText;
++use Database\Factories\VehicleGenerationFactory;
++use Illuminate\Database\Eloquent\Attributes\Fillable;
++use Illuminate\Database\Eloquent\Attributes\Scope;
++use Illuminate\Database\Eloquent\Builder;
++use Illuminate\Database\Eloquent\Factories\HasFactory;
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\BelongsTo;
++use Illuminate\Database\Eloquent\SoftDeletes;
++
++#[Fillable([
++    'vehicle_model_id',
++    'title',
++    'slug',
++    'norm_key',
++    'years_label',
++    'body',
++    'image',
++    'position',
++    'is_active',
++    'meta_title',
++    'meta_description',
++])]
++class VehicleGeneration extends Model
++{
++    /** @use HasFactory<VehicleGenerationFactory> */
++    use HasFactory, SoftDeletes;
++
++    public function model(): BelongsTo
++    {
++        return $this->belongsTo(VehicleModel::class, 'vehicle_model_id');
++    }
++
++    public function getDisplayTitleAttribute(): string
++    {
++        return trim(($this->model?->display_title ? $this->model->display_title.' ' : '').$this->title);
++    }
++
++    #[Scope]
++    protected function active(Builder $query): void
++    {
++        $query->where('is_active', true);
++    }
++
++    protected static function booted(): void
++    {
++        static::saving(function (self $generation): void {
++            $generation->slug = CatalogText::slug($generation->slug ?: $generation->title);
++            $generation->norm_key = CatalogText::normKey($generation->norm_key ?: $generation->title);
++            $generation->position ??= 0;
++            $generation->is_active ??= true;
++        });
++    }
++
++    protected function casts(): array
++    {
++        return [
++            'is_active' => 'boolean',
++            'position' => 'integer',
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Models/VehicleMake.php
+@@ -0,0 +1,58 @@
++<?php
++
++namespace App\Models;
++
++use App\Support\CatalogText;
++use Database\Factories\VehicleMakeFactory;
++use Illuminate\Database\Eloquent\Attributes\Fillable;
++use Illuminate\Database\Eloquent\Attributes\Scope;
++use Illuminate\Database\Eloquent\Builder;
++use Illuminate\Database\Eloquent\Factories\HasFactory;
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\HasMany;
++use Illuminate\Database\Eloquent\SoftDeletes;
++
++#[Fillable([
++    'title',
++    'slug',
++    'norm_key',
++    'image',
++    'position',
++    'is_active',
++    'meta_title',
++    'meta_description',
++])]
++class VehicleMake extends Model
++{
++    /** @use HasFactory<VehicleMakeFactory> */
++    use HasFactory, SoftDeletes;
++
++    public function models(): HasMany
++    {
++        return $this->hasMany(VehicleModel::class);
++    }
++
++    #[Scope]
++    protected function active(Builder $query): void
++    {
++        $query->where('is_active', true);
++    }
++
++    protected static function booted(): void
++    {
++        static::saving(function (self $make): void {
++            $make->slug = CatalogText::slug($make->slug ?: $make->title);
++            $make->norm_key = CatalogText::normKey($make->norm_key ?: $make->title);
++            $make->position ??= 0;
++            $make->is_active ??= true;
++        });
++    }
++
++    protected function casts(): array
++    {
++        return [
++            'is_active' => 'boolean',
++            'position' => 'integer',
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Models/VehicleModel.php
+@@ -0,0 +1,69 @@
++<?php
++
++namespace App\Models;
++
++use App\Support\CatalogText;
++use Database\Factories\VehicleModelFactory;
++use Illuminate\Database\Eloquent\Attributes\Fillable;
++use Illuminate\Database\Eloquent\Attributes\Scope;
++use Illuminate\Database\Eloquent\Builder;
++use Illuminate\Database\Eloquent\Factories\HasFactory;
++use Illuminate\Database\Eloquent\Model;
++use Illuminate\Database\Eloquent\Relations\BelongsTo;
++use Illuminate\Database\Eloquent\Relations\HasMany;
++use Illuminate\Database\Eloquent\SoftDeletes;
++
++#[Fillable([
++    'vehicle_make_id',
++    'title',
++    'slug',
++    'norm_key',
++    'position',
++    'is_active',
++    'meta_title',
++    'meta_description',
++])]
++class VehicleModel extends Model
++{
++    /** @use HasFactory<VehicleModelFactory> */
++    use HasFactory, SoftDeletes;
++
++    public function make(): BelongsTo
++    {
++        return $this->belongsTo(VehicleMake::class, 'vehicle_make_id');
++    }
++
++    public function generations(): HasMany
++    {
++        return $this->hasMany(VehicleGeneration::class);
++    }
++
++    public function getDisplayTitleAttribute(): string
++    {
++        return trim(($this->make?->title ? $this->make->title.' ' : '').$this->title);
++    }
++
++    #[Scope]
++    protected function active(Builder $query): void
++    {
++        $query->where('is_active', true);
++    }
++
++    protected static function booted(): void
++    {
++        static::saving(function (self $model): void {
++            $model->slug = CatalogText::slug($model->slug ?: $model->title);
++            $model->norm_key = CatalogText::normKey($model->norm_key ?: $model->title);
++            $model->position ??= 0;
++            $model->is_active ??= true;
++        });
++    }
++
++    protected function casts(): array
++    {
++        return [
++            'is_active' => 'boolean',
++            'position' => 'integer',
++        ];
++    }
++}
+
+--- /dev/null
++++ b/app/Policies/ProductCategoryPolicy.php
+@@ -0,0 +1,49 @@
++<?php
++
++namespace App\Policies;
++
++use App\Models\ProductCategory;
++use App\Models\User;
++
++class ProductCategoryPolicy
++{
++    public function viewAny(User $user): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function view(User $user, ProductCategory $productCategory): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function create(User $user): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function update(User $user, ProductCategory $productCategory): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function delete(User $user, ProductCategory $productCategory): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function restore(User $user, ProductCategory $productCategory): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function forceDelete(User $user, ProductCategory $productCategory): bool
++    {
++        return $user->isSuperAdmin();
++    }
++
++    private function canManageCatalog(User $user): bool
++    {
++        return $user->role?->canAccessAdminPanel() ?? false;
++    }
++}
+
+--- /dev/null
++++ b/app/Policies/VehicleGenerationPolicy.php
+@@ -0,0 +1,49 @@
++<?php
++
++namespace App\Policies;
++
++use App\Models\User;
++use App\Models\VehicleGeneration;
++
++class VehicleGenerationPolicy
++{
++    public function viewAny(User $user): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function view(User $user, VehicleGeneration $vehicleGeneration): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function create(User $user): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function update(User $user, VehicleGeneration $vehicleGeneration): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function delete(User $user, VehicleGeneration $vehicleGeneration): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function restore(User $user, VehicleGeneration $vehicleGeneration): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function forceDelete(User $user, VehicleGeneration $vehicleGeneration): bool
++    {
++        return $user->isSuperAdmin();
++    }
++
++    private function canManageCatalog(User $user): bool
++    {
++        return $user->role?->canAccessAdminPanel() ?? false;
++    }
++}
+
+--- /dev/null
++++ b/app/Policies/VehicleMakePolicy.php
+@@ -0,0 +1,49 @@
++<?php
++
++namespace App\Policies;
++
++use App\Models\User;
++use App\Models\VehicleMake;
++
++class VehicleMakePolicy
++{
++    public function viewAny(User $user): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function view(User $user, VehicleMake $vehicleMake): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function create(User $user): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function update(User $user, VehicleMake $vehicleMake): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function delete(User $user, VehicleMake $vehicleMake): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function restore(User $user, VehicleMake $vehicleMake): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function forceDelete(User $user, VehicleMake $vehicleMake): bool
++    {
++        return $user->isSuperAdmin();
++    }
++
++    private function canManageCatalog(User $user): bool
++    {
++        return $user->role?->canAccessAdminPanel() ?? false;
++    }
++}
+
+--- /dev/null
++++ b/app/Policies/VehicleModelPolicy.php
+@@ -0,0 +1,49 @@
++<?php
++
++namespace App\Policies;
++
++use App\Models\User;
++use App\Models\VehicleModel;
++
++class VehicleModelPolicy
++{
++    public function viewAny(User $user): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function view(User $user, VehicleModel $vehicleModel): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function create(User $user): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function update(User $user, VehicleModel $vehicleModel): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function delete(User $user, VehicleModel $vehicleModel): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function restore(User $user, VehicleModel $vehicleModel): bool
++    {
++        return $this->canManageCatalog($user);
++    }
++
++    public function forceDelete(User $user, VehicleModel $vehicleModel): bool
++    {
++        return $user->isSuperAdmin();
++    }
++
++    private function canManageCatalog(User $user): bool
++    {
++        return $user->role?->canAccessAdminPanel() ?? false;
++    }
++}
+
+--- /dev/null
++++ b/app/Support/CatalogText.php
+@@ -0,0 +1,20 @@
++<?php
++
++namespace App\Support;
++
++use Illuminate\Support\Str;
++
++final class CatalogText
++{
++    public static function slug(?string $value, string $fallback = 'item'): string
++    {
++        $slug = Str::slug((string) $value);
++
++        return $slug !== '' ? $slug : $fallback;
++    }
++
++    public static function normKey(?string $value, string $fallback = 'item'): string
++    {
++        return self::slug($value, $fallback);
++    }
++}
+
+--- /dev/null
++++ b/database/factories/ProductCategoryFactory.php
+@@ -0,0 +1,40 @@
++<?php
++
++namespace Database\Factories;
++
++use App\Models\ProductCategory;
++use Illuminate\Database\Eloquent\Factories\Factory;
++use Illuminate\Support\Str;
++
++/**
++ * @extends Factory<ProductCategory>
++ */
++class ProductCategoryFactory extends Factory
++{
++    protected $model = ProductCategory::class;
++
++    public function definition(): array
++    {
++        $title = fake()->unique()->words(2, true);
++
++        return [
++            'parent_id' => null,
++            'title' => Str::title($title),
++            'slug' => Str::slug($title),
++            'position' => fake()->numberBetween(0, 500),
++            'is_active' => true,
++            'meta_title' => null,
++            'meta_description' => null,
++        ];
++    }
++
++    public function inactive(): static
++    {
++        return $this->state(fn (): array => ['is_active' => false]);
++    }
++
++    public function forParent(ProductCategory $parent): static
++    {
++        return $this->state(fn (): array => ['parent_id' => $parent->getKey()]);
++    }
++}
+
+--- /dev/null
++++ b/database/factories/VehicleGenerationFactory.php
+@@ -0,0 +1,45 @@
++<?php
++
++namespace Database\Factories;
++
++use App\Models\VehicleGeneration;
++use App\Models\VehicleModel;
++use Illuminate\Database\Eloquent\Factories\Factory;
++use Illuminate\Support\Str;
++
++/**
++ * @extends Factory<VehicleGeneration>
++ */
++class VehicleGenerationFactory extends Factory
++{
++    protected $model = VehicleGeneration::class;
++
++    public function definition(): array
++    {
++        $title = fake()->unique()->bothify('Generation #??');
++
++        return [
++            'vehicle_model_id' => VehicleModel::factory(),
++            'title' => $title,
++            'slug' => Str::slug($title),
++            'norm_key' => Str::slug($title),
++            'years_label' => fake()->optional()->randomElement(['2018–2021', '2021–н.в.', '2015–2020']),
++            'body' => fake()->optional()->randomElement(['sedan', 'hatchback', 'wagon', 'suv']),
++            'image' => null,
++            'position' => fake()->numberBetween(0, 500),
++            'is_active' => true,
++            'meta_title' => null,
++            'meta_description' => null,
++        ];
++    }
++
++    public function inactive(): static
++    {
++        return $this->state(fn (): array => ['is_active' => false]);
++    }
++
++    public function forVehicleModel(VehicleModel $model): static
++    {
++        return $this->state(fn (): array => ['vehicle_model_id' => $model->getKey()]);
++    }
++}
+
+--- /dev/null
++++ b/database/factories/VehicleMakeFactory.php
+@@ -0,0 +1,36 @@
++<?php
++
++namespace Database\Factories;
++
++use App\Models\VehicleMake;
++use Illuminate\Database\Eloquent\Factories\Factory;
++use Illuminate\Support\Str;
++
++/**
++ * @extends Factory<VehicleMake>
++ */
++class VehicleMakeFactory extends Factory
++{
++    protected $model = VehicleMake::class;
++
++    public function definition(): array
++    {
++        $title = fake()->unique()->company();
++
++        return [
++            'title' => $title,
++            'slug' => Str::slug($title),
++            'norm_key' => Str::slug($title),
++            'image' => null,
++            'position' => fake()->numberBetween(0, 500),
++            'is_active' => true,
++            'meta_title' => null,
++            'meta_description' => null,
++        ];
++    }
++
++    public function inactive(): static
++    {
++        return $this->state(fn (): array => ['is_active' => false]);
++    }
++}
+
+--- /dev/null
++++ b/database/factories/VehicleModelFactory.php
+@@ -0,0 +1,42 @@
++<?php
++
++namespace Database\Factories;
++
++use App\Models\VehicleMake;
++use App\Models\VehicleModel;
++use Illuminate\Database\Eloquent\Factories\Factory;
++use Illuminate\Support\Str;
++
++/**
++ * @extends Factory<VehicleModel>
++ */
++class VehicleModelFactory extends Factory
++{
++    protected $model = VehicleModel::class;
++
++    public function definition(): array
++    {
++        $title = fake()->unique()->bothify('Model ##??');
++
++        return [
++            'vehicle_make_id' => VehicleMake::factory(),
++            'title' => $title,
++            'slug' => Str::slug($title),
++            'norm_key' => Str::slug($title),
++            'position' => fake()->numberBetween(0, 500),
++            'is_active' => true,
++            'meta_title' => null,
++            'meta_description' => null,
++        ];
++    }
++
++    public function inactive(): static
++    {
++        return $this->state(fn (): array => ['is_active' => false]);
++    }
++
++    public function forMake(VehicleMake $make): static
++    {
++        return $this->state(fn (): array => ['vehicle_make_id' => $make->getKey()]);
++    }
++}
+
+--- /dev/null
++++ b/database/migrations/2026_06_30_000100_create_product_categories_table.php
+@@ -0,0 +1,35 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('product_categories', function (Blueprint $table): void {
++            $table->id();
++            $table->foreignId('parent_id')->nullable()->constrained('product_categories')->nullOnDelete();
++            $table->string('title');
++            $table->string('slug')->index();
++            $table->string('full_slug')->unique();
++            $table->unsignedTinyInteger('depth')->default(0);
++            $table->unsignedInteger('position')->default(0);
++            $table->boolean('is_active')->default(true)->index();
++            $table->string('meta_title')->nullable();
++            $table->text('meta_description')->nullable();
++            $table->timestamps();
++            $table->softDeletes();
++
++            $table->index('parent_id');
++            $table->index(['parent_id', 'position']);
++            $table->index(['parent_id', 'slug']);
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('product_categories');
++    }
++};
+
+--- /dev/null
++++ b/database/migrations/2026_06_30_000200_create_vehicle_makes_table.php
+@@ -0,0 +1,32 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('vehicle_makes', function (Blueprint $table): void {
++            $table->id();
++            $table->string('title');
++            $table->string('slug')->index();
++            $table->string('norm_key')->unique();
++            $table->string('image')->nullable();
++            $table->unsignedInteger('position')->default(0);
++            $table->boolean('is_active')->default(true)->index();
++            $table->string('meta_title')->nullable();
++            $table->text('meta_description')->nullable();
++            $table->timestamps();
++            $table->softDeletes();
++
++            $table->index('position');
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('vehicle_makes');
++    }
++};
+
+--- /dev/null
++++ b/database/migrations/2026_06_30_000300_create_vehicle_models_table.php
+@@ -0,0 +1,34 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('vehicle_models', function (Blueprint $table): void {
++            $table->id();
++            $table->foreignId('vehicle_make_id')->constrained('vehicle_makes')->cascadeOnDelete();
++            $table->string('title');
++            $table->string('slug')->index();
++            $table->string('norm_key');
++            $table->unsignedInteger('position')->default(0);
++            $table->boolean('is_active')->default(true)->index();
++            $table->string('meta_title')->nullable();
++            $table->text('meta_description')->nullable();
++            $table->timestamps();
++            $table->softDeletes();
++
++            $table->index(['vehicle_make_id', 'position']);
++            $table->unique(['vehicle_make_id', 'slug']);
++            $table->unique(['vehicle_make_id', 'norm_key']);
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('vehicle_models');
++    }
++};
+
+--- /dev/null
++++ b/database/migrations/2026_06_30_000400_create_vehicle_generations_table.php
+@@ -0,0 +1,37 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('vehicle_generations', function (Blueprint $table): void {
++            $table->id();
++            $table->foreignId('vehicle_model_id')->constrained('vehicle_models')->cascadeOnDelete();
++            $table->string('title');
++            $table->string('slug')->index();
++            $table->string('norm_key');
++            $table->string('years_label')->nullable();
++            $table->string('body')->nullable();
++            $table->string('image')->nullable();
++            $table->unsignedInteger('position')->default(0);
++            $table->boolean('is_active')->default(true)->index();
++            $table->string('meta_title')->nullable();
++            $table->text('meta_description')->nullable();
++            $table->timestamps();
++            $table->softDeletes();
++
++            $table->index(['vehicle_model_id', 'position']);
++            $table->unique(['vehicle_model_id', 'slug']);
++            $table->unique(['vehicle_model_id', 'norm_key']);
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('vehicle_generations');
++    }
++};
+
+--- a/database/seeders/DatabaseSeeder.php
++++ b/database/seeders/DatabaseSeeder.php
+@@ -14,6 +14,10 @@
+      */
+     public function run(): void
+     {
+-        $this->call(AdminUserSeeder::class);
++        $this->call([
++            AdminUserSeeder::class,
++            ProductCatalogSeeder::class,
++            VehicleCatalogSeeder::class,
++        ]);
+     }
+ }
+
+--- /dev/null
++++ b/database/seeders/ProductCatalogSeeder.php
+@@ -0,0 +1,27 @@
++<?php
++
++namespace Database\Seeders;
++
++use App\Models\ProductCategory;
++use Illuminate\Database\Seeder;
++
++class ProductCatalogSeeder extends Seeder
++{
++    public function run(): void
++    {
++        $exterior = ProductCategory::query()->firstOrCreate(
++            ['full_slug' => 'kuzovnye-detali'],
++            ['title' => 'Кузовные детали', 'slug' => 'kuzovnye-detali', 'position' => 10, 'is_active' => true],
++        );
++
++        ProductCategory::query()->firstOrCreate(
++            ['full_slug' => 'kuzovnye-detali/porogi'],
++            ['parent_id' => $exterior->getKey(), 'title' => 'Пороги', 'slug' => 'porogi', 'position' => 10, 'is_active' => true],
++        );
++
++        ProductCategory::query()->firstOrCreate(
++            ['full_slug' => 'kuzovnye-detali/arki'],
++            ['parent_id' => $exterior->getKey(), 'title' => 'Арки', 'slug' => 'arki', 'position' => 20, 'is_active' => true],
++        );
++    }
++}
+
+--- /dev/null
++++ b/database/seeders/VehicleCatalogSeeder.php
+@@ -0,0 +1,36 @@
++<?php
++
++namespace Database\Seeders;
++
++use App\Models\VehicleGeneration;
++use App\Models\VehicleMake;
++use App\Models\VehicleModel;
++use Illuminate\Database\Seeder;
++
++class VehicleCatalogSeeder extends Seeder
++{
++    public function run(): void
++    {
++        $make = VehicleMake::query()->firstOrCreate(
++            ['norm_key' => 'lada'],
++            ['title' => 'Lada', 'slug' => 'lada', 'position' => 10, 'is_active' => true],
++        );
++
++        $model = VehicleModel::query()->firstOrCreate(
++            ['vehicle_make_id' => $make->getKey(), 'norm_key' => 'vesta'],
++            ['title' => 'Vesta', 'slug' => 'vesta', 'position' => 10, 'is_active' => true],
++        );
++
++        VehicleGeneration::query()->firstOrCreate(
++            ['vehicle_model_id' => $model->getKey(), 'norm_key' => 'i'],
++            [
++                'title' => 'I',
++                'slug' => 'i',
++                'years_label' => '2015–н.в.',
++                'body' => 'sedan',
++                'position' => 10,
++                'is_active' => true,
++            ],
++        );
++    }
++}
+
+--- a/phpunit.xml
++++ b/phpunit.xml
+@@ -19,6 +19,7 @@
+     </source>
+     <php>
+         <env name="APP_ENV" value="testing"/>
++        <env name="APP_KEY" value="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="/>
+         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+         <env name="BCRYPT_ROUNDS" value="4"/>
+         <env name="BROADCAST_CONNECTION" value="null"/>
+
+--- /dev/null
++++ b/tests/Feature/Catalog/ProductCategoryTest.php
+@@ -0,0 +1,41 @@
++<?php
++
++use App\Models\ProductCategory;
++use Illuminate\Database\QueryException;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++
++uses(RefreshDatabase::class);
++
++test('product category full slug is generated from parent path', function () {
++    $parent = ProductCategory::factory()->create([
++        'title' => 'Кузовные детали',
++        'slug' => 'body-parts',
++    ]);
++
++    $child = ProductCategory::factory()->forParent($parent)->create([
++        'title' => 'Пороги',
++        'slug' => 'thresholds',
++    ]);
++
++    expect($parent->fresh())
++        ->full_slug->toBe('body-parts')
++        ->depth->toBe(0)
++        ->and($child->fresh())
++        ->full_slug->toBe('body-parts/thresholds')
++        ->depth->toBe(1);
++});
++
++test('product category full slug is recalculated when parent slug changes', function () {
++    $parent = ProductCategory::factory()->create(['slug' => 'old-parent']);
++    $child = ProductCategory::factory()->forParent($parent)->create(['slug' => 'child']);
++
++    $parent->update(['slug' => 'new-parent']);
++
++    expect($child->fresh()->full_slug)->toBe('new-parent/child');
++});
++
++test('product category full slug is unique', function () {
++    ProductCategory::factory()->create(['title' => 'Пороги', 'slug' => 'porogi']);
++
++    ProductCategory::factory()->create(['title' => 'Пороги дубль', 'slug' => 'porogi']);
++})->throws(QueryException::class);
+
+--- /dev/null
++++ b/tests/Feature/Catalog/VehicleCatalogTest.php
+@@ -0,0 +1,58 @@
++<?php
++
++use App\Models\VehicleGeneration;
++use App\Models\VehicleMake;
++use App\Models\VehicleModel;
++use Illuminate\Database\QueryException;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++
++uses(RefreshDatabase::class);
++
++test('vehicle make norm key is unique', function () {
++    VehicleMake::factory()->create(['title' => 'Lada', 'norm_key' => 'lada']);
++
++    VehicleMake::factory()->create(['title' => 'Lada duplicate', 'norm_key' => 'lada']);
++})->throws(QueryException::class);
++
++test('vehicle model slug and norm key are unique inside make', function () {
++    $make = VehicleMake::factory()->create();
++
++    VehicleModel::factory()->forMake($make)->create([
++        'title' => 'Vesta',
++        'slug' => 'vesta',
++        'norm_key' => 'vesta',
++    ]);
++
++    VehicleModel::factory()->forMake($make)->create([
++        'title' => 'Vesta duplicate',
++        'slug' => 'vesta',
++        'norm_key' => 'vesta-2',
++    ]);
++})->throws(QueryException::class);
++
++test('vehicle generation slug and norm key are unique inside model', function () {
++    $model = VehicleModel::factory()->create();
++
++    VehicleGeneration::factory()->forVehicleModel($model)->create([
++        'title' => 'I',
++        'slug' => 'i',
++        'norm_key' => 'i',
++    ]);
++
++    VehicleGeneration::factory()->forVehicleModel($model)->create([
++        'title' => 'I duplicate',
++        'slug' => 'i',
++        'norm_key' => 'i-2',
++    ]);
++})->throws(QueryException::class);
++
++test('vehicle relationships make model generation are linked', function () {
++    $make = VehicleMake::factory()->create(['title' => 'Lada']);
++    $model = VehicleModel::factory()->forMake($make)->create(['title' => 'Vesta']);
++    $generation = VehicleGeneration::factory()->forVehicleModel($model)->create(['title' => 'I']);
++
++    expect($make->models()->first()->is($model))->toBeTrue()
++        ->and($model->make->is($make))->toBeTrue()
++        ->and($model->generations()->first()->is($generation))->toBeTrue()
++        ->and($generation->model->is($model))->toBeTrue();
++});
+
+--- /dev/null
++++ b/tests/Unit/.gitkeep
+@@ -0,0 +1 @@
++# keep
+
