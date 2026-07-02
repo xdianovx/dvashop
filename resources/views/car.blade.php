@@ -1,32 +1,55 @@
 @extends('layouts.app')
 
-@if (! empty($metaDescription))
-    @section('meta_description', $metaDescription)
-@endif
+@section('title', 'Кузовные элементы <br> для Volkswagen Golf 5 Plus — 2POROGA')
 
-@section('title', $pageTitle ?? 'Кузовные элементы — 2POROGA')
+@php
+    $categories = [
+        ['label' => 'Кузовные пороги', 'active' => true],
+        ['label' => 'Внутренние пороги', 'active' => false],
+        ['label' => 'Усилители/соединители порогов', 'active' => false],
+        ['label' => 'Поддомкратники', 'active' => false],
+        ['label' => 'Торцевые заглушки', 'active' => false],
+        ['label' => 'Ремкомплекты пола', 'active' => false],
+        ['label' => 'Сегменты ремкомплекта пола', 'active' => false],
+        ['label' => 'Лонжероны пола', 'active' => false],
+        ['label' => 'Ленты бензобака', 'active' => false],
+    ];
+
+    $products = [
+        ['name' => 'Порог', 'price' => '1 790', 'old' => null],
+        ['name' => 'Порог', 'price' => '1 790', 'old' => null],
+        ['name' => 'Порог', 'price' => '1 790', 'old' => '1 950'],
+        ['name' => 'Порог', 'price' => '1 790', 'old' => null],
+        ['name' => 'Порог', 'price' => '1 790', 'old' => null],
+        ['name' => 'Порог', 'price' => '1 790', 'old' => '1 950'],
+        ['name' => 'Порог', 'price' => '1 790', 'old' => null],
+        ['name' => 'Порог', 'price' => '1 790', 'old' => null],
+        ['name' => 'Порог', 'price' => '1 790', 'old' => '1 950'],
+    ];
+@endphp
 
 @section('content')
     <div class="container">
-        <x-breadcrumbs :items="$breadcrumbs" />
+        <x-breadcrumbs :items="[
+            ['label' => 'Главная', 'url' => '/'],
+            ['label' => 'Каталог', 'url' => '/catalog'],
+            ['label' => 'Volkswagen', 'url' => '#'],
+            ['label' => 'Golf 5 Plus', 'url' => '#'],
+            ['label' => 'Volkswagen Golf 5 Plus 5дв. 1 поколение'],
+        ]" />
 
         <div class="product-head">
             <span class="product-head__thumb">
-                <img src="{{ $generation->image ?: '/img/cars/golf-5-plus.png' }}" alt="{{ $make->title }} {{ $model->title }}" loading="lazy">
+                <img src="/img/cars/golf-5-plus.png" alt="Volkswagen Golf 5 Plus" loading="lazy">
             </span>
             <div class="product-head__info">
-                <h1 class="product-head__title">{!! $headingTitle !!}</h1>
-                <p class="product-head__meta">
-                    {{ collect([$generation->body, $generation->title, $generation->years_label])->filter()->implode(' • ') }}
-                </p>
+                <h1 class="product-head__title">Кузовные элементы <br> для Volkswagen Golf 5 Plus</h1>
+                <p class="product-head__meta">Хэтчбек • 5 дверей • 1 поколение • 2025 год</p>
             </div>
         </div>
 
-        <form class="car-search" action="{{ route('catalog.generation', [$make->slug, $model->slug, $generation->slug]) }}" method="get">
-            @if ($selectedCategory)
-                <input type="hidden" name="category" value="{{ $selectedCategory->full_slug }}">
-            @endif
-            <input type="text" name="q" value="{{ $searchQuery ?? '' }}" class="car-search__input" placeholder="Поиск: порог, усилитель, заглушка…">
+        <form class="car-search" action="#" method="get">
+            <input type="text" class="car-search__input" placeholder="Поиск: порог, усилитель, заглушка…">
             <button type="submit" class="btn btn--primary car-search__submit">Показать</button>
         </form>
 
@@ -49,15 +72,13 @@
                     </div>
                     <ul class="catalog-nav__list">
                         <li>
-                            <a href="{{ route('catalog.generation', [$make->slug, $model->slug, $generation->slug]) }}" class="catalog-nav__link catalog-nav__link--all @if (! $selectedCategory) catalog-nav__link--active @endif">
+                            <a href="#" class="catalog-nav__link catalog-nav__link--all catalog-nav__link--active">
                                 Все элементы
                             </a>
                         </li>
                         @foreach ($categories as $category)
                             <li>
-                                <a href="{{ route('catalog.generation', [$make->slug, $model->slug, $generation->slug]) }}?category={{ urlencode($category->full_slug) }}" class="catalog-nav__link @if ($selectedCategory?->is($category)) catalog-nav__link--active @endif">
-                                    {{ $category->title }}
-                                </a>
+                                <a href="#" class="catalog-nav__link">{{ $category['label'] }}</a>
                             </li>
                         @endforeach
                     </ul>
@@ -65,13 +86,11 @@
             </aside>
 
             <ul class="products">
-                @forelse ($products as $product)
+                @foreach ($products as $product)
                     <li class="products__item">
-                        <x-product-card :card="$product" />
+                        <x-product-card :name="$product['name']" :price="$product['price']" :old="$product['old']" />
                     </li>
-                @empty
-                    <li class="products__item">Товары не найдены</li>
-                @endforelse
+                @endforeach
             </ul>
         </div>
     </div>

@@ -3,21 +3,10 @@
 @section('title', 'Моя корзина — 2POROGA')
 
 @php
-    $money = static fn ($value) => number_format((float) $value, 0, ',', ' ') . ' руб.';
-    $plural = static function (int $count): string {
-        $mod10 = $count % 10;
-        $mod100 = $count % 100;
-
-        if ($mod10 === 1 && $mod100 !== 11) {
-            return $count . ' товар';
-        }
-
-        if ($mod10 >= 2 && $mod10 <= 4 && ($mod100 < 12 || $mod100 > 14)) {
-            return $count . ' товара';
-        }
-
-        return $count . ' товаров';
-    };
+    $items = [
+        ['name' => 'Кузовной порог для Alfa Romeo 33 (1990–1994)', 'options' => 'Оцинкованная • 1 мм • левый', 'qty' => 2, 'price' => '3 500 руб.', 'unit' => '1 750 руб. за шт.'],
+        ['name' => 'Арка для Alfa Romeo 33 (1990–1994)', 'options' => 'Оцинкованная • 1 мм • левый', 'qty' => 1, 'price' => '1 750 руб.', 'unit' => '1 750 руб. за шт.'],
+    ];
 @endphp
 
 @section('content')
@@ -28,33 +17,13 @@
 
         <div class="cart-layout">
             <div class="cart-list">
-                @forelse ($items as $item)
-                    @php
-                        $lineTotal = (float) $item->price_snapshot * $item->quantity;
-                        $options = collect($item->variant?->options ?? [])
-                            ->map(fn ($value, $key) => is_string($key) ? $key . ': ' . $value : $value)
-                            ->filter()
-                            ->implode(' • ');
-                    @endphp
-
-                    <x-cart-item
-                        :item="$item"
-                        :name="$item->title_snapshot"
-                        :options="$options ?: ($item->variant?->title ?? '')"
-                        :qty="$item->quantity"
-                        :price="$money($lineTotal)"
-                        :unit="$money($item->price_snapshot) . ' за шт.'"
-                    />
-                @empty
-                    <p>Корзина пока пуста.</p>
-                @endforelse
+                @foreach ($items as $item)
+                    <x-cart-item :name="$item['name']" :options="$item['options']" :qty="$item['qty']"
+                        :price="$item['price']" :unit="$item['unit']" />
+                @endforeach
             </div>
 
-            <x-cart-summary
-                :count="$plural($totals['items_count'])"
-                :subtotal="$money($totals['subtotal'])"
-                :total="$money($totals['subtotal'])"
-            />
+            <x-cart-summary count="3 товара" subtotal="5 250 руб." total="5 250 руб." />
         </div>
     </div>
 @endsection

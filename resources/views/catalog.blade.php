@@ -1,16 +1,22 @@
 @extends('layouts.app')
 
-@if (! empty($metaDescription))
-    @section('meta_description', $metaDescription)
-@endif
+@section('title', 'Каталог марок — 2POROGA')
 
-@section('title', $pageTitle ?? 'Каталог марок — 2POROGA')
+@php
+    $brands = [
+        'Acura', 'Alfa Romeo', 'Audi', 'BAW', 'Bentley', 'BMW',
+        'Brilliance', 'BYD', 'Cadillac', 'Changan', 'Chery', 'Chevrolet',
+        'Chrysler', 'Citroen', 'Dacia', 'Daewoo', 'DAF', 'Daihatsu',
+        'Datsun', 'Derways', 'Dodge', 'Doninvest', 'FAW', 'Fiat',
+        'Ford', 'Foton', 'Geely', 'Geo', 'GMC', 'Great Wall',
+    ];
+@endphp
 
 @section('content')
     <div class="container">
-        <x-breadcrumbs :items="$breadcrumbs ?? [['label' => 'Главная', 'url' => '/'], ['label' => 'Каталог']]" />
+        <x-breadcrumbs :items="[['label' => 'Главная', 'url' => '/'], ['label' => 'Каталог']]" />
 
-        <x-section-heading class="section-heading--catalog" :title="$headingTitle ?? 'Выберите марку'">
+        <x-section-heading class="section-heading--catalog" title="Выберите марку">
             <x-slot:icon>
                 <svg viewBox="0 0 42 42" fill="none" stroke="currentColor" stroke-width="3"
                     stroke-linecap="round" stroke-linejoin="round">
@@ -21,8 +27,8 @@
         </x-section-heading>
 
         <div class="catalog-search">
-            <form class="catalog-search__form" action="{{ route('catalog.index') }}" method="get">
-                <input type="text" name="q" value="{{ $searchQuery ?? '' }}" class="catalog-search__input"
+            <form class="catalog-search__form" action="#" method="get">
+                <input type="text" class="catalog-search__input"
                     placeholder="Введите марку модель или код автомобиля">
                 <button type="submit" class="btn btn--primary catalog-search__submit">
                     <span class="catalog-search__submit-text">Показать</span>
@@ -44,32 +50,17 @@
         </div>
 
         <ul class="brands">
-            @forelse ($items ?? [] as $item)
+            @foreach ($brands as $brand)
+                @php $slug = Str::slug($brand); @endphp
                 <li class="brands__item">
-                    <a href="{{ $item['url'] }}" class="brand-card">
+                    <a href="#" class="brand-card">
                         <span class="brand-card__logo">
-                            <img src="{{ $item['image'] }}" alt="{{ $item['title'] }}" loading="lazy">
+                            <img src="/img/brands/{{ $slug }}.svg" alt="{{ $brand }}" loading="lazy">
                         </span>
-                        <span class="brand-card__name">{{ $item['title'] }}</span>
+                        <span class="brand-card__name">{{ $brand }}</span>
                     </a>
                 </li>
-            @empty
-                <li class="brands__item">
-                    <span class="brand-card">
-                        <span class="brand-card__name">Ничего не найдено</span>
-                    </span>
-                </li>
-            @endforelse
+            @endforeach
         </ul>
-
-        @if (($products ?? collect())->isNotEmpty())
-            <ul class="products">
-                @foreach ($products as $product)
-                    <li class="products__item">
-                        <x-product-card :card="$product" />
-                    </li>
-                @endforeach
-            </ul>
-        @endif
     </div>
 @endsection
