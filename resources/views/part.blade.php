@@ -1,42 +1,24 @@
 @extends('layouts.app')
 
-@section('title', 'Кузовной порог для Alfa Romeo 33 (1990–1994) — 2POROGA')
+@if (! empty($metaDescription))
+    @section('meta_description', $metaDescription)
+@endif
+
+@section('title', $pageTitle ?? $product->title.' — 2POROGA')
 
 @php
-    $gallery = ['/img/products/threshold.png', '/img/products/threshold.png', '/img/products/threshold.png', '/img/products/threshold.png'];
-
-    $profiles = ['Полный', 'Нижняя часть'];
-
-    $radioGroups = [
-        ['name' => 'position', 'label' => 'Положение:', 'items' => ['Левый', 'Правый', 'Левый + Правый']],
-        ['name' => 'material', 'label' => 'Материал:', 'items' => ['Оцинковка', 'Х/С сталь']],
-        ['name' => 'thickness', 'label' => 'Толщина металла', 'items' => ['1 мм', '1,5 мм']],
-    ];
-
     $delivery = [
         ['icon' => 'cost', 'text' => 'Стоимость доставки: от 490 руб.'],
         ['icon' => 'deliver', 'text' => 'Расчётное время доставки: 1–3 дня'],
         ['icon' => 'vozvrat', 'text' => 'Возврат товара: в течение 2 недель'],
     ];
 
-    $related = [
-        ['name' => 'Внутренний порог', 'price' => '1 790', 'old' => '1 950'],
-        ['name' => 'Внутренний порог', 'price' => '1 790', 'old' => '1 950'],
-        ['name' => 'Внутренний порог', 'price' => '1 790', 'old' => '1 950'],
-        ['name' => 'Внутренний порог', 'price' => '1 790', 'old' => '1 950'],
-    ];
+    $stockLabel = $variant->stock_status?->label() ?? $product->stock_status?->label() ?? 'В наличии';
 @endphp
 
 @section('content')
     <div class="container">
-        <x-breadcrumbs :items="[
-            ['label' => 'Главная', 'url' => '/'],
-            ['label' => 'Каталог', 'url' => '/catalog'],
-            ['label' => 'Alfa Romeo', 'url' => '#'],
-            ['label' => '33', 'url' => '#'],
-            ['label' => 'Кузовные пороги', 'url' => '#'],
-            ['label' => 'Кузовной порог для Alfa Romeo 33 (1990–1994)'],
-        ]" />
+        <x-breadcrumbs :items="$breadcrumbs" />
 
         <div class="part-top">
             <div class="part-gallery">
@@ -45,7 +27,7 @@
                         <div class="swiper-wrapper">
                             @foreach ($gallery as $img)
                                 <div class="swiper-slide part-gallery__slide">
-                                    <img src="{{ $img }}" alt="Кузовной порог" loading="lazy">
+                                    <img src="{{ $img['url'] }}" alt="{{ $img['alt'] }}" loading="lazy">
                                 </div>
                             @endforeach
                         </div>
@@ -60,7 +42,7 @@
                     <div class="swiper-wrapper">
                         @foreach ($gallery as $img)
                             <div class="swiper-slide part-gallery__thumb">
-                                <img src="{{ $img }}" alt="" aria-hidden="true">
+                                <img src="{{ $img['url'] }}" alt="" aria-hidden="true">
                             </div>
                         @endforeach
                     </div>
@@ -76,46 +58,33 @@
                             </svg>
                         @endfor
                     </span>
-                    <a href="#" class="part-buy__reviews-link">5 оценок</a>
+                    <a href="#" class="part-buy__reviews-link">Нет оценок</a>
                 </div>
 
-                <h1 class="part-buy__title">Кузовной порог для Alfa Romeo 33 (1990–1994)</h1>
-                <p class="part-buy__article">Артикул: 01.AR0033XXXX.ALL.0.00</p>
+                <h1 class="part-buy__title">{{ $product->title }}</h1>
+                <p class="part-buy__article">Артикул: {{ $variant->sku ?: $product->sku ?: '—' }}</p>
                 <p class="part-buy__stock">
                     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"
                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <circle cx="10" cy="10" r="8.5" />
                         <path d="m6.5 10 2.5 2.5 4.5-5" />
                     </svg>
-                    Готово к отправке
+                    {{ $stockLabel }}
                 </p>
-                <p class="part-buy__price">1 990 руб.</p>
+                <p class="part-buy__price">{{ \App\ViewModels\ProductCardViewModel::formatPrice($variant->price) }} руб.</p>
 
-                <div class="part-option-group">
-                    <span class="part-option-group__label">Профиль:</span>
-                    <div class="part-tabs">
-                        @foreach ($profiles as $i => $profile)
-                            <button type="button" class="part-tab @if ($i === 0) part-tab--active @endif">
-                                {{ $profile }}
-                            </button>
-                        @endforeach
-                    </div>
-                </div>
-
-                @foreach ($radioGroups as $group)
+                @if ($product->variants->count() > 1)
                     <div class="part-option-group">
-                        <span class="part-option-group__label">{{ $group['label'] }}</span>
-                        <div class="part-radios">
-                            @foreach ($group['items'] as $i => $item)
-                                <label class="part-radio">
-                                    <input type="radio" name="{{ $group['name'] }}" @if ($i === 0) checked @endif>
-                                    <span class="part-radio__dot"></span>
-                                    <span class="part-radio__label">{{ $item }}</span>
-                                </label>
+                        <span class="part-option-group__label">Вариант:</span>
+                        <div class="part-tabs">
+                            @foreach ($product->variants as $item)
+                                <button type="button" class="part-tab @if ($item->is_default) part-tab--active @endif">
+                                    {{ $item->title ?: 'Стандарт' }}
+                                </button>
                             @endforeach
                         </div>
                     </div>
-                @endforeach
+                @endif
 
                 <ul class="part-delivery">
                     @foreach ($delivery as $row)
@@ -131,8 +100,14 @@
                     @endforeach
                 </ul>
 
+                <form id="product-add-to-cart-form" action="{{ route('cart.items.store') }}" method="post">
+                    @csrf
+                    <input type="hidden" name="product_variant_id" value="{{ $variant->getKey() }}">
+                    <input type="hidden" name="quantity" value="1">
+                </form>
+
                 <div class="part-buy__actions">
-                    <button type="button" class="btn part-buy__cart">Добавить в корзину</button>
+                    <button type="submit" form="product-add-to-cart-form" class="btn part-buy__cart">Добавить в корзину</button>
                     <button type="button" class="btn btn--outline part-buy__consult">Получить консультацию</button>
                 </div>
             </div>
@@ -141,18 +116,11 @@
         <section class="part-info">
             <div class="part-info__col">
                 <h2 class="part-info__heading">Описание</h2>
-                <p class="part-desc">
-                    Ремкомплекты порогов для <strong>Alfa Romeo 33</strong> предназначены для ремонта внешних порогов
-                    при коррозии, а также деформации и незначительном повреждении при мелких ДТП. Имеют
-                    <strong>запас по длине 5 см</strong> для упрощения подгонки при установке. Ремкомплекты порогов
-                    выполнены <strong>из высококачественной стали ГОСТ 19904-90,</strong> что гарантирует срок службы
-                    до 10 лет.
-                </p>
-                <p class="part-desc">
-                    Благодаря использованию современного оборудования и усиленному контролю качества,
-                    <strong>вся продукция полностью соответствует оригинальным деталям,</strong> и единственная на
-                    рынке имеет сертификат РосТест №0304639.
-                </p>
+                @if ($description)
+                    <div class="part-desc">{!! nl2br(e($description)) !!}</div>
+                @else
+                    <p class="part-desc">Описание товара скоро появится.</p>
+                @endif
             </div>
 
             <div class="part-info__col">
@@ -160,23 +128,23 @@
                 <dl class="part-specs">
                     <div class="part-specs__row">
                         <dt class="part-specs__key">Артикул</dt>
-                        <dd class="part-specs__val">01.AR0033XXXX.ALL.0.00</dd>
+                        <dd class="part-specs__val">{{ $variant->sku ?: $product->sku ?: '—' }}</dd>
+                    </div>
+                    <div class="part-specs__row">
+                        <dt class="part-specs__key">Категория</dt>
+                        <dd class="part-specs__val">{{ $product->category?->title ?: '—' }}</dd>
                     </div>
                     <div class="part-specs__row">
                         <dt class="part-specs__key">Марка</dt>
-                        <dd class="part-specs__val">Автопороги.ру</dd>
+                        <dd class="part-specs__val">{{ $make?->title ?: '—' }}</dd>
                     </div>
                     <div class="part-specs__row">
-                        <dt class="part-specs__key">Производство</dt>
-                        <dd class="part-specs__val">Россия</dd>
+                        <dt class="part-specs__key">Модель</dt>
+                        <dd class="part-specs__val">{{ $model?->title ?: '—' }}</dd>
                     </div>
                     <div class="part-specs__row">
-                        <dt class="part-specs__key">Материал</dt>
-                        <dd class="part-specs__val">Сталь ГОСТ 19904-90</dd>
-                    </div>
-                    <div class="part-specs__row">
-                        <dt class="part-specs__key">Сертификат</dt>
-                        <dd class="part-specs__val">№0098556</dd>
+                        <dt class="part-specs__key">Поколение</dt>
+                        <dd class="part-specs__val">{{ $generation?->title ?: '—' }}</dd>
                     </div>
                 </dl>
             </div>
@@ -185,11 +153,13 @@
         <section class="part-related">
             <h2 class="part-related__title">С этим товаром покупают</h2>
             <ul class="products">
-                @foreach ($related as $product)
+                @forelse ($related as $product)
                     <li class="products__item">
-                        <x-product-card :name="$product['name']" :price="$product['price']" :old="$product['old']" />
+                        <x-product-card :card="$product" />
                     </li>
-                @endforeach
+                @empty
+                    <li class="products__item">Похожие товары пока не найдены</li>
+                @endforelse
             </ul>
         </section>
     </div>
