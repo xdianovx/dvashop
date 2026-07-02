@@ -1,4 +1,5 @@
 @props([
+    'item' => null,
     'name' => '',
     'options' => '',
     'qty' => 1,
@@ -15,7 +16,16 @@
     <div class="cart-item__info">
         <a href="#" class="cart-item__name">{{ $name }}</a>
         <p class="cart-item__opts">{{ $options }}</p>
-        <button type="button" class="cart-item__remove">Удалить</button>
+
+        @if ($item)
+            <form method="POST" action="{{ route('cart.items.destroy', $item) }}">
+                @csrf
+                @method('DELETE')
+                <button type="submit" class="cart-item__remove">Удалить</button>
+            </form>
+        @else
+            <button type="button" class="cart-item__remove">Удалить</button>
+        @endif
     </div>
 
     <div class="cart-item__qty" data-qty>

@@ -6,22 +6,25 @@ export default defineConfig({
     plugins: [
         laravel({
             input: ['resources/scss/app.scss', 'resources/js/app.js'],
-            // Hot reload: changes to these paths trigger a full page reload in dev.
-            // CSS edits hot-swap via Vite HMR without a reload.
             refresh: [
                 'resources/views/**',
                 'resources/css/**',
+                'resources/scss/**',
                 'resources/js/**',
                 'routes/**',
             ],
-            // Gilroy + Montserrat are self-hosted (public/fonts, see resources/css/fonts.css).
-            // Only Golos Text comes from Bunny Fonts.
             fonts: [
                 bunny('Golos Text', { weights: [400, 500, 600] }),
             ],
         }),
     ],
     server: {
+        host: '0.0.0.0',
+        port: Number(process.env.VITE_PORT ?? 5173),
+        strictPort: true,
+        hmr: {
+            host: process.env.VITE_HMR_HOST ?? 'localhost',
+        },
         watch: {
             ignored: ['**/storage/framework/views/**'],
         },
