@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'years_label',
     'body',
     'image',
+    'image_source_url',
     'position',
     'is_active',
     'meta_title',

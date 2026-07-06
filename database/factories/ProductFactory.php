@@ -36,6 +36,7 @@ class ProductFactory extends Factory
             'meta_title' => null,
             'meta_description' => null,
             'import_key' => null,
+            'import_source' => null,
             'last_import_run_id' => null,
         ];
     }

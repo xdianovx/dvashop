@@ -2,12 +2,15 @@
 
 namespace App\Services;
 
+use App\Services\Import\CatalogImportHeaderParser;
 use InvalidArgumentException;
 use OpenSpout\Reader\XLSX\Reader as XlsxReader;
 use SplFileObject;
 
 class SpreadsheetReader
 {
+    public const CATALOG_SHEET_NAME = 'Каталог';
+
     public int $headerRows = 1;
 
     public function supports(string $path): bool
@@ -75,37 +78,14 @@ class SpreadsheetReader
      */
     public function readMergedDetailHeaders(string $path, int $detailStartColumn = 6): array
     {
-        $headerRows = $this->readHeaderRows($path, 2);
-        $groups = $headerRows[1] ?? [];
-        $titles = $headerRows[2] ?? [];
-        $maxColumn = max(array_key_last($groups) ?? 0, array_key_last($titles) ?? 0);
-        $headers = [];
+        $this->ensureSupported($path);
 
-        $currentGroup = null;
-
-        for ($index = $detailStartColumn; $index <= $maxColumn; $index++) {
-            $groupCell = $this->cellString($groups[$index] ?? null);
-            $title = $this->cellString($titles[$index] ?? null);
-
-            if ($groupCell !== '') {
-                $currentGroup = $groupCell;
-            }
-
-            if ($groupCell === '' && $title === '') {
-                continue;
-            }
-
-            $categoryTitle = $title !== '' ? $title : ($groupCell ?: (string) $currentGroup);
-
-            $headers[$index] = [
-                'index' => $index,
-                'group' => $currentGroup,
-                'title' => $title !== '' ? $title : $categoryTitle,
-                'category_title' => $categoryTitle,
-            ];
-        }
-
-        return $headers;
+        return app(CatalogImportHeaderParser::class)->parse(
+            path: $path,
+            detailStartColumn: $detailStartColumn,
+            headerRows: $this->readHeaderRows($path, 2),
+            extension: $this->extension($path),
+        );
     }
 
     /**
@@ -181,15 +161,29 @@ class SpreadsheetReader
         $reader->open($path);
 
         try {
+            $firstRows = null;
+            $catalogRows = null;
+
             foreach ($reader->getSheetIterator() as $sheet) {
+                $rows = [];
                 $rowIndex = 0;
 
                 foreach ($sheet->getRowIterator() as $row) {
                     $rowIndex++;
-                    yield $rowIndex => $row->toArray();
+                    $rows[$rowIndex] = $row->toArray();
                 }
 
-                break;
+                $firstRows ??= $rows;
+
+                $sheetName = method_exists($sheet, 'getName') ? $sheet->getName() : null;
+                if ($sheetName === self::CATALOG_SHEET_NAME) {
+                    $catalogRows = $rows;
+                    break;
+                }
+            }
+
+            foreach (($catalogRows ?? $firstRows ?? []) as $index => $row) {
+                yield $index => $row;
             }
         } finally {
             $reader->close();
@@ -234,20 +228,15 @@ class SpreadsheetReader
         return true;
     }
 
-    private function cellString(mixed $value): string
+    private function extension(string $path): string
     {
-        return trim((string) $value);
+        return strtolower(pathinfo($path, PATHINFO_EXTENSION));
     }
 
     private function ensureSupported(string $path): void
     {
         if (! $this->supports($path)) {
-            throw new InvalidArgumentException('Only xlsx and csv imports are supported.');
+            throw new InvalidArgumentException('Supported import file types: csv, xlsx.');
         }
-    }
-
-    private function extension(string $path): string
-    {
-        return strtolower(pathinfo($path, PATHINFO_EXTENSION));
     }
 }

@@ -1,8 +1,11 @@
 <?php
 
+use App\Enums\ImportLogLevel;
 use App\Enums\ImportRunStatus;
 use App\Enums\ProductStatus;
 use App\Jobs\CatalogImportChunkJob;
+use App\Jobs\DownloadVehicleGenerationImageJob;
+use App\Models\ImportLog;
 use App\Models\ImportRun;
 use App\Models\Product;
 use App\Models\ProductCategory;
@@ -26,6 +29,7 @@ uses(RefreshDatabase::class);
 function catalogImportRun(array $state = []): ImportRun
 {
     return ImportRun::factory()->create(array_merge([
+        'type' => 'catalog',
         'status' => ImportRunStatus::Running,
         'total_rows' => 1,
         'detail_columns' => [
@@ -64,7 +68,98 @@ function processCatalogRow(ImportRun $run, array $row): void
     );
 }
 
-test('merged detail headers are read correctly', function () {
+function catalogTestColumnName(int $zeroBasedIndex): string
+{
+    $number = $zeroBasedIndex + 1;
+    $name = '';
+
+    while ($number > 0) {
+        $remainder = ($number - 1) % 26;
+        $name = chr(65 + $remainder).$name;
+        $number = intdiv($number - 1, 26);
+    }
+
+    return $name;
+}
+
+function catalogTestCellXml(int $columnIndex, int $rowIndex, mixed $value): string
+{
+    $value = trim((string) $value);
+
+    if ($value === '') {
+        return '';
+    }
+
+    $reference = catalogTestColumnName($columnIndex).$rowIndex;
+    $escaped = htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8');
+
+    return '<c r="'.$reference.'" t="inlineStr"><is><t>'.$escaped.'</t></is></c>';
+}
+
+/**
+ * @param array<int, array<int, mixed>> $rows
+ * @param array<int, string> $mergedRanges
+ */
+function writeCatalogTestXlsx(string $path, array $rows, array $mergedRanges = []): void
+{
+    if (! is_dir(dirname($path))) {
+        mkdir(dirname($path), 0777, true);
+    }
+
+    $sheetRows = '';
+    $maxColumn = 0;
+    $maxRow = 0;
+
+    foreach ($rows as $rowIndex => $cells) {
+        $rowXml = '';
+        $maxRow = max($maxRow, $rowIndex);
+
+        foreach ($cells as $columnIndex => $value) {
+            $maxColumn = max($maxColumn, (int) $columnIndex);
+            $rowXml .= catalogTestCellXml((int) $columnIndex, (int) $rowIndex, $value);
+        }
+
+        $sheetRows .= '<row r="'.$rowIndex.'">'.$rowXml.'</row>';
+    }
+
+    $mergeXml = '';
+    if ($mergedRanges !== []) {
+        $mergeXml = '<mergeCells count="'.count($mergedRanges).'">'.implode('', array_map(
+            static fn (string $range): string => '<mergeCell ref="'.$range.'"/>',
+            $mergedRanges,
+        )).'</mergeCells>';
+    }
+
+    $dimension = 'A1:'.catalogTestColumnName($maxColumn).max(1, $maxRow);
+    $sheetXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        .'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        .'<dimension ref="'.$dimension.'"/><sheetData>'.$sheetRows.'</sheetData>'.$mergeXml.'</worksheet>';
+
+    $zip = new ZipArchive();
+    $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+    $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        .'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        .'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        .'<Default Extension="xml" ContentType="application/xml"/>'
+        .'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        .'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        .'</Types>');
+    $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        .'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        .'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        .'</Relationships>');
+    $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        .'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        .'<sheets><sheet name="Каталог" sheetId="1" r:id="rId1"/></sheets></workbook>');
+    $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        .'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        .'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        .'</Relationships>');
+    $zip->addFromString('xl/worksheets/sheet1.xml', $sheetXml);
+    $zip->close();
+}
+
+test('csv merged detail headers keep legacy fallback behaviour', function () {
     $path = storage_path('framework/testing/catalog-merged-headers.csv');
 
     if (! is_dir(dirname($path))) {
@@ -91,6 +186,82 @@ test('merged detail headers are read correctly', function () {
         ->and(app(SpreadsheetReader::class)->countRows($path, 2))->toBe(1);
 });
 
+test('xlsx merged detail headers use real merge ranges and reset group after range ends', function () {
+    $path = storage_path('framework/testing/catalog-real-merged.xlsx');
+
+    writeCatalogTestXlsx($path, [
+        1 => [
+            6 => 'Порог',
+            7 => 'Арка',
+            12 => 'Пенка',
+        ],
+        2 => [
+            6 => '',
+            7 => 'Задняя',
+            8 => 'Передняя',
+            9 => 'Внутренняя',
+            10 => 'Внутренняя универсальная',
+            11 => 'Карман задняя',
+            12 => 'Задней двери',
+            13 => 'Передней двери',
+            14 => 'Багажника',
+            15 => 'Лонжерон',
+            16 => 'Торцевая заглушка',
+            17 => 'Ремкомплект пола',
+            18 => 'Усилитель / соединитель порогов',
+        ],
+        3 => [
+            0 => 'https://example.test/car.jpg',
+            1 => 'Toyota',
+            2 => 'Camry',
+            3 => 'XV70',
+            4 => '2017-2023',
+            5 => 'седан',
+            6 => '1',
+            7 => '1',
+            8 => '1',
+            12 => '1',
+            15 => '1',
+            16 => '1',
+            17 => '1',
+            18 => '1',
+        ],
+    ], ['H1:L1', 'M1:O1']);
+
+    $headers = app(SpreadsheetReader::class)->readMergedDetailHeaders($path);
+
+    expect($headers[6]['group'])->toBeNull()
+        ->and($headers[6]['category_title'])->toBe('Порог')
+        ->and($headers[7]['group'])->toBe('Арка')
+        ->and($headers[11]['group'])->toBe('Арка')
+        ->and($headers[12]['group'])->toBe('Пенка')
+        ->and($headers[14]['group'])->toBe('Пенка')
+        ->and($headers[15]['group'])->toBeNull()
+        ->and($headers[15]['category_title'])->toBe('Лонжерон')
+        ->and($headers[16]['group'])->toBeNull()
+        ->and($headers[17]['group'])->toBeNull()
+        ->and($headers[18]['group'])->toBeNull()
+        ->and(app(SpreadsheetReader::class)->countRows($path, 2))->toBe(1);
+
+    $run = catalogImportRun(['detail_columns' => $headers]);
+    Queue::fake();
+
+    app(ImportRowProcessor::class)->process(
+        run: $run,
+        row: app(SpreadsheetReader::class)->readChunk($path, 0, 1, 2)[0],
+        detailColumns: $headers,
+        rowNumber: 3,
+    );
+
+    $penka = ProductCategory::query()->where('title', 'Пенка')->firstOrFail();
+
+    expect(ProductCategory::query()->where('title', 'Задней двери')->firstOrFail()->parent_id)->toBe($penka->getKey())
+        ->and(ProductCategory::query()->where('title', 'Лонжерон')->firstOrFail()->parent_id)->toBeNull()
+        ->and(ProductCategory::query()->where('title', 'Торцевая заглушка')->firstOrFail()->parent_id)->toBeNull()
+        ->and(ProductCategory::query()->where('title', 'Ремкомплект пола')->firstOrFail()->parent_id)->toBeNull()
+        ->and(ProductCategory::query()->where('title', 'Усилитель / соединитель порогов')->firstOrFail()->parent_id)->toBeNull();
+});
+
 test('row creates vehicle make model and generation', function () {
     $run = catalogImportRun();
 
@@ -107,6 +278,32 @@ test('row creates vehicle make model and generation', function () {
         ->and($generation->years_label)->toBe('2017-2023')
         ->and($generation->body)->toBe('седан')
         ->and($generation->vehicle_model_id)->toBe($model->getKey());
+});
+
+test('vehicle photo from column a is stored on generation and queued for download', function () {
+    $run = catalogImportRun();
+    $url = 'https://example.test/camry.jpg';
+
+    processCatalogRow($run, catalogRow([0 => $url]));
+
+    $generation = VehicleGeneration::query()->firstOrFail();
+
+    expect($generation->image_source_url)->toBe($url)
+        ->and(ProductImage::query()->count())->toBe(0);
+
+    Queue::assertPushed(DownloadVehicleGenerationImageJob::class, fn (DownloadVehicleGenerationImageJob $job): bool => $job->vehicleGenerationId === $generation->getKey()
+        && $job->url === $url
+        && $job->importRunId === $run->getKey());
+});
+
+test('different bodies create different vehicle generations', function () {
+    $run = catalogImportRun();
+
+    processCatalogRow($run, catalogRow([5 => 'седан']));
+    processCatalogRow($run, catalogRow([5 => 'универсал']));
+
+    expect(VehicleGeneration::query()->count())->toBe(2)
+        ->and(VehicleGeneration::query()->pluck('body')->sort()->values()->all())->toBe(['седан', 'универсал']);
 });
 
 test('row creates product category tree from detail columns', function () {
@@ -127,7 +324,7 @@ test('row creates product category tree from detail columns', function () {
 test('row creates product default variant and fitment', function () {
     $run = catalogImportRun();
 
-    processCatalogRow($run, catalogRow());
+    processCatalogRow($run, catalogRow(['6' => '1.0']));
 
     $product = Product::query()->firstOrFail();
     $variant = ProductVariant::query()->firstOrFail();
@@ -138,13 +335,42 @@ test('row creates product default variant and fitment', function () {
         ->and($product->title)->toContain('Toyota Camry XV70')
         ->and($product->status)->toBe(ProductStatus::Active)
         ->and($product->import_key)->not->toBeNull()
+        ->and($product->import_source)->toBe('catalog')
         ->and($product->last_import_run_id)->toBe((string) $run->getKey())
+        ->and($product->price)->toBeNull()
+        ->and($product->sku)->toBeNull()
         ->and($variant->product_id)->toBe($product->getKey())
         ->and($variant->is_default)->toBeTrue()
         ->and($variant->price)->toBe('0.00')
         ->and($fitment->product_id)->toBe($product->getKey())
         ->and($fitment->vehicle_generation_id)->toBe($generation->getKey());
 });
+
+test('non standard product cell value creates product and writes warning', function () {
+    $run = catalogImportRun();
+
+    processCatalogRow($run, catalogRow([6 => 'maver']));
+
+    $product = Product::query()->firstOrFail();
+    $log = ImportLog::query()->where('level', ImportLogLevel::Warning->value)->latest('id')->firstOrFail();
+
+    expect($product->status)->toBe(ProductStatus::Active)
+        ->and($log->message)->toContain('Нестандартное значение')
+        ->and($log->context['row'])->toBe(3)
+        ->and($log->context['column'])->toBe('G')
+        ->and($log->context['value'])->toBe('maver')
+        ->and($log->context['category'])->toContain('porogi');
+});
+
+test('negative product cell values do not create products', function (string $value) {
+    $run = catalogImportRun();
+
+    processCatalogRow($run, catalogRow([6 => $value]));
+
+    expect(Product::query()->count())->toBe(0)
+        ->and(ProductVariant::query()->count())->toBe(0)
+        ->and(ProductFitment::query()->count())->toBe(0);
+})->with(['', '0', '0.0', 'нет', 'no', 'false', '-']);
 
 test('repeated import updates existing product without duplicates', function () {
     $firstRun = catalogImportRun();
@@ -163,9 +389,17 @@ test('repeated import updates existing product without duplicates', function () 
         ->and(Product::query()->firstOrFail()->last_import_run_id)->toBe((string) $secondRun->getKey());
 });
 
-test('missing imported products are archived only after successful running import', function () {
-    $oldProduct = Product::factory()->create([
+test('missing imported products are archived only inside current import source after successful running import', function () {
+    $oldCatalogProduct = Product::factory()->create([
         'import_key' => 'catalog:old:product',
+        'import_source' => 'catalog',
+        'last_import_run_id' => '1',
+        'status' => ProductStatus::Active,
+    ]);
+
+    $oldOtherSourceProduct = Product::factory()->create([
+        'import_key' => 'other:old:product',
+        'import_source' => 'other',
         'last_import_run_id' => '1',
         'status' => ProductStatus::Active,
     ]);
@@ -176,7 +410,7 @@ test('missing imported products are archived only after successful running impor
     ]);
 
     expect(app(ImportProductFactory::class)->archiveMissingProducts($failedRun))->toBe(0)
-        ->and($oldProduct->fresh()->status)->toBe(ProductStatus::Active);
+        ->and($oldCatalogProduct->fresh()->status)->toBe(ProductStatus::Active);
 
     $successfulRun = catalogImportRun([
         'status' => ImportRunStatus::Running,
@@ -184,7 +418,8 @@ test('missing imported products are archived only after successful running impor
     ]);
 
     expect(app(ImportProductFactory::class)->archiveMissingProducts($successfulRun))->toBe(1)
-        ->and($oldProduct->fresh()->status)->toBe(ProductStatus::Archived);
+        ->and($oldCatalogProduct->fresh()->status)->toBe(ProductStatus::Archived)
+        ->and($oldOtherSourceProduct->fresh()->status)->toBe(ProductStatus::Active);
 });
 
 test('catalog chunk archives missing products after successful import', function () {
@@ -193,6 +428,7 @@ test('catalog chunk archives missing products after successful import', function
 
     $oldProduct = Product::factory()->create([
         'import_key' => 'catalog:old:product',
+        'import_source' => 'catalog',
         'last_import_run_id' => '1',
         'status' => ProductStatus::Active,
     ]);
@@ -243,4 +479,21 @@ test('fake http image download saves product image file', function () {
     expect(ProductImage::query()->count())->toBe(1)
         ->and($image->path)->toEndWith('/image.webp')
         ->and($image->alt)->toBe($product->title);
+});
+
+test('fake http vehicle generation image download saves image path on generation', function () {
+    Storage::fake('public');
+    Http::fake([
+        'https://example.test/car.jpg' => Http::response('fake-car-image-content', 200),
+    ]);
+
+    $run = catalogImportRun();
+    processCatalogRow($run, catalogRow([0 => 'https://example.test/car.jpg']));
+
+    $generation = VehicleGeneration::query()->firstOrFail();
+    $generation = app(ImportImageDownloader::class)->downloadVehicleGenerationImage($generation, 'https://example.test/car.jpg');
+
+    Storage::disk('public')->assertExists($generation->image);
+
+    expect($generation->image)->toEndWith('/image.webp');
 });

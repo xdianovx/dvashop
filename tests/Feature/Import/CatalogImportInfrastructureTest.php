@@ -70,6 +70,21 @@ test('spreadsheet reader counts csv rows and reads chunks', function () {
         ]);
 });
 
+
+
+test('spreadsheet reader rejects txt files', function () {
+    $path = storage_path('framework/testing/catalog-import.txt');
+    if (! is_dir(dirname($path))) {
+        mkdir(dirname($path), 0777, true);
+    }
+    file_put_contents($path, importCsvContent());
+
+    $reader = app(SpreadsheetReader::class);
+
+    expect($reader->supports($path))->toBeFalse();
+    expect(fn () => $reader->countRows($path))->toThrow(\InvalidArgumentException::class);
+});
+
 test('import logger writes logs', function () {
     $run = ImportRun::factory()->create();
 

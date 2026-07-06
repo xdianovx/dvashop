@@ -52,7 +52,7 @@ class CatalogImportPage extends Page
     public function upload(ImportStatusService $statusService): void
     {
         $this->validate([
-            'file' => ['required', 'file', 'mimes:csv,xlsx,txt', 'max:51200'],
+            'file' => ['required', 'file', 'mimes:csv,xlsx', 'max:51200'],
         ]);
 
         $run = $statusService->createFromUpload($this->file);

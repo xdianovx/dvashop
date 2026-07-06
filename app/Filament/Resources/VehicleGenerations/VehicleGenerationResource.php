@@ -89,6 +89,10 @@ class VehicleGenerationResource extends Resource
                 ->label('Изображение')
                 ->image()
                 ->directory('vehicle-generations'),
+            TextInput::make('image_source_url')
+                ->label('URL исходного фото')
+                ->url()
+                ->maxLength(2048),
             TextInput::make('position')
                 ->label('Позиция')
                 ->numeric()

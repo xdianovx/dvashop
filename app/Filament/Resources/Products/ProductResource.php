@@ -120,6 +120,9 @@ class ProductResource extends Resource
                                 ->label('Import key')
                                 ->maxLength(255)
                                 ->unique(ignoreRecord: true),
+                            TextInput::make('import_source')
+                                ->label('Import source')
+                                ->maxLength(255),
                             TextInput::make('last_import_run_id')
                                 ->label('Last import run ID')
                                 ->maxLength(255),
