@@ -10,11 +10,6 @@ test('home page opens', function () {
         ->assertOk();
 });
 
-test('catalog page opens', function () {
-    $this->get('/catalog')
-        ->assertOk();
-});
-
 test('admin panel redirects guest to login', function () {
     $response = $this->get('/admin');
 

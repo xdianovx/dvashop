@@ -1,0 +1,1390 @@
+diff --git a/app/Filament/Pages/CatalogImportPage.php b/app/Filament/Pages/CatalogImportPage.php
+index 56c4c16..d90e7f7 100644
+--- a/app/Filament/Pages/CatalogImportPage.php
++++ b/app/Filament/Pages/CatalogImportPage.php
+@@ -52,7 +52,7 @@ class CatalogImportPage extends Page
+     public function upload(ImportStatusService $statusService): void
+     {
+         $this->validate([
+-            'file' => ['required', 'file', 'mimes:csv,xlsx,txt', 'max:51200'],
++            'file' => ['required', 'file', 'mimes:csv,xlsx', 'max:51200'],
+         ]);
+ 
+         $run = $statusService->createFromUpload($this->file);
+diff --git a/app/Filament/Resources/Products/ProductResource.php b/app/Filament/Resources/Products/ProductResource.php
+index 43ce88f..a2ddb50 100644
+--- a/app/Filament/Resources/Products/ProductResource.php
++++ b/app/Filament/Resources/Products/ProductResource.php
+@@ -120,6 +120,9 @@ class ProductResource extends Resource
+                                 ->label('Import key')
+                                 ->maxLength(255)
+                                 ->unique(ignoreRecord: true),
++                            TextInput::make('import_source')
++                                ->label('Import source')
++                                ->maxLength(255),
+                             TextInput::make('last_import_run_id')
+                                 ->label('Last import run ID')
+                                 ->maxLength(255),
+diff --git a/app/Filament/Resources/VehicleGenerations/VehicleGenerationResource.php b/app/Filament/Resources/VehicleGenerations/VehicleGenerationResource.php
+index 227a372..532ce1f 100644
+--- a/app/Filament/Resources/VehicleGenerations/VehicleGenerationResource.php
++++ b/app/Filament/Resources/VehicleGenerations/VehicleGenerationResource.php
+@@ -89,6 +89,10 @@ class VehicleGenerationResource extends Resource
+                 ->label('Изображение')
+                 ->image()
+                 ->directory('vehicle-generations'),
++            TextInput::make('image_source_url')
++                ->label('URL исходного фото')
++                ->url()
++                ->maxLength(2048),
+             TextInput::make('position')
+                 ->label('Позиция')
+                 ->numeric()
+diff --git a/app/Jobs/DownloadVehicleGenerationImageJob.php b/app/Jobs/DownloadVehicleGenerationImageJob.php
+new file mode 100644
+index 0000000..763c459
+--- /dev/null
++++ b/app/Jobs/DownloadVehicleGenerationImageJob.php
+@@ -0,0 +1,51 @@
++<?php
++
++namespace App\Jobs;
++
++use App\Models\ImportRun;
++use App\Models\VehicleGeneration;
++use App\Services\Import\ImportImageDownloader;
++use App\Services\ImportLogger;
++use Illuminate\Bus\Queueable;
++use Illuminate\Contracts\Queue\ShouldQueue;
++use Illuminate\Foundation\Bus\Dispatchable;
++use Illuminate\Queue\InteractsWithQueue;
++use Illuminate\Queue\SerializesModels;
++use Throwable;
++
++class DownloadVehicleGenerationImageJob implements ShouldQueue
++{
++    use Dispatchable;
++    use InteractsWithQueue;
++    use Queueable;
++    use SerializesModels;
++
++    public int $tries = 3;
++
++    public int $timeout = 60;
++
++    public function __construct(
++        public int $vehicleGenerationId,
++        public string $url,
++        public ?int $importRunId = null,
++    ) {}
++
++    public function handle(ImportImageDownloader $downloader, ImportLogger $logger): void
++    {
++        $generation = VehicleGeneration::query()->findOrFail($this->vehicleGenerationId);
++
++        try {
++            $downloader->downloadVehicleGenerationImage($generation, $this->url);
++        } catch (Throwable $e) {
++            if ($this->importRunId !== null && ($run = ImportRun::query()->find($this->importRunId))) {
++                $logger->warning($run, 'Не удалось скачать изображение поколения авто', [
++                    'vehicle_generation_id' => $this->vehicleGenerationId,
++                    'url' => $this->url,
++                    'error' => $e->getMessage(),
++                ]);
++            }
++
++            throw $e;
++        }
++    }
++}
+diff --git a/app/Models/Product.php b/app/Models/Product.php
+index 9f238d3..2fbc9b4 100644
+--- a/app/Models/Product.php
++++ b/app/Models/Product.php
+@@ -33,6 +33,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
+     'meta_title',
+     'meta_description',
+     'import_key',
++    'import_source',
+     'last_import_run_id',
+ ])]
+ class Product extends Model
+diff --git a/app/Models/VehicleGeneration.php b/app/Models/VehicleGeneration.php
+index 06ab7e1..db3803b 100644
+--- a/app/Models/VehicleGeneration.php
++++ b/app/Models/VehicleGeneration.php
+@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
+     'years_label',
+     'body',
+     'image',
++    'image_source_url',
+     'position',
+     'is_active',
+     'meta_title',
+diff --git a/app/Services/Import/CatalogImportHeaderParser.php b/app/Services/Import/CatalogImportHeaderParser.php
+new file mode 100644
+index 0000000..2f5ce09
+--- /dev/null
++++ b/app/Services/Import/CatalogImportHeaderParser.php
+@@ -0,0 +1,315 @@
++<?php
++
++namespace App\Services\Import;
++
++use ZipArchive;
++
++class CatalogImportHeaderParser
++{
++    public const CATALOG_SHEET_NAME = 'Каталог';
++
++    /**
++     * @param array<int, array<int, mixed>> $headerRows
++     * @return array<int, array{index:int, group:string|null, title:string, category_title:string}>
++     */
++    public function parse(string $path, int $detailStartColumn, array $headerRows, string $extension): array
++    {
++        return $extension === 'xlsx'
++            ? $this->parseXlsx($path, $detailStartColumn, $headerRows)
++            : $this->parseCsvFallback($detailStartColumn, $headerRows);
++    }
++
++    /**
++     * @param array<int, array<int, mixed>> $headerRows
++     * @return array<int, array{index:int, group:string|null, title:string, category_title:string}>
++     */
++    private function parseXlsx(string $path, int $detailStartColumn, array $headerRows): array
++    {
++        $groups = $headerRows[1] ?? [];
++        $titles = $headerRows[2] ?? [];
++        $mergedGroups = $this->mergedGroupsForFirstRow($path, $groups);
++        $maxMergedColumn = $mergedGroups === [] ? 0 : max(array_keys($mergedGroups));
++        $maxColumn = max(array_key_last($groups) ?? 0, array_key_last($titles) ?? 0, $maxMergedColumn);
++        $headers = [];
++
++        for ($index = $detailStartColumn; $index <= $maxColumn; $index++) {
++            $directGroup = $this->cellString($groups[$index] ?? null);
++            $title = $this->cellString($titles[$index] ?? null);
++            $mergedGroup = $mergedGroups[$index] ?? null;
++
++            if ($mergedGroup !== null && $mergedGroup !== '') {
++                $categoryTitle = $title !== '' ? $title : $mergedGroup;
++                $headers[$index] = [
++                    'index' => $index,
++                    'group' => $mergedGroup,
++                    'title' => $title !== '' ? $title : $categoryTitle,
++                    'category_title' => $categoryTitle,
++                ];
++
++                continue;
++            }
++
++            if ($directGroup === '' && $title === '') {
++                continue;
++            }
++
++            if ($directGroup !== '' && $title !== '') {
++                $headers[$index] = [
++                    'index' => $index,
++                    'group' => $directGroup,
++                    'title' => $title,
++                    'category_title' => $title,
++                ];
++
++                continue;
++            }
++
++            $categoryTitle = $title !== '' ? $title : $directGroup;
++
++            $headers[$index] = [
++                'index' => $index,
++                'group' => null,
++                'title' => $categoryTitle,
++                'category_title' => $categoryTitle,
++            ];
++        }
++
++        return $headers;
++    }
++
++    /**
++     * CSV does not have real merged ranges, so keep previous compatibility behaviour:
++     * a non-empty group cell is carried until the next non-empty group cell.
++     *
++     * @param array<int, array<int, mixed>> $headerRows
++     * @return array<int, array{index:int, group:string|null, title:string, category_title:string}>
++     */
++    private function parseCsvFallback(int $detailStartColumn, array $headerRows): array
++    {
++        $groups = $headerRows[1] ?? [];
++        $titles = $headerRows[2] ?? [];
++        $maxColumn = max(array_key_last($groups) ?? 0, array_key_last($titles) ?? 0);
++        $headers = [];
++        $currentGroup = null;
++
++        for ($index = $detailStartColumn; $index <= $maxColumn; $index++) {
++            $groupCell = $this->cellString($groups[$index] ?? null);
++            $title = $this->cellString($titles[$index] ?? null);
++
++            if ($groupCell !== '') {
++                $currentGroup = $groupCell;
++            }
++
++            if ($groupCell === '' && $title === '') {
++                continue;
++            }
++
++            $categoryTitle = $title !== '' ? $title : ($groupCell ?: (string) $currentGroup);
++
++            $headers[$index] = [
++                'index' => $index,
++                'group' => $currentGroup,
++                'title' => $title !== '' ? $title : $categoryTitle,
++                'category_title' => $categoryTitle,
++            ];
++        }
++
++        return $headers;
++    }
++
++    /**
++     * @param array<int, mixed> $firstRow
++     * @return array<int, string>
++     */
++    private function mergedGroupsForFirstRow(string $path, array $firstRow): array
++    {
++        $worksheetPath = $this->worksheetPath($path);
++
++        if ($worksheetPath === null) {
++            return [];
++        }
++
++        $zip = new ZipArchive();
++        if ($zip->open($path) !== true) {
++            return [];
++        }
++
++        try {
++            $xml = $zip->getFromName($worksheetPath);
++        } finally {
++            $zip->close();
++        }
++
++        if (! is_string($xml) || $xml === '') {
++            return [];
++        }
++
++        preg_match_all('/<mergeCell\b[^>]*\bref="([^"]+)"/i', $xml, $matches);
++
++        $groups = [];
++
++        foreach ($matches[1] ?? [] as $rangeRef) {
++            $range = $this->rangeCoordinates($rangeRef);
++
++            if ($range === null) {
++                continue;
++            }
++
++            [$startColumn, $startRow, $endColumn, $endRow] = $range;
++
++            if ($startRow > 1 || $endRow < 1) {
++                continue;
++            }
++
++            $groupTitle = $this->cellString($firstRow[$startColumn] ?? null);
++
++            if ($groupTitle === '') {
++                continue;
++            }
++
++            for ($column = $startColumn; $column <= $endColumn; $column++) {
++                $groups[$column] = $groupTitle;
++            }
++        }
++
++        return $groups;
++    }
++
++    private function worksheetPath(string $path): ?string
++    {
++        $zip = new ZipArchive();
++        if ($zip->open($path) !== true) {
++            return null;
++        }
++
++        try {
++            $workbookXml = $zip->getFromName('xl/workbook.xml');
++            $relsXml = $zip->getFromName('xl/_rels/workbook.xml.rels');
++        } finally {
++            $zip->close();
++        }
++
++        if (! is_string($workbookXml) || ! is_string($relsXml)) {
++            return 'xl/worksheets/sheet1.xml';
++        }
++
++        $rels = $this->workbookRelationships($relsXml);
++        $sheets = $this->workbookSheets($workbookXml);
++
++        if ($sheets === []) {
++            return 'xl/worksheets/sheet1.xml';
++        }
++
++        $selected = $sheets[0];
++
++        foreach ($sheets as $sheet) {
++            if (($sheet['name'] ?? null) === self::CATALOG_SHEET_NAME) {
++                $selected = $sheet;
++                break;
++            }
++        }
++
++        $target = $rels[$selected['relationship_id'] ?? ''] ?? null;
++
++        if (! is_string($target) || $target === '') {
++            return 'xl/worksheets/sheet1.xml';
++        }
++
++        $target = str_replace('\\', '/', ltrim($target, '/'));
++
++        return str_starts_with($target, 'xl/') ? $target : 'xl/'.$target;
++    }
++
++    /** @return array<string, string> */
++    private function workbookRelationships(string $relsXml): array
++    {
++        $relationships = [];
++
++        preg_match_all('/<Relationship\b([^>]*)\/?>/i', $relsXml, $matches);
++
++        foreach ($matches[1] ?? [] as $attributes) {
++            $id = $this->xmlAttribute($attributes, 'Id');
++            $target = $this->xmlAttribute($attributes, 'Target');
++
++            if ($id !== null && $target !== null) {
++                $relationships[$id] = $target;
++            }
++        }
++
++        return $relationships;
++    }
++
++    /** @return array<int, array{name:string, relationship_id:string}> */
++    private function workbookSheets(string $workbookXml): array
++    {
++        $sheets = [];
++
++        preg_match_all('/<sheet\b([^>]*)\/?>/i', $workbookXml, $matches);
++
++        foreach ($matches[1] ?? [] as $attributes) {
++            $name = $this->xmlAttribute($attributes, 'name');
++            $relationshipId = $this->xmlAttribute($attributes, 'r:id');
++
++            if ($name !== null && $relationshipId !== null) {
++                $sheets[] = [
++                    'name' => html_entity_decode($name, ENT_QUOTES | ENT_XML1, 'UTF-8'),
++                    'relationship_id' => $relationshipId,
++                ];
++            }
++        }
++
++        return $sheets;
++    }
++
++    private function xmlAttribute(string $attributes, string $name): ?string
++    {
++        $quotedName = preg_quote($name, '/');
++
++        if (preg_match('/\b'.$quotedName.'="([^"]*)"/i', $attributes, $match) === 1) {
++            return html_entity_decode($match[1], ENT_QUOTES | ENT_XML1, 'UTF-8');
++        }
++
++        return null;
++    }
++
++    /** @return array{int, int, int, int}|null */
++    private function rangeCoordinates(string $rangeRef): ?array
++    {
++        [$start, $end] = array_pad(explode(':', $rangeRef, 2), 2, null);
++        $end ??= $start;
++
++        $startCoordinate = $this->coordinate($start);
++        $endCoordinate = $this->coordinate($end);
++
++        if ($startCoordinate === null || $endCoordinate === null) {
++            return null;
++        }
++
++        return [
++            min($startCoordinate[0], $endCoordinate[0]),
++            min($startCoordinate[1], $endCoordinate[1]),
++            max($startCoordinate[0], $endCoordinate[0]),
++            max($startCoordinate[1], $endCoordinate[1]),
++        ];
++    }
++
++    /** @return array{int, int}|null zero-based column, one-based row */
++    private function coordinate(string $cellRef): ?array
++    {
++        if (preg_match('/^([A-Z]+)(\d+)$/i', strtoupper($cellRef), $match) !== 1) {
++            return null;
++        }
++
++        $column = 0;
++        foreach (str_split($match[1]) as $letter) {
++            $column = ($column * 26) + (ord($letter) - 64);
++        }
++
++        return [$column - 1, (int) $match[2]];
++    }
++
++    private function cellString(mixed $value): string
++    {
++        return trim((string) $value);
++    }
++}
+diff --git a/app/Services/Import/ImportImageDownloader.php b/app/Services/Import/ImportImageDownloader.php
+index 19ff2f5..363af16 100644
+--- a/app/Services/Import/ImportImageDownloader.php
++++ b/app/Services/Import/ImportImageDownloader.php
+@@ -4,6 +4,7 @@ namespace App\Services\Import;
+ 
+ use App\Models\Product;
+ use App\Models\ProductImage;
++use App\Models\VehicleGeneration;
+ use Illuminate\Support\Facades\Http;
+ use Illuminate\Support\Facades\Storage;
+ use RuntimeException;
+@@ -14,23 +15,7 @@ class ImportImageDownloader
+ 
+     public function download(Product $product, string $url): ProductImage
+     {
+-        $response = Http::timeout(20)->retry(2, 300)->get($url);
+-
+-        if (! $response->successful()) {
+-            throw new RuntimeException('Не удалось скачать изображение. HTTP '.$response->status());
+-        }
+-
+-        $body = $response->body();
+-        $size = strlen($body);
+-
+-        if ($size <= 0) {
+-            throw new RuntimeException('Скачанное изображение пустое.');
+-        }
+-
+-        if ($size > self::MAX_BYTES) {
+-            throw new RuntimeException('Изображение больше допустимого размера.');
+-        }
+-
++        $body = $this->downloadBody($url);
+         $path = $this->pathFor($product);
+         Storage::disk('public')->put($path, $body);
+ 
+@@ -48,6 +33,17 @@ class ImportImageDownloader
+         );
+     }
+ 
++    public function downloadVehicleGenerationImage(VehicleGeneration $generation, string $url): VehicleGeneration
++    {
++        $body = $this->downloadBody($url);
++        $path = $this->vehicleGenerationPathFor($generation);
++        Storage::disk('public')->put($path, $body);
++
++        $generation->forceFill(['image' => $path])->save();
++
++        return $generation->refresh();
++    }
++
+     public function pathFor(Product $product): string
+     {
+         $product->loadMissing('category', 'fitments.generation.model.make');
+@@ -65,4 +61,42 @@ class ImportImageDownloader
+             'image.webp',
+         ]);
+     }
++
++    public function vehicleGenerationPathFor(VehicleGeneration $generation): string
++    {
++        $generation->loadMissing('model.make');
++        $model = $generation->model;
++        $make = $model?->make;
++
++        return implode('/', [
++            'uploads',
++            'vehicles',
++            $make?->slug ?: 'unknown-make',
++            $model?->slug ?: 'unknown-model',
++            $generation->slug ?: 'unknown-generation',
++            'image.webp',
++        ]);
++    }
++
++    private function downloadBody(string $url): string
++    {
++        $response = Http::timeout(20)->retry(2, 300)->get($url);
++
++        if (! $response->successful()) {
++            throw new RuntimeException('Не удалось скачать изображение. HTTP '.$response->status());
++        }
++
++        $body = $response->body();
++        $size = strlen($body);
++
++        if ($size <= 0) {
++            throw new RuntimeException('Скачанное изображение пустое.');
++        }
++
++        if ($size > self::MAX_BYTES) {
++            throw new RuntimeException('Изображение больше допустимого размера.');
++        }
++
++        return $body;
++    }
+ }
+diff --git a/app/Services/Import/ImportProductFactory.php b/app/Services/Import/ImportProductFactory.php
+index c1c8467..cd0c8c7 100644
+--- a/app/Services/Import/ImportProductFactory.php
++++ b/app/Services/Import/ImportProductFactory.php
+@@ -12,8 +12,6 @@ use App\Models\ProductCategory;
+ use App\Models\ProductFitment;
+ use App\Models\ProductVariant;
+ use App\Models\VehicleGeneration;
+-use App\Models\VehicleMake;
+-use App\Models\VehicleModel;
+ use App\Support\CatalogText;
+ use Illuminate\Support\Str;
+ 
+@@ -28,11 +26,13 @@ class ImportProductFactory
+         ProductCategory $category,
+         array $detailHeader,
+         string $cellValue,
++        ?string $imageUrl = null,
+     ): Product {
+         $vehicle = $generation->loadMissing('model.make');
++        $source = $this->sourceFor($run);
+         $productTitle = $this->productTitle($category, $vehicle);
+-        $importKey = $this->importKey($vehicle, $category);
+-        $slug = $this->stableSlug($vehicle, $category);
++        $importKey = $this->importKey($vehicle, $category, $source);
++        $slug = $this->stableSlug($vehicle, $category, $source);
+ 
+         $product = Product::query()->updateOrCreate(
+             ['import_key' => $importKey],
+@@ -43,6 +43,7 @@ class ImportProductFactory
+                 'status' => ProductStatus::Active,
+                 'stock_status' => StockStatus::InStock,
+                 'price' => null,
++                'import_source' => $source,
+                 'last_import_run_id' => (string) $run->getKey(),
+             ]
+         );
+@@ -68,8 +69,10 @@ class ImportProductFactory
+             ]
+         );
+ 
+-        if ($this->isUrl($cellValue)) {
+-            DownloadProductImageJob::dispatch($product->getKey(), $cellValue, $run->getKey())->onQueue('imports-images');
++        $imageUrl ??= $this->isUrl($cellValue) ? trim($cellValue) : null;
++
++        if ($imageUrl !== null) {
++            DownloadProductImageJob::dispatch($product->getKey(), $imageUrl, $run->getKey())->onQueue('imports-images');
+         }
+ 
+         return $product->refresh();
+@@ -82,6 +85,7 @@ class ImportProductFactory
+         }
+ 
+         return Product::query()
++            ->where('import_source', $this->sourceFor($run))
+             ->whereNotNull('import_key')
+             ->where(function ($query) use ($run): void {
+                 $query
+@@ -107,12 +111,12 @@ class ImportProductFactory
+         ], static fn (?string $part): bool => trim((string) $part) !== '')));
+     }
+ 
+-    public function importKey(VehicleGeneration $generation, ProductCategory $category): string
++    public function importKey(VehicleGeneration $generation, ProductCategory $category, string $source = 'catalog'): string
+     {
+         $generation->loadMissing('model.make');
+ 
+         return implode(':', [
+-            'catalog',
++            CatalogText::normKey($source) ?: 'catalog',
+             $generation->model?->make?->norm_key,
+             $generation->model?->norm_key,
+             $generation->norm_key,
+@@ -120,13 +124,22 @@ class ImportProductFactory
+         ]);
+     }
+ 
+-    public function stableSlug(VehicleGeneration $generation, ProductCategory $category): string
++    public function stableSlug(VehicleGeneration $generation, ProductCategory $category, string $source = 'catalog'): string
+     {
+-        return CatalogText::slug(Str::after($this->importKey($generation, $category), 'catalog:'));
++        $normalizedSource = CatalogText::normKey($source) ?: 'catalog';
++        $sourcePrefix = $normalizedSource.':';
++        $base = Str::after($this->importKey($generation, $category, $source), $sourcePrefix);
++
++        return CatalogText::slug($normalizedSource === 'catalog' ? $base : $normalizedSource.'-'.$base);
+     }
+ 
+     public function isUrl(string $value): bool
+     {
+         return filter_var(trim($value), FILTER_VALIDATE_URL) !== false;
+     }
++
++    private function sourceFor(ImportRun $run): string
++    {
++        return CatalogText::normKey($run->type ?: 'catalog') ?: 'catalog';
++    }
+ }
+diff --git a/app/Services/Import/ImportRowProcessor.php b/app/Services/Import/ImportRowProcessor.php
+index 85854c5..26375a2 100644
+--- a/app/Services/Import/ImportRowProcessor.php
++++ b/app/Services/Import/ImportRowProcessor.php
+@@ -2,6 +2,7 @@
+ 
+ namespace App\Services\Import;
+ 
++use App\Jobs\DownloadVehicleGenerationImageJob;
+ use App\Models\ImportRun;
+ use App\Models\ProductCategory;
+ use App\Models\VehicleGeneration;
+@@ -25,6 +26,7 @@ class ImportRowProcessor
+      */
+     public function process(ImportRun $run, array $row, array $detailColumns, int $rowNumber): void
+     {
++        $vehicleImageUrl = $this->cell($row[0] ?? null);
+         $makeTitle = $this->cell($row[1] ?? null);
+         $modelTitle = $this->cell($row[2] ?? null);
+         $generationTitle = $this->cell($row[3] ?? null);
+@@ -42,17 +44,36 @@ class ImportRowProcessor
+             return;
+         }
+ 
+-        $generation = $this->vehicleGeneration($makeTitle, $modelTitle, $generationTitle, $years, $body);
++        $generation = $this->vehicleGeneration($makeTitle, $modelTitle, $generationTitle, $years, $body, $vehicleImageUrl, $run);
+ 
+         foreach ($detailColumns as $columnIndex => $detailHeader) {
+             $cellValue = $this->cell($row[$columnIndex] ?? null);
++            $availableCell = $this->availableCell($cellValue);
+ 
+-            if (! $this->isAvailableCell($cellValue)) {
++            if ($availableCell === null) {
+                 continue;
+             }
+ 
+             $category = $this->productCategory($detailHeader);
+-            $this->products->createOrUpdateFromCell($run, $generation, $category, $detailHeader, $cellValue);
++
++            if (! $availableCell['is_standard']) {
++                $this->logger->warning($run, 'Нестандартное значение товарной ячейки принято как наличие товара', [
++                    'row' => $rowNumber,
++                    'column' => $this->columnName((int) $columnIndex),
++                    'column_index' => (int) $columnIndex,
++                    'value' => $cellValue,
++                    'category' => $category->full_slug,
++                ]);
++            }
++
++            $this->products->createOrUpdateFromCell(
++                run: $run,
++                generation: $generation,
++                category: $category,
++                detailHeader: $detailHeader,
++                cellValue: $cellValue,
++                imageUrl: $availableCell['image_url'],
++            );
+         }
+     }
+ 
+@@ -77,8 +98,15 @@ class ImportRowProcessor
+         return $this->firstOrRestoreCategory($parent, $categoryTitle);
+     }
+ 
+-    public function vehicleGeneration(string $makeTitle, string $modelTitle, string $generationTitle, ?string $years = null, ?string $body = null): VehicleGeneration
+-    {
++    public function vehicleGeneration(
++        string $makeTitle,
++        string $modelTitle,
++        string $generationTitle,
++        ?string $years = null,
++        ?string $body = null,
++        ?string $sourceImageUrl = null,
++        ?ImportRun $run = null,
++    ): VehicleGeneration {
+         $make = VehicleMake::query()->updateOrCreate(
+             ['norm_key' => CatalogText::normKey($makeTitle)],
+             [
+@@ -101,8 +129,9 @@ class ImportRowProcessor
+         );
+ 
+         $generationNormKey = CatalogText::normKey(trim($generationTitle.' '.$years.' '.$body));
++        $imageUrl = $this->isUrl($this->cell($sourceImageUrl)) ? $this->cell($sourceImageUrl) : null;
+ 
+-        return VehicleGeneration::query()->updateOrCreate(
++        $generation = VehicleGeneration::query()->updateOrCreate(
+             [
+                 'vehicle_model_id' => $model->getKey(),
+                 'norm_key' => $generationNormKey,
+@@ -112,9 +141,16 @@ class ImportRowProcessor
+                 'slug' => $generationNormKey,
+                 'years_label' => $years ?: null,
+                 'body' => $body ?: null,
++                'image_source_url' => $imageUrl,
+                 'is_active' => true,
+             ]
+         );
++
++        if ($imageUrl !== null && ($generation->wasRecentlyCreated || $generation->wasChanged('image_source_url') || $generation->image === null)) {
++            DownloadVehicleGenerationImageJob::dispatch($generation->getKey(), $imageUrl, $run?->getKey())->onQueue('imports-images');
++        }
++
++        return $generation;
+     }
+ 
+     private function firstOrRestoreCategory(?ProductCategory $parent, string $title): ProductCategory
+@@ -141,12 +177,43 @@ class ImportRowProcessor
+         return $category->refresh();
+     }
+ 
+-    private function isAvailableCell(string $value): bool
++    /** @return array{image_url:string|null, is_standard:bool}|null */
++    private function availableCell(string $value): ?array
++    {
++        $normalized = mb_strtolower(str_replace(',', '.', trim($value)));
++
++        if ($normalized === '' || $normalized === '-' || in_array($normalized, ['нет', 'no', 'false'], true) || preg_match('/^0(?:\.0+)?$/', $normalized) === 1) {
++            return null;
++        }
++
++        if ($this->isUrl($value)) {
++            return ['image_url' => trim($value), 'is_standard' => true];
++        }
++
++        if (in_array($normalized, ['да', 'yes', 'true'], true) || preg_match('/^1(?:\.0+)?$/', $normalized) === 1) {
++            return ['image_url' => null, 'is_standard' => true];
++        }
++
++        return ['image_url' => null, 'is_standard' => false];
++    }
++
++    private function isUrl(string $value): bool
+     {
+-        $normalized = mb_strtolower(trim($value));
++        return filter_var(trim($value), FILTER_VALIDATE_URL) !== false;
++    }
++
++    private function columnName(int $zeroBasedIndex): string
++    {
++        $number = $zeroBasedIndex + 1;
++        $name = '';
++
++        while ($number > 0) {
++            $remainder = ($number - 1) % 26;
++            $name = chr(65 + $remainder).$name;
++            $number = intdiv($number - 1, 26);
++        }
+ 
+-        return $normalized !== ''
+-            && ! in_array($normalized, ['0', 'нет', 'no', 'false', '-'], true);
++        return $name;
+     }
+ 
+     private function cell(mixed $value): string
+diff --git a/app/Services/SpreadsheetReader.php b/app/Services/SpreadsheetReader.php
+index 01a11d1..21e23ba 100644
+--- a/app/Services/SpreadsheetReader.php
++++ b/app/Services/SpreadsheetReader.php
+@@ -2,12 +2,15 @@
+ 
+ namespace App\Services;
+ 
++use App\Services\Import\CatalogImportHeaderParser;
+ use InvalidArgumentException;
+ use OpenSpout\Reader\XLSX\Reader as XlsxReader;
+ use SplFileObject;
+ 
+ class SpreadsheetReader
+ {
++    public const CATALOG_SHEET_NAME = 'Каталог';
++
+     public int $headerRows = 1;
+ 
+     public function supports(string $path): bool
+@@ -75,37 +78,14 @@ class SpreadsheetReader
+      */
+     public function readMergedDetailHeaders(string $path, int $detailStartColumn = 6): array
+     {
+-        $headerRows = $this->readHeaderRows($path, 2);
+-        $groups = $headerRows[1] ?? [];
+-        $titles = $headerRows[2] ?? [];
+-        $maxColumn = max(array_key_last($groups) ?? 0, array_key_last($titles) ?? 0);
+-        $headers = [];
+-
+-        $currentGroup = null;
+-
+-        for ($index = $detailStartColumn; $index <= $maxColumn; $index++) {
+-            $groupCell = $this->cellString($groups[$index] ?? null);
+-            $title = $this->cellString($titles[$index] ?? null);
+-
+-            if ($groupCell !== '') {
+-                $currentGroup = $groupCell;
+-            }
+-
+-            if ($groupCell === '' && $title === '') {
+-                continue;
+-            }
+-
+-            $categoryTitle = $title !== '' ? $title : ($groupCell ?: (string) $currentGroup);
+-
+-            $headers[$index] = [
+-                'index' => $index,
+-                'group' => $currentGroup,
+-                'title' => $title !== '' ? $title : $categoryTitle,
+-                'category_title' => $categoryTitle,
+-            ];
+-        }
++        $this->ensureSupported($path);
+ 
+-        return $headers;
++        return app(CatalogImportHeaderParser::class)->parse(
++            path: $path,
++            detailStartColumn: $detailStartColumn,
++            headerRows: $this->readHeaderRows($path, 2),
++            extension: $this->extension($path),
++        );
+     }
+ 
+     /**
+@@ -181,15 +161,29 @@ class SpreadsheetReader
+         $reader->open($path);
+ 
+         try {
++            $firstRows = null;
++            $catalogRows = null;
++
+             foreach ($reader->getSheetIterator() as $sheet) {
++                $rows = [];
+                 $rowIndex = 0;
+ 
+                 foreach ($sheet->getRowIterator() as $row) {
+                     $rowIndex++;
+-                    yield $rowIndex => $row->toArray();
++                    $rows[$rowIndex] = $row->toArray();
+                 }
+ 
+-                break;
++                $firstRows ??= $rows;
++
++                $sheetName = method_exists($sheet, 'getName') ? $sheet->getName() : null;
++                if ($sheetName === self::CATALOG_SHEET_NAME) {
++                    $catalogRows = $rows;
++                    break;
++                }
++            }
++
++            foreach (($catalogRows ?? $firstRows ?? []) as $index => $row) {
++                yield $index => $row;
+             }
+         } finally {
+             $reader->close();
+@@ -234,20 +228,15 @@ class SpreadsheetReader
+         return true;
+     }
+ 
+-    private function cellString(mixed $value): string
++    private function extension(string $path): string
+     {
+-        return trim((string) $value);
++        return strtolower(pathinfo($path, PATHINFO_EXTENSION));
+     }
+ 
+     private function ensureSupported(string $path): void
+     {
+         if (! $this->supports($path)) {
+-            throw new InvalidArgumentException('Only xlsx and csv imports are supported.');
++            throw new InvalidArgumentException('Supported import file types: csv, xlsx.');
+         }
+     }
+-
+-    private function extension(string $path): string
+-    {
+-        return strtolower(pathinfo($path, PATHINFO_EXTENSION));
+-    }
+ }
+diff --git a/composer.json b/composer.json
+index 7f21c7d..2fe495a 100644
+--- a/composer.json
++++ b/composer.json
+@@ -12,6 +12,7 @@
+         "filament/filament": "^5.0",
+         "laravel/framework": "^13.8",
+         "laravel/tinker": "^3.0",
++        "openspout/openspout": "^4.32",
+         "php": "^8.3"
+     },
+     "require-dev": {
+diff --git a/database/factories/ProductFactory.php b/database/factories/ProductFactory.php
+index 96a82c7..eeca39a 100644
+--- a/database/factories/ProductFactory.php
++++ b/database/factories/ProductFactory.php
+@@ -36,6 +36,7 @@ class ProductFactory extends Factory
+             'meta_title' => null,
+             'meta_description' => null,
+             'import_key' => null,
++            'import_source' => null,
+             'last_import_run_id' => null,
+         ];
+     }
+diff --git a/database/factories/VehicleGenerationFactory.php b/database/factories/VehicleGenerationFactory.php
+index 67bc3fc..e5956be 100644
+--- a/database/factories/VehicleGenerationFactory.php
++++ b/database/factories/VehicleGenerationFactory.php
+@@ -26,6 +26,7 @@ class VehicleGenerationFactory extends Factory
+             'years_label' => fake()->optional()->randomElement(['2018–2021', '2021–н.в.', '2015–2020']),
+             'body' => fake()->optional()->randomElement(['sedan', 'hatchback', 'wagon', 'suv']),
+             'image' => null,
++            'image_source_url' => null,
+             'position' => fake()->numberBetween(0, 500),
+             'is_active' => true,
+             'meta_title' => null,
+diff --git a/database/migrations/2026_06_30_001600_add_real_import_fields.php b/database/migrations/2026_06_30_001600_add_real_import_fields.php
+new file mode 100644
+index 0000000..1ab6861
+--- /dev/null
++++ b/database/migrations/2026_06_30_001600_add_real_import_fields.php
+@@ -0,0 +1,46 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::table('products', function (Blueprint $table): void {
++            if (! Schema::hasColumn('products', 'import_source')) {
++                $table->string('import_source')->nullable()->after('import_key')->index();
++            }
++        });
++
++        Schema::table('products', function (Blueprint $table): void {
++            $table->index(['import_source', 'status', 'last_import_run_id'], 'products_import_source_status_run_idx');
++        });
++
++        Schema::table('vehicle_generations', function (Blueprint $table): void {
++            if (! Schema::hasColumn('vehicle_generations', 'image_source_url')) {
++                $table->text('image_source_url')->nullable()->after('image');
++            }
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::table('products', function (Blueprint $table): void {
++            $table->dropIndex('products_import_source_status_run_idx');
++        });
++
++        Schema::table('products', function (Blueprint $table): void {
++            if (Schema::hasColumn('products', 'import_source')) {
++                $table->dropColumn('import_source');
++            }
++        });
++
++        Schema::table('vehicle_generations', function (Blueprint $table): void {
++            if (Schema::hasColumn('vehicle_generations', 'image_source_url')) {
++                $table->dropColumn('image_source_url');
++            }
++        });
++    }
++};
+diff --git a/tests/Feature/Import/CatalogImportInfrastructureTest.php b/tests/Feature/Import/CatalogImportInfrastructureTest.php
+index 4805dbf..7f976ec 100644
+--- a/tests/Feature/Import/CatalogImportInfrastructureTest.php
++++ b/tests/Feature/Import/CatalogImportInfrastructureTest.php
+@@ -70,6 +70,21 @@ test('spreadsheet reader counts csv rows and reads chunks', function () {
+         ]);
+ });
+ 
++
++
++test('spreadsheet reader rejects txt files', function () {
++    $path = storage_path('framework/testing/catalog-import.txt');
++    if (! is_dir(dirname($path))) {
++        mkdir(dirname($path), 0777, true);
++    }
++    file_put_contents($path, importCsvContent());
++
++    $reader = app(SpreadsheetReader::class);
++
++    expect($reader->supports($path))->toBeFalse();
++    expect(fn () => $reader->countRows($path))->toThrow(\InvalidArgumentException::class);
++});
++
+ test('import logger writes logs', function () {
+     $run = ImportRun::factory()->create();
+ 
+diff --git a/tests/Feature/Import/CatalogImportRowProcessorTest.php b/tests/Feature/Import/CatalogImportRowProcessorTest.php
+index d383a0e..6a1df4a 100644
+--- a/tests/Feature/Import/CatalogImportRowProcessorTest.php
++++ b/tests/Feature/Import/CatalogImportRowProcessorTest.php
+@@ -1,8 +1,11 @@
+ <?php
+ 
++use App\Enums\ImportLogLevel;
+ use App\Enums\ImportRunStatus;
+ use App\Enums\ProductStatus;
+ use App\Jobs\CatalogImportChunkJob;
++use App\Jobs\DownloadVehicleGenerationImageJob;
++use App\Models\ImportLog;
+ use App\Models\ImportRun;
+ use App\Models\Product;
+ use App\Models\ProductCategory;
+@@ -26,6 +29,7 @@ uses(RefreshDatabase::class);
+ function catalogImportRun(array $state = []): ImportRun
+ {
+     return ImportRun::factory()->create(array_merge([
++        'type' => 'catalog',
+         'status' => ImportRunStatus::Running,
+         'total_rows' => 1,
+         'detail_columns' => [
+@@ -64,7 +68,98 @@ function processCatalogRow(ImportRun $run, array $row): void
+     );
+ }
+ 
+-test('merged detail headers are read correctly', function () {
++function catalogTestColumnName(int $zeroBasedIndex): string
++{
++    $number = $zeroBasedIndex + 1;
++    $name = '';
++
++    while ($number > 0) {
++        $remainder = ($number - 1) % 26;
++        $name = chr(65 + $remainder).$name;
++        $number = intdiv($number - 1, 26);
++    }
++
++    return $name;
++}
++
++function catalogTestCellXml(int $columnIndex, int $rowIndex, mixed $value): string
++{
++    $value = trim((string) $value);
++
++    if ($value === '') {
++        return '';
++    }
++
++    $reference = catalogTestColumnName($columnIndex).$rowIndex;
++    $escaped = htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8');
++
++    return '<c r="'.$reference.'" t="inlineStr"><is><t>'.$escaped.'</t></is></c>';
++}
++
++/**
++ * @param array<int, array<int, mixed>> $rows
++ * @param array<int, string> $mergedRanges
++ */
++function writeCatalogTestXlsx(string $path, array $rows, array $mergedRanges = []): void
++{
++    if (! is_dir(dirname($path))) {
++        mkdir(dirname($path), 0777, true);
++    }
++
++    $sheetRows = '';
++    $maxColumn = 0;
++    $maxRow = 0;
++
++    foreach ($rows as $rowIndex => $cells) {
++        $rowXml = '';
++        $maxRow = max($maxRow, $rowIndex);
++
++        foreach ($cells as $columnIndex => $value) {
++            $maxColumn = max($maxColumn, (int) $columnIndex);
++            $rowXml .= catalogTestCellXml((int) $columnIndex, (int) $rowIndex, $value);
++        }
++
++        $sheetRows .= '<row r="'.$rowIndex.'">'.$rowXml.'</row>';
++    }
++
++    $mergeXml = '';
++    if ($mergedRanges !== []) {
++        $mergeXml = '<mergeCells count="'.count($mergedRanges).'">'.implode('', array_map(
++            static fn (string $range): string => '<mergeCell ref="'.$range.'"/>',
++            $mergedRanges,
++        )).'</mergeCells>';
++    }
++
++    $dimension = 'A1:'.catalogTestColumnName($maxColumn).max(1, $maxRow);
++    $sheetXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
++        .'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
++        .'<dimension ref="'.$dimension.'"/><sheetData>'.$sheetRows.'</sheetData>'.$mergeXml.'</worksheet>';
++
++    $zip = new ZipArchive();
++    $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
++    $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
++        .'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
++        .'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
++        .'<Default Extension="xml" ContentType="application/xml"/>'
++        .'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
++        .'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
++        .'</Types>');
++    $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
++        .'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
++        .'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
++        .'</Relationships>');
++    $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
++        .'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
++        .'<sheets><sheet name="Каталог" sheetId="1" r:id="rId1"/></sheets></workbook>');
++    $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
++        .'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
++        .'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
++        .'</Relationships>');
++    $zip->addFromString('xl/worksheets/sheet1.xml', $sheetXml);
++    $zip->close();
++}
++
++test('csv merged detail headers keep legacy fallback behaviour', function () {
+     $path = storage_path('framework/testing/catalog-merged-headers.csv');
+ 
+     if (! is_dir(dirname($path))) {
+@@ -91,6 +186,82 @@ test('merged detail headers are read correctly', function () {
+         ->and(app(SpreadsheetReader::class)->countRows($path, 2))->toBe(1);
+ });
+ 
++test('xlsx merged detail headers use real merge ranges and reset group after range ends', function () {
++    $path = storage_path('framework/testing/catalog-real-merged.xlsx');
++
++    writeCatalogTestXlsx($path, [
++        1 => [
++            6 => 'Порог',
++            7 => 'Арка',
++            12 => 'Пенка',
++        ],
++        2 => [
++            6 => '',
++            7 => 'Задняя',
++            8 => 'Передняя',
++            9 => 'Внутренняя',
++            10 => 'Внутренняя универсальная',
++            11 => 'Карман задняя',
++            12 => 'Задней двери',
++            13 => 'Передней двери',
++            14 => 'Багажника',
++            15 => 'Лонжерон',
++            16 => 'Торцевая заглушка',
++            17 => 'Ремкомплект пола',
++            18 => 'Усилитель / соединитель порогов',
++        ],
++        3 => [
++            0 => 'https://example.test/car.jpg',
++            1 => 'Toyota',
++            2 => 'Camry',
++            3 => 'XV70',
++            4 => '2017-2023',
++            5 => 'седан',
++            6 => '1',
++            7 => '1',
++            8 => '1',
++            12 => '1',
++            15 => '1',
++            16 => '1',
++            17 => '1',
++            18 => '1',
++        ],
++    ], ['H1:L1', 'M1:O1']);
++
++    $headers = app(SpreadsheetReader::class)->readMergedDetailHeaders($path);
++
++    expect($headers[6]['group'])->toBeNull()
++        ->and($headers[6]['category_title'])->toBe('Порог')
++        ->and($headers[7]['group'])->toBe('Арка')
++        ->and($headers[11]['group'])->toBe('Арка')
++        ->and($headers[12]['group'])->toBe('Пенка')
++        ->and($headers[14]['group'])->toBe('Пенка')
++        ->and($headers[15]['group'])->toBeNull()
++        ->and($headers[15]['category_title'])->toBe('Лонжерон')
++        ->and($headers[16]['group'])->toBeNull()
++        ->and($headers[17]['group'])->toBeNull()
++        ->and($headers[18]['group'])->toBeNull()
++        ->and(app(SpreadsheetReader::class)->countRows($path, 2))->toBe(1);
++
++    $run = catalogImportRun(['detail_columns' => $headers]);
++    Queue::fake();
++
++    app(ImportRowProcessor::class)->process(
++        run: $run,
++        row: app(SpreadsheetReader::class)->readChunk($path, 0, 1, 2)[0],
++        detailColumns: $headers,
++        rowNumber: 3,
++    );
++
++    $penka = ProductCategory::query()->where('title', 'Пенка')->firstOrFail();
++
++    expect(ProductCategory::query()->where('title', 'Задней двери')->firstOrFail()->parent_id)->toBe($penka->getKey())
++        ->and(ProductCategory::query()->where('title', 'Лонжерон')->firstOrFail()->parent_id)->toBeNull()
++        ->and(ProductCategory::query()->where('title', 'Торцевая заглушка')->firstOrFail()->parent_id)->toBeNull()
++        ->and(ProductCategory::query()->where('title', 'Ремкомплект пола')->firstOrFail()->parent_id)->toBeNull()
++        ->and(ProductCategory::query()->where('title', 'Усилитель / соединитель порогов')->firstOrFail()->parent_id)->toBeNull();
++});
++
+ test('row creates vehicle make model and generation', function () {
+     $run = catalogImportRun();
+ 
+@@ -109,6 +280,32 @@ test('row creates vehicle make model and generation', function () {
+         ->and($generation->vehicle_model_id)->toBe($model->getKey());
+ });
+ 
++test('vehicle photo from column a is stored on generation and queued for download', function () {
++    $run = catalogImportRun();
++    $url = 'https://example.test/camry.jpg';
++
++    processCatalogRow($run, catalogRow([0 => $url]));
++
++    $generation = VehicleGeneration::query()->firstOrFail();
++
++    expect($generation->image_source_url)->toBe($url)
++        ->and(ProductImage::query()->count())->toBe(0);
++
++    Queue::assertPushed(DownloadVehicleGenerationImageJob::class, fn (DownloadVehicleGenerationImageJob $job): bool => $job->vehicleGenerationId === $generation->getKey()
++        && $job->url === $url
++        && $job->importRunId === $run->getKey());
++});
++
++test('different bodies create different vehicle generations', function () {
++    $run = catalogImportRun();
++
++    processCatalogRow($run, catalogRow([5 => 'седан']));
++    processCatalogRow($run, catalogRow([5 => 'универсал']));
++
++    expect(VehicleGeneration::query()->count())->toBe(2)
++        ->and(VehicleGeneration::query()->pluck('body')->sort()->values()->all())->toBe(['седан', 'универсал']);
++});
++
+ test('row creates product category tree from detail columns', function () {
+     $run = catalogImportRun();
+ 
+@@ -127,7 +324,7 @@ test('row creates product category tree from detail columns', function () {
+ test('row creates product default variant and fitment', function () {
+     $run = catalogImportRun();
+ 
+-    processCatalogRow($run, catalogRow());
++    processCatalogRow($run, catalogRow(['6' => '1.0']));
+ 
+     $product = Product::query()->firstOrFail();
+     $variant = ProductVariant::query()->firstOrFail();
+@@ -138,7 +335,10 @@ test('row creates product default variant and fitment', function () {
+         ->and($product->title)->toContain('Toyota Camry XV70')
+         ->and($product->status)->toBe(ProductStatus::Active)
+         ->and($product->import_key)->not->toBeNull()
++        ->and($product->import_source)->toBe('catalog')
+         ->and($product->last_import_run_id)->toBe((string) $run->getKey())
++        ->and($product->price)->toBeNull()
++        ->and($product->sku)->toBeNull()
+         ->and($variant->product_id)->toBe($product->getKey())
+         ->and($variant->is_default)->toBeTrue()
+         ->and($variant->price)->toBe('0.00')
+@@ -146,6 +346,32 @@ test('row creates product default variant and fitment', function () {
+         ->and($fitment->vehicle_generation_id)->toBe($generation->getKey());
+ });
+ 
++test('non standard product cell value creates product and writes warning', function () {
++    $run = catalogImportRun();
++
++    processCatalogRow($run, catalogRow([6 => 'maver']));
++
++    $product = Product::query()->firstOrFail();
++    $log = ImportLog::query()->where('level', ImportLogLevel::Warning->value)->latest('id')->firstOrFail();
++
++    expect($product->status)->toBe(ProductStatus::Active)
++        ->and($log->message)->toContain('Нестандартное значение')
++        ->and($log->context['row'])->toBe(3)
++        ->and($log->context['column'])->toBe('G')
++        ->and($log->context['value'])->toBe('maver')
++        ->and($log->context['category'])->toContain('porogi');
++});
++
++test('negative product cell values do not create products', function (string $value) {
++    $run = catalogImportRun();
++
++    processCatalogRow($run, catalogRow([6 => $value]));
++
++    expect(Product::query()->count())->toBe(0)
++        ->and(ProductVariant::query()->count())->toBe(0)
++        ->and(ProductFitment::query()->count())->toBe(0);
++})->with(['', '0', '0.0', 'нет', 'no', 'false', '-']);
++
+ test('repeated import updates existing product without duplicates', function () {
+     $firstRun = catalogImportRun();
+     $secondRun = catalogImportRun();
+@@ -163,9 +389,17 @@ test('repeated import updates existing product without duplicates', function ()
+         ->and(Product::query()->firstOrFail()->last_import_run_id)->toBe((string) $secondRun->getKey());
+ });
+ 
+-test('missing imported products are archived only after successful running import', function () {
+-    $oldProduct = Product::factory()->create([
++test('missing imported products are archived only inside current import source after successful running import', function () {
++    $oldCatalogProduct = Product::factory()->create([
+         'import_key' => 'catalog:old:product',
++        'import_source' => 'catalog',
++        'last_import_run_id' => '1',
++        'status' => ProductStatus::Active,
++    ]);
++
++    $oldOtherSourceProduct = Product::factory()->create([
++        'import_key' => 'other:old:product',
++        'import_source' => 'other',
+         'last_import_run_id' => '1',
+         'status' => ProductStatus::Active,
+     ]);
+@@ -176,7 +410,7 @@ test('missing imported products are archived only after successful running impor
+     ]);
+ 
+     expect(app(ImportProductFactory::class)->archiveMissingProducts($failedRun))->toBe(0)
+-        ->and($oldProduct->fresh()->status)->toBe(ProductStatus::Active);
++        ->and($oldCatalogProduct->fresh()->status)->toBe(ProductStatus::Active);
+ 
+     $successfulRun = catalogImportRun([
+         'status' => ImportRunStatus::Running,
+@@ -184,7 +418,8 @@ test('missing imported products are archived only after successful running impor
+     ]);
+ 
+     expect(app(ImportProductFactory::class)->archiveMissingProducts($successfulRun))->toBe(1)
+-        ->and($oldProduct->fresh()->status)->toBe(ProductStatus::Archived);
++        ->and($oldCatalogProduct->fresh()->status)->toBe(ProductStatus::Archived)
++        ->and($oldOtherSourceProduct->fresh()->status)->toBe(ProductStatus::Active);
+ });
+ 
+ test('catalog chunk archives missing products after successful import', function () {
+@@ -193,6 +428,7 @@ test('catalog chunk archives missing products after successful import', function
+ 
+     $oldProduct = Product::factory()->create([
+         'import_key' => 'catalog:old:product',
++        'import_source' => 'catalog',
+         'last_import_run_id' => '1',
+         'status' => ProductStatus::Active,
+     ]);
+@@ -244,3 +480,20 @@ test('fake http image download saves product image file', function () {
+         ->and($image->path)->toEndWith('/image.webp')
+         ->and($image->alt)->toBe($product->title);
+ });
++
++test('fake http vehicle generation image download saves image path on generation', function () {
++    Storage::fake('public');
++    Http::fake([
++        'https://example.test/car.jpg' => Http::response('fake-car-image-content', 200),
++    ]);
++
++    $run = catalogImportRun();
++    processCatalogRow($run, catalogRow([0 => 'https://example.test/car.jpg']));
++
++    $generation = VehicleGeneration::query()->firstOrFail();
++    $generation = app(ImportImageDownloader::class)->downloadVehicleGenerationImage($generation, 'https://example.test/car.jpg');
++
++    Storage::disk('public')->assertExists($generation->image);
++
++    expect($generation->image)->toEndWith('/image.webp');
++});

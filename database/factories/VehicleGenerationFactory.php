@@ -26,6 +26,7 @@ class VehicleGenerationFactory extends Factory
             'years_label' => fake()->optional()->randomElement(['2018–2021', '2021–н.в.', '2015–2020']),
             'body' => fake()->optional()->randomElement(['sedan', 'hatchback', 'wagon', 'suv']),
             'image' => null,
+            'image_source_url' => null,
             'position' => fake()->numberBetween(0, 500),
             'is_active' => true,
             'meta_title' => null,

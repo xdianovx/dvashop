@@ -12,8 +12,6 @@ use App\Models\ProductCategory;
 use App\Models\ProductFitment;
 use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
-use App\Models\VehicleMake;
-use App\Models\VehicleModel;
 use App\Support\CatalogText;
 use Illuminate\Support\Str;
 
@@ -28,11 +26,13 @@ class ImportProductFactory
         ProductCategory $category,
         array $detailHeader,
         string $cellValue,
+        ?string $imageUrl = null,
     ): Product {
         $vehicle = $generation->loadMissing('model.make');
+        $source = $this->sourceFor($run);
         $productTitle = $this->productTitle($category, $vehicle);
-        $importKey = $this->importKey($vehicle, $category);
-        $slug = $this->stableSlug($vehicle, $category);
+        $importKey = $this->importKey($vehicle, $category, $source);
+        $slug = $this->stableSlug($vehicle, $category, $source);
 
         $product = Product::query()->updateOrCreate(
             ['import_key' => $importKey],
@@ -43,6 +43,7 @@ class ImportProductFactory
                 'status' => ProductStatus::Active,
                 'stock_status' => StockStatus::InStock,
                 'price' => null,
+                'import_source' => $source,
                 'last_import_run_id' => (string) $run->getKey(),
             ]
         );
@@ -68,8 +69,10 @@ class ImportProductFactory
             ]
         );
 
-        if ($this->isUrl($cellValue)) {
-            DownloadProductImageJob::dispatch($product->getKey(), $cellValue, $run->getKey())->onQueue('imports-images');
+        $imageUrl ??= $this->isUrl($cellValue) ? trim($cellValue) : null;
+
+        if ($imageUrl !== null) {
+            DownloadProductImageJob::dispatch($product->getKey(), $imageUrl, $run->getKey())->onQueue('imports-images');
         }
 
         return $product->refresh();
@@ -82,6 +85,7 @@ class ImportProductFactory
         }
 
         return Product::query()
+            ->where('import_source', $this->sourceFor($run))
             ->whereNotNull('import_key')
             ->where(function ($query) use ($run): void {
                 $query
@@ -107,12 +111,12 @@ class ImportProductFactory
         ], static fn (?string $part): bool => trim((string) $part) !== '')));
     }
 
-    public function importKey(VehicleGeneration $generation, ProductCategory $category): string
+    public function importKey(VehicleGeneration $generation, ProductCategory $category, string $source = 'catalog'): string
     {
         $generation->loadMissing('model.make');
 
         return implode(':', [
-            'catalog',
+            CatalogText::normKey($source) ?: 'catalog',
             $generation->model?->make?->norm_key,
             $generation->model?->norm_key,
             $generation->norm_key,
@@ -120,13 +124,22 @@ class ImportProductFactory
         ]);
     }
 
-    public function stableSlug(VehicleGeneration $generation, ProductCategory $category): string
+    public function stableSlug(VehicleGeneration $generation, ProductCategory $category, string $source = 'catalog'): string
     {
-        return CatalogText::slug(Str::after($this->importKey($generation, $category), 'catalog:'));
+        $normalizedSource = CatalogText::normKey($source) ?: 'catalog';
+        $sourcePrefix = $normalizedSource.':';
+        $base = Str::after($this->importKey($generation, $category, $source), $sourcePrefix);
+
+        return CatalogText::slug($normalizedSource === 'catalog' ? $base : $normalizedSource.'-'.$base);
     }
 
     public function isUrl(string $value): bool
     {
         return filter_var(trim($value), FILTER_VALIDATE_URL) !== false;
+    }
+
+    private function sourceFor(ImportRun $run): string
+    {
+        return CatalogText::normKey($run->type ?: 'catalog') ?: 'catalog';
     }
 }

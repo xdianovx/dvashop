@@ -33,6 +33,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'meta_title',
     'meta_description',
     'import_key',
+    'import_source',
     'last_import_run_id',
 ])]
 class Product extends Model
