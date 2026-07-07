@@ -6,9 +6,7 @@
     width: 268px;
     border: 1px solid rgba(229, 231, 235, 0.9);
     border-radius: 18px;
-    background-color: rgba(255, 255, 255, 0.83);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background-color: var(--color-surface);
     opacity: 0;
     visibility: hidden;
     transform: translateY(-10px);
