@@ -2,7 +2,7 @@
     <div class="header__top">
         <div class="container header__top-inner">
             <nav class="header__utils" aria-label="Дополнительное меню">
-                <a href="#" class="header__util-link">Партнерам</a>
+                <a href="{{ route('partners') }}" class="header__util-link">Партнерам</a>
                 <a href="{{ route('about') }}" class="header__util-link">О нас</a>
                 <a href="{{ route('how') }}" class="header__util-link">Как мы работаем</a>
                 <a href="{{ route('payment') }}" class="header__util-link">Оплата и доставка</a>

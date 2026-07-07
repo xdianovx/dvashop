@@ -1,0 +1,316 @@
+.partners-page {
+    margin-top: 36px;
+    padding-bottom: var(--section-gap);
+}
+
+.partners-page__title {
+    margin-top: 71px;
+    font-family: var(--font-display);
+    font-weight: var(--fw-bold);
+    font-size: var(--fs-4xl);
+    line-height: var(--lh-tight);
+    text-align: center;
+    text-transform: uppercase;
+    color: var(--color-ink);
+}
+
+.partners-page__subtitle {
+    margin-top: 20px;
+    font-family: 'Gilroy', system-ui, sans-serif;
+    font-size: var(--fs-lg);
+    line-height: 1.4;
+    text-align: center;
+    color: var(--color-ink);
+}
+
+.partners-page__subtitle strong {
+    font-weight: var(--fw-bold);
+}
+
+.partners-page__benefits {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px 14px;
+    margin-top: 63px;
+}
+
+.partners-page__benefit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 78px;
+    padding: 20px 22px;
+    border: 1px solid var(--color-border);
+    border-radius: 36px;
+    background-color: rgba(255, 255, 255, 0.75);
+    font-family: 'Gilroy', system-ui, sans-serif;
+    font-weight: var(--fw-medium);
+    font-size: 32px;
+    line-height: 1.2;
+    text-align: center;
+    color: var(--color-primary-dark);
+}
+
+.partners-page__benefit--phone {
+    grid-column: 1 / -1;
+    gap: 10px;
+    border: none;
+    background-image: linear-gradient(-83deg, #1750b7 15%, #022253 143%);
+    color: var(--color-on-dark);
+}
+
+.partners-page__benefit--phone img {
+    width: 25px;
+    height: 25px;
+}
+
+.partners-page__benefit--phone strong {
+    font-weight: var(--fw-bold);
+}
+
+.partners-page__title--coop {
+    margin-top: 120px;
+}
+
+.partners-page__coop {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 44px;
+}
+
+.partners-page__coop-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    min-height: 350px;
+    padding: 28px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-2xl);
+    background-color: #f9fbfa;
+}
+
+.partners-page__coop-icon {
+    height: 105px;
+    width: auto;
+    object-fit: contain;
+}
+
+.partners-page__coop-label {
+    font-family: 'Gilroy', system-ui, sans-serif;
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-xl);
+    line-height: 1.2;
+    text-align: center;
+    color: var(--color-primary-dark);
+}
+
+.partners-page__mob-cta {
+    display: none;
+}
+
+.partners-page__about {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 120px;
+}
+
+.partners-page__photo {
+    border-radius: var(--radius-2xl);
+    overflow: hidden;
+}
+
+.partners-page__photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.partners-page__about-title {
+    font-family: var(--font-display);
+    font-weight: var(--fw-bold);
+    font-size: 32px;
+    line-height: var(--lh-tight);
+    color: var(--color-primary-dark);
+}
+
+.partners-page__list {
+    margin-top: 8px;
+}
+
+.partners-page__list-item {
+    position: relative;
+    padding-left: 16px;
+    font-family: 'Gilroy', system-ui, sans-serif;
+    font-size: var(--fs-xl);
+    line-height: 1.89;
+    color: var(--color-primary-dark);
+}
+
+.partners-page__list-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 20px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: var(--color-primary-dark);
+}
+
+.partners-page__list-item strong {
+    font-weight: var(--fw-bold);
+}
+
+@media (max-width: 1200px) {
+    .partners-page__benefit {
+        min-height: 60px;
+        font-size: 22px;
+    }
+
+    .partners-page__title--coop {
+        margin-top: 64px;
+    }
+
+    .partners-page__coop {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .partners-page__coop-card {
+        min-height: 260px;
+    }
+
+    .partners-page__about {
+        grid-template-columns: 1fr;
+        margin-top: 64px;
+    }
+
+    .partners-page__list-item {
+        font-size: 18px;
+    }
+}
+
+@media (max-width: 768px) {
+    .partners-page {
+        margin-top: 12px;
+    }
+
+    .partners-page__title {
+        margin-top: 22px;
+        font-size: 22px;
+        letter-spacing: 0.22px;
+        color: var(--color-primary-dark);
+    }
+
+    .partners-page__subtitle {
+        margin-top: 10px;
+        font-size: 10px;
+    }
+
+    .partners-page__benefits {
+        gap: 3px 4px;
+        margin-top: 39px;
+    }
+
+    .partners-page__benefit {
+        min-height: 33px;
+        padding: 8px 10px;
+        border-width: 0.7px;
+        border-radius: 43px;
+        background-color: var(--color-surface);
+        font-size: 9px;
+        color: #383838;
+    }
+
+    .partners-page__benefit--phone {
+        margin-top: 3px;
+        gap: 5px;
+        color: var(--color-on-dark);
+    }
+
+    .partners-page__benefit--phone img {
+        width: 10px;
+        height: 10px;
+    }
+
+    .partners-page__title--coop {
+        margin-top: 42px;
+    }
+
+    .partners-page__coop {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px 5px;
+        margin-top: 10px;
+    }
+
+    .partners-page__coop-card {
+        gap: 7px;
+        min-height: 99px;
+        padding: 11px;
+        border-radius: 16px;
+    }
+
+    .partners-page__coop-card--sto {
+        order: -2;
+    }
+
+    .partners-page__coop-card--opt {
+        order: -1;
+    }
+
+    .partners-page__coop-icon {
+        height: 39px;
+    }
+
+    .partners-page__coop-label {
+        font-size: 12px;
+        color: var(--color-ink);
+    }
+
+    .partners-page__mob-cta {
+        display: flex;
+        width: 181px;
+        height: 34px;
+        margin: 24px auto 0;
+        border-radius: 30px;
+        font-family: 'Gilroy', system-ui, sans-serif;
+        font-size: 12px;
+        color: var(--color-on-dark);
+        background-image: linear-gradient(180deg, #1750b7 0%, #022253 100%);
+    }
+
+    .partners-page__about {
+        gap: 14px;
+        margin-top: 32px;
+    }
+
+    .partners-page__photo {
+        height: 202px;
+        border-radius: 16px;
+    }
+
+    .partners-page__about-title {
+        font-family: 'Gilroy', system-ui, sans-serif;
+        font-size: 20px;
+        color: var(--color-ink);
+    }
+
+    .partners-page__list {
+        margin-top: 4px;
+    }
+
+    .partners-page__list-item {
+        padding-left: 10px;
+        font-size: 12px;
+        color: var(--color-ink);
+    }
+
+    .partners-page__list-item::before {
+        top: 10px;
+        width: 3px;
+        height: 3px;
+    }
+}
