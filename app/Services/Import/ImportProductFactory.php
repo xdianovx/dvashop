@@ -27,7 +27,7 @@ class ImportProductFactory
     ) {}
 
     /**
-     * @param array{index:int, group:string|null, title:string, category_title:string} $detailHeader
+     * @param array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string} $detailHeader
      */
     public function createOrUpdateFromCell(
         ImportRun $run,
@@ -39,9 +39,9 @@ class ImportProductFactory
     ): Product {
         $vehicle = $generation->loadMissing('model.make');
         $source = $this->sourceFor($run);
-        $productTitle = $this->productTitle($category, $vehicle);
+        $productTitle = $this->productTitle($category, $vehicle, $detailHeader);
         $importKey = $this->importKey($vehicle, $category, $source);
-        $slug = $this->stableSlug($vehicle, $category, $source);
+        $slug = $this->stableSlug($vehicle, $category, $source, $productTitle);
 
         /** @var Product $product */
         $product = Product::query()->firstOrNew(['import_key' => $importKey]);
@@ -118,12 +118,15 @@ class ImportProductFactory
         return $archived;
     }
 
-    public function productTitle(ProductCategory $category, VehicleGeneration $generation): string
+    /**
+     * @param array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string}|null $detailHeader
+     */
+    public function productTitle(ProductCategory $category, VehicleGeneration $generation, ?array $detailHeader = null): string
     {
         $generation->loadMissing('model.make');
 
         $title = trim(implode(' ', array_filter([
-            $category->title,
+            $this->detailTitleForProduct($category, $detailHeader),
             'для',
             $generation->model?->make?->title,
             $generation->model?->title,
@@ -144,17 +147,63 @@ class ImportProductFactory
             $generation->model?->make?->norm_key,
             $generation->model?->norm_key,
             $generation->norm_key,
-            $category->full_slug,
+            ...$this->categoryImportKeySegments($category),
         ], ':', 240, 'catalog');
     }
 
-    public function stableSlug(VehicleGeneration $generation, ProductCategory $category, string $source = 'catalog'): string
+    /** @return array<int, string> */
+    private function categoryImportKeySegments(ProductCategory $category): array
+    {
+        $path = CatalogText::plain($category->full_slug ?: $category->slug ?: $category->title, 250);
+        $segments = array_values(array_filter(array_map(
+            static fn (string $segment): string => trim($segment),
+            explode('/', $path),
+        ), static fn (string $segment): bool => $segment !== ''));
+
+        return $segments !== [] ? $segments : [$category->title];
+    }
+
+    public function stableSlug(VehicleGeneration $generation, ProductCategory $category, string $source = 'catalog', ?string $productTitle = null): string
     {
         $normalizedSource = CatalogText::normKey($source, 'catalog', 60) ?: 'catalog';
-        $sourcePrefix = $normalizedSource.':';
-        $base = Str::after($this->importKey($generation, $category, $source), $sourcePrefix);
+        $titleSlug = CatalogText::slug($productTitle ?: $this->productTitle($category, $generation), 'product', 120);
+        $identity = Str::after($this->importKey($generation, $category, $source), $normalizedSource.':');
+        $base = $normalizedSource === 'catalog' ? $titleSlug : $normalizedSource.'-'.$titleSlug;
 
-        return CatalogText::slug($normalizedSource === 'catalog' ? $base : $normalizedSource.'-'.$base, 'product', 150);
+        return CatalogText::limitStable($base.'-'.substr(sha1($identity), 0, 8), 150);
+    }
+
+
+    /**
+     * @param array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string}|null $detailHeader
+     */
+    private function detailTitleForProduct(ProductCategory $category, ?array $detailHeader = null): string
+    {
+        $fullDetailTitle = CatalogText::plain($detailHeader['full_detail_title'] ?? null, 250);
+
+        if ($fullDetailTitle !== '') {
+            return $fullDetailTitle;
+        }
+
+        $parentTitle = CatalogText::plain($detailHeader['parent_title'] ?? $detailHeader['group'] ?? null, 250);
+        $detailTitle = CatalogText::plain($detailHeader['detail_title'] ?? $detailHeader['category_title'] ?? $detailHeader['title'] ?? null, 250);
+
+        if ($parentTitle !== '' && $detailTitle !== '' && $parentTitle !== $detailTitle) {
+            return CatalogText::plain($parentTitle.' '.$this->lowerFirst($detailTitle), 250);
+        }
+
+        return CatalogText::plain($detailTitle !== '' ? $detailTitle : $category->title, 250);
+    }
+
+    private function lowerFirst(string $value): string
+    {
+        $value = CatalogText::plain($value, 250);
+
+        if ($value === '') {
+            return '';
+        }
+
+        return mb_strtolower(mb_substr($value, 0, 1)).mb_substr($value, 1);
     }
 
     public function isUrl(string $value): bool
