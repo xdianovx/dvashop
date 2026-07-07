@@ -175,10 +175,13 @@ test('csv merged detail headers keep legacy fallback behaviour', function () {
 
     $headers = app(SpreadsheetReader::class)->readMergedDetailHeaders($path);
 
-    expect($headers[6])->toBe([
+    expect($headers[6])->toMatchArray([
         'index' => 6,
         'group' => 'Кузовные детали',
+        'parent_title' => 'Кузовные детали',
         'title' => 'Пороги',
+        'detail_title' => 'Пороги',
+        'full_detail_title' => 'Кузовные детали пороги',
         'category_title' => 'Пороги',
     ])->and($headers[7]['group'])->toBe('Кузовные детали')
         ->and($headers[7]['category_title'])->toBe('Арки')
@@ -233,7 +236,12 @@ test('xlsx merged detail headers use real merge ranges and reset group after ran
 
     expect($headers[6]['group'])->toBeNull()
         ->and($headers[6]['category_title'])->toBe('Порог')
+        ->and($headers[6]['full_detail_title'])->toBe('Порог')
         ->and($headers[7]['group'])->toBe('Арка')
+        ->and($headers[7]['full_detail_title'])->toBe('Арка задняя')
+        ->and($headers[10]['full_detail_title'])->toBe('Арка внутренняя универсальная')
+        ->and($headers[12]['full_detail_title'])->toBe('Пенка задней двери')
+        ->and($headers[15]['full_detail_title'])->toBe('Лонжерон')
         ->and($headers[11]['group'])->toBe('Арка')
         ->and($headers[12]['group'])->toBe('Пенка')
         ->and($headers[14]['group'])->toBe('Пенка')
@@ -332,7 +340,7 @@ test('row creates product default variant and fitment', function () {
     $fitment = ProductFitment::query()->firstOrFail();
     $generation = VehicleGeneration::query()->firstOrFail();
 
-    expect($product->title)->toContain('Пороги')
+    expect($product->title)->toContain('Кузовные детали пороги')
         ->and($product->title)->toContain('Toyota Camry XV70')
         ->and($product->status)->toBe(ProductStatus::Active)
         ->and($product->import_key)->not->toBeNull()
@@ -571,7 +579,10 @@ test('excel text normalization removes line breaks and duplicate spaces from cat
         ->and(ProductCategory::query()->where('title', "Задней\nдвери")->exists())->toBeFalse()
         ->and(ProductCategory::query()->where('title', 'Задней двери')->exists())->toBeTrue()
         ->and(Product::query()->where('title', 'like', "%\n%")->exists())->toBeFalse()
-        ->and(Product::query()->where('title', 'like', "%  %")->exists())->toBeFalse();
+        ->and(Product::query()->where('title', 'like', "%  %")->exists())->toBeFalse()
+        ->and(Product::query()->where('title', 'like', 'Пенка задней двери для%')->exists())->toBeTrue()
+        ->and(Product::query()->where('title', 'like', 'Пенка передней двери для%')->exists())->toBeTrue()
+        ->and(Product::query()->where('title', 'like', 'Усилитель / соединитель порогов для%')->exists())->toBeTrue();
 });
 
 test('chunk skips auto archive when row errors were logged', function () {
@@ -723,6 +734,96 @@ test('vehicle image url is not queued again when source file exists', function (
     app(ImportRowProcessor::class)->process($run, catalogRow([0 => 'https://example.test/car.jpg']), $run->detail_columns, 4);
 
     Queue::assertNotPushed(DownloadVehicleGenerationImageJob::class);
+});
+
+
+test('grouped detail title is used in product title while category remains nested', function () {
+    $run = catalogImportRun([
+        'detail_columns' => [
+            10 => [
+                'index' => 10,
+                'group' => 'Арка',
+                'parent_title' => 'Арка',
+                'title' => 'Внутренняя универсальная',
+                'detail_title' => 'Внутренняя универсальная',
+                'full_detail_title' => 'Арка внутренняя универсальная',
+                'category_title' => 'Внутренняя универсальная',
+            ],
+        ],
+    ]);
+
+    processCatalogRow($run, catalogRow([6 => '', 10 => '1', 1 => 'Acura', 2 => 'TSX', 3 => '2', 4 => '2008 - 2014', 5 => 'Седан 4 дв.']));
+
+    $product = Product::query()->firstOrFail();
+    $parent = ProductCategory::query()->where('title', 'Арка')->firstOrFail();
+    $child = ProductCategory::query()->where('title', 'Внутренняя универсальная')->firstOrFail();
+
+    expect($product->title)->toBe('Арка внутренняя универсальная для Acura TSX 2 2008 - 2014 Седан 4 дв.')
+        ->and($child->parent_id)->toBe($parent->getKey())
+        ->and($child->full_title)->toBe('Арка / Внутренняя универсальная')
+        ->and($product->import_key)->toContain(':arka:')
+        ->and($product->import_key)->toContain('vnutrenniaia-universalnaia')
+        ->and($product->slug)->toStartWith('arka-vnutrenniaia-universalnaia-dlia-acura-tsx-2');
+});
+
+test('penka root and root-only detail titles are reflected in product titles', function () {
+    $run = catalogImportRun([
+        'detail_columns' => [
+            12 => [
+                'index' => 12,
+                'group' => 'Пенка',
+                'parent_title' => 'Пенка',
+                'title' => "Задней
+двери",
+                'detail_title' => 'Задней двери',
+                'full_detail_title' => 'Пенка задней двери',
+                'category_title' => 'Задней двери',
+            ],
+            15 => [
+                'index' => 15,
+                'group' => null,
+                'parent_title' => null,
+                'title' => 'Лонжерон',
+                'detail_title' => 'Лонжерон',
+                'full_detail_title' => 'Лонжерон',
+                'category_title' => 'Лонжерон',
+            ],
+        ],
+    ]);
+
+    processCatalogRow($run, catalogRow([6 => '', 12 => '1', 15 => '1']));
+
+    $titles = Product::query()->pluck('title')->sort()->values()->all();
+    $penka = ProductCategory::query()->where('title', 'Пенка')->firstOrFail();
+    $rearDoor = ProductCategory::query()->where('title', 'Задней двери')->firstOrFail();
+
+    expect($titles)->toContain('Лонжерон для Toyota Camry XV70 2017-2023 седан')
+        ->and($titles)->toContain('Пенка задней двери для Toyota Camry XV70 2017-2023 седан')
+        ->and($rearDoor->parent_id)->toBe($penka->getKey())
+        ->and(ProductCategory::query()->where('title', 'Лонжерон')->firstOrFail()->parent_id)->toBeNull();
+});
+
+test('repeated import with full detail title updates same product without duplicates', function () {
+    $detailColumns = [
+        10 => [
+            'index' => 10,
+            'group' => 'Арка',
+            'parent_title' => 'Арка',
+            'title' => 'Внутренняя универсальная',
+            'detail_title' => 'Внутренняя универсальная',
+            'full_detail_title' => 'Арка внутренняя универсальная',
+            'category_title' => 'Внутренняя универсальная',
+        ],
+    ];
+
+    $firstRun = catalogImportRun(['detail_columns' => $detailColumns]);
+    $secondRun = catalogImportRun(['detail_columns' => $detailColumns]);
+
+    processCatalogRow($firstRun, catalogRow([6 => '', 10 => '1']));
+    processCatalogRow($secondRun, catalogRow([6 => '', 10 => '1']));
+
+    expect(Product::query()->count())->toBe(1)
+        ->and(Product::query()->firstOrFail()->last_import_run_id)->toBe((string) $secondRun->getKey());
 });
 
 test('import inspect command outputs category tree and does not write to database', function () {

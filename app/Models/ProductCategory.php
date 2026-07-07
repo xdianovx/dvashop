@@ -56,6 +56,17 @@ class ProductCategory extends Model
         return str_repeat('— ', max(0, $this->depth)).$this->title;
     }
 
+    public function getFullTitleAttribute(): string
+    {
+        $this->loadMissing('parent');
+
+        if ($this->parent instanceof self) {
+            return CatalogText::plain($this->parent->full_title.' / '.$this->title, 250);
+        }
+
+        return CatalogText::plain($this->title, 250);
+    }
+
     /**
      * @return array<int, int>
      */

@@ -111,7 +111,7 @@ class ImportFileInspector
         ];
     }
 
-    /** @param array<int, array{group:string|null, category_title:string, title:string}> $headers */
+    /** @param array<int, array{group:string|null, parent_title?:string|null, category_title:string, title:string, detail_title?:string, full_detail_title?:string}> $headers */
     private function categoryTree(array $headers): array
     {
         $tree = [];
@@ -140,7 +140,7 @@ class ImportFileInspector
         return $tree;
     }
 
-    /** @param array<int, array{group:string|null, category_title:string, title:string}> $headers */
+    /** @param array<int, array{group:string|null, parent_title?:string|null, category_title:string, title:string, detail_title?:string, full_detail_title?:string}> $headers */
     private function penkaLeakDetected(array $headers): bool
     {
         foreach (['Лонжерон', 'Торцевая заглушка', 'Ремкомплект пола', 'Усилитель / соединитель порогов'] as $title) {

@@ -133,3 +133,17 @@ test('Product cannot keep multiple visible main images after saving ProductImage
         ->and($second->fresh()->is_visible)->toBeTrue()
         ->and($product->images()->where('is_main', true)->count())->toBe(1);
 });
+
+test('ProductResource exposes full category path for table display', function () {
+    $parent = ProductCategory::factory()->create(['title' => 'Арка', 'slug' => 'arka']);
+    $child = ProductCategory::factory()->create([
+        'parent_id' => $parent->getKey(),
+        'title' => 'Внутренняя универсальная',
+        'slug' => 'vnutrennyaya-universalnaya',
+    ]);
+    $product = Product::factory()->create(['product_category_id' => $child->getKey()]);
+
+    $record = ProductResource::getEloquentQuery()->whereKey($product->getKey())->firstOrFail();
+
+    expect($record->category?->full_title)->toBe('Арка / Внутренняя универсальная');
+});

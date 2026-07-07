@@ -75,7 +75,7 @@ class SpreadsheetReader
     }
 
     /**
-     * @return array<int, array{index:int, group:string|null, title:string, category_title:string}>
+     * @return array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string}>
      */
     public function readMergedDetailHeaders(string $path, int $detailStartColumn = 6): array
     {

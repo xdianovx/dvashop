@@ -304,9 +304,16 @@ class ProductResource extends Resource
                     ->label('SKU')
                     ->searchable()
                     ->toggleable(),
-                TextColumn::make('category.title')
+                TextColumn::make('category.full_title')
                     ->label('Категория')
-                    ->sortable(),
+                    ->state(fn (Product $record): string => $record->category?->full_title ?? '—')
+                    ->searchable(query: function (Builder $query, string $search): Builder {
+                        return $query->whereHas('category', function (Builder $categoryQuery) use ($search): void {
+                            $categoryQuery
+                                ->where('title', 'like', '%'.$search.'%')
+                                ->orWhere('full_slug', 'like', '%'.$search.'%');
+                        });
+                    }),
                 TextColumn::make('status')
                     ->label('Статус')
                     ->badge()
@@ -360,7 +367,7 @@ class ProductResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->with(['category', 'mainImage'])
+            ->with(['category.parent', 'mainImage'])
             ->withoutGlobalScopes([
                 SoftDeletingScope::class,
             ]);

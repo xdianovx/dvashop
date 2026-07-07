@@ -11,7 +11,7 @@ class CatalogImportHeaderParser
 
     /**
      * @param array<int, array<int, mixed>> $headerRows
-     * @return array<int, array{index:int, group:string|null, title:string, category_title:string}>
+     * @return array<int, array{index:int, group:string|null, parent_title:string|null, title:string, detail_title:string, full_detail_title:string, category_title:string}>
      */
     public function parse(string $path, int $detailStartColumn, array $headerRows, string $extension): array
     {
@@ -22,7 +22,7 @@ class CatalogImportHeaderParser
 
     /**
      * @param array<int, array<int, mixed>> $headerRows
-     * @return array<int, array{index:int, group:string|null, title:string, category_title:string}>
+     * @return array<int, array{index:int, group:string|null, parent_title:string|null, title:string, detail_title:string, full_detail_title:string, category_title:string}>
      */
     private function parseXlsx(string $path, int $detailStartColumn, array $headerRows): array
     {
@@ -40,12 +40,12 @@ class CatalogImportHeaderParser
 
             if ($mergedGroup !== null && $mergedGroup !== '') {
                 $categoryTitle = $title !== '' ? $title : $mergedGroup;
-                $headers[$index] = [
-                    'index' => $index,
-                    'group' => $mergedGroup,
-                    'title' => $title !== '' ? $title : $categoryTitle,
-                    'category_title' => $categoryTitle,
-                ];
+                $headers[$index] = $this->detailHeader(
+                    index: $index,
+                    parentTitle: $mergedGroup,
+                    detailTitle: $title !== '' ? $title : $categoryTitle,
+                    categoryTitle: $categoryTitle,
+                );
 
                 continue;
             }
@@ -55,24 +55,24 @@ class CatalogImportHeaderParser
             }
 
             if ($directGroup !== '' && $title !== '') {
-                $headers[$index] = [
-                    'index' => $index,
-                    'group' => $directGroup,
-                    'title' => $title,
-                    'category_title' => $title,
-                ];
+                $headers[$index] = $this->detailHeader(
+                    index: $index,
+                    parentTitle: $directGroup,
+                    detailTitle: $title,
+                    categoryTitle: $title,
+                );
 
                 continue;
             }
 
             $categoryTitle = $title !== '' ? $title : $directGroup;
 
-            $headers[$index] = [
-                'index' => $index,
-                'group' => null,
-                'title' => $categoryTitle,
-                'category_title' => $categoryTitle,
-            ];
+            $headers[$index] = $this->detailHeader(
+                index: $index,
+                parentTitle: null,
+                detailTitle: $categoryTitle,
+                categoryTitle: $categoryTitle,
+            );
         }
 
         return $headers;
@@ -83,7 +83,7 @@ class CatalogImportHeaderParser
      * a non-empty group cell is carried until the next non-empty group cell.
      *
      * @param array<int, array<int, mixed>> $headerRows
-     * @return array<int, array{index:int, group:string|null, title:string, category_title:string}>
+     * @return array<int, array{index:int, group:string|null, parent_title:string|null, title:string, detail_title:string, full_detail_title:string, category_title:string}>
      */
     private function parseCsvFallback(int $detailStartColumn, array $headerRows): array
     {
@@ -107,12 +107,12 @@ class CatalogImportHeaderParser
 
             $categoryTitle = $title !== '' ? $title : ($groupCell ?: (string) $currentGroup);
 
-            $headers[$index] = [
-                'index' => $index,
-                'group' => $currentGroup,
-                'title' => $title !== '' ? $title : $categoryTitle,
-                'category_title' => $categoryTitle,
-            ];
+            $headers[$index] = $this->detailHeader(
+                index: $index,
+                parentTitle: $currentGroup,
+                detailTitle: $title !== '' ? $title : $categoryTitle,
+                categoryTitle: $categoryTitle,
+            );
         }
 
         return $headers;
@@ -307,6 +307,51 @@ class CatalogImportHeaderParser
         }
 
         return [$column - 1, (int) $match[2]];
+    }
+
+
+    /**
+     * @return array{index:int, group:string|null, parent_title:string|null, title:string, detail_title:string, full_detail_title:string, category_title:string}
+     */
+    private function detailHeader(int $index, ?string $parentTitle, string $detailTitle, string $categoryTitle): array
+    {
+        $parentTitle = $this->cellString($parentTitle);
+        $detailTitle = $this->cellString($detailTitle);
+        $categoryTitle = $this->cellString($categoryTitle !== '' ? $categoryTitle : $detailTitle);
+        $parentTitle = $parentTitle !== '' && $parentTitle !== $categoryTitle ? $parentTitle : null;
+
+        return [
+            'index' => $index,
+            'group' => $parentTitle,
+            'parent_title' => $parentTitle,
+            'title' => $detailTitle,
+            'detail_title' => $detailTitle,
+            'full_detail_title' => $this->fullDetailTitle($parentTitle, $detailTitle !== '' ? $detailTitle : $categoryTitle),
+            'category_title' => $categoryTitle,
+        ];
+    }
+
+    private function fullDetailTitle(?string $parentTitle, string $detailTitle): string
+    {
+        $parentTitle = $this->cellString($parentTitle);
+        $detailTitle = $this->cellString($detailTitle);
+
+        if ($parentTitle === '' || $parentTitle === $detailTitle) {
+            return $detailTitle;
+        }
+
+        return CatalogText::plain($parentTitle.' '.$this->lowerFirst($detailTitle), 250);
+    }
+
+    private function lowerFirst(string $value): string
+    {
+        $value = $this->cellString($value);
+
+        if ($value === '') {
+            return '';
+        }
+
+        return mb_strtolower(mb_substr($value, 0, 1)).mb_substr($value, 1);
     }
 
     private function cellString(mixed $value): string

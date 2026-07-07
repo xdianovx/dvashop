@@ -29,8 +29,8 @@ class ImportRowProcessor
     ) {}
 
     /**
-     * @param array<int, array{index:int, group:string|null, title:string, category_title:string, category_id?:int}> $detailColumns
-     * @return array<int, array{index:int, group:string|null, title:string, category_title:string, category_id:int}>
+     * @param array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, category_id?:int, category_full_slug?:string, category_full_path?:string}> $detailColumns
+     * @return array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, category_id:int, category_full_slug:string, category_full_path:string}>
      */
     public function prepareDetailColumns(ImportRun $run, array $detailColumns): array
     {
@@ -42,6 +42,8 @@ class ImportRowProcessor
                 continue;
             }
             $detailHeader['category_id'] = $category->getKey();
+            $detailHeader['category_full_slug'] = $category->full_slug;
+            $detailHeader['category_full_path'] = $category->full_title;
             $prepared[(int) $columnIndex] = $detailHeader;
         }
 
@@ -50,7 +52,7 @@ class ImportRowProcessor
 
     /**
      * @param array<int, mixed> $row
-     * @param array<int, array{index:int, group:string|null, title:string, category_title:string, category_id?:int}> $detailColumns
+     * @param array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, category_id?:int, category_full_slug?:string, category_full_path?:string}> $detailColumns
      */
     public function process(ImportRun $run, array $row, array $detailColumns, int $rowNumber): void
     {
@@ -110,7 +112,7 @@ class ImportRowProcessor
     }
 
     /**
-     * @param array{index:int, group:string|null, title:string, category_title:string, category_id?:int} $detailHeader
+     * @param array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, category_id?:int, category_full_slug?:string, category_full_path?:string} $detailHeader
      */
     public function productCategory(array $detailHeader, ?ImportRun $run = null, bool $createIfMissing = true, ?int $rowNumber = null, ?int $columnIndex = null): ?ProductCategory
     {
@@ -141,8 +143,8 @@ class ImportRowProcessor
             }
         }
 
-        $groupTitle = $this->cell($detailHeader['group'] ?? null);
-        $categoryTitle = $this->cell($detailHeader['category_title'] ?? $detailHeader['title'] ?? null);
+        $groupTitle = $this->cell($detailHeader['parent_title'] ?? $detailHeader['group'] ?? null);
+        $categoryTitle = $this->cell($detailHeader['category_title'] ?? $detailHeader['detail_title'] ?? $detailHeader['title'] ?? null);
 
         if ($categoryTitle === '' && $groupTitle !== '') {
             $categoryTitle = $groupTitle;
