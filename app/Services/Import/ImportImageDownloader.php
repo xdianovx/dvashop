@@ -5,98 +5,85 @@ namespace App\Services\Import;
 use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\VehicleGeneration;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Storage;
-use RuntimeException;
+use App\Services\Media\ImageDownloadService;
+use App\Services\Media\MediaFileCleanupService;
 
 class ImportImageDownloader
 {
-    public const MAX_BYTES = 10485760;
+    public function __construct(
+        private readonly ImageDownloadService $downloader,
+        private readonly MediaFileCleanupService $cleanup,
+    ) {}
 
     public function download(Product $product, string $url): ProductImage
     {
-        $body = $this->downloadBody($url);
-        $path = $this->pathFor($product);
-        Storage::disk('public')->put($path, $body);
+        $product->loadMissing('defaultVariant');
 
-        return ProductImage::query()->updateOrCreate(
+        $processed = $this->downloader->download(
+            url: $url,
+            profile: 'product_gallery',
+            directory: 'uploads/products/'.$product->getKey(),
+        );
+
+        $existing = ProductImage::query()
+            ->where('product_id', $product->getKey())
+            ->where('checksum', $processed->checksum)
+            ->first();
+
+        if ($existing instanceof ProductImage) {
+            $this->cleanup->deleteProcessedImage($processed);
+
+            if (! $product->images()->where('is_main', true)->exists()) {
+                $existing->forceFill(['is_main' => true])->save();
+            }
+
+            return $existing->refresh();
+        }
+
+        $isMain = ! $product->images()->where('is_main', true)->exists();
+        $position = (int) $product->images()->max('position') + 1;
+
+        return ProductImage::query()->create(array_merge(
+            $processed->toProductImageAttributes(),
             [
                 'product_id' => $product->getKey(),
-                'path' => $path,
-            ],
-            [
                 'product_variant_id' => $product->defaultVariant?->getKey(),
                 'alt' => $product->title,
-                'position' => 0,
-                'is_main' => true,
-            ]
-        );
+                'position' => $position,
+                'is_main' => $isMain,
+            ],
+        ));
     }
 
     public function downloadVehicleGenerationImage(VehicleGeneration $generation, string $url): VehicleGeneration
     {
-        $body = $this->downloadBody($url);
-        $path = $this->vehicleGenerationPathFor($generation);
-        Storage::disk('public')->put($path, $body);
+        $processed = $this->downloader->download(
+            url: $url,
+            profile: 'vehicle_image',
+            directory: 'uploads/vehicles/generations/'.$generation->getKey(),
+        );
 
-        $generation->forceFill(['image' => $path])->save();
+        if ($generation->image_checksum !== null && hash_equals((string) $generation->image_checksum, $processed->checksum)) {
+            $this->cleanup->deleteProcessedImage($processed);
+
+            return $generation->refresh();
+        }
+
+        $oldPath = $generation->image;
+        $oldConversions = $generation->image_conversions;
+
+        $generation->forceFill([
+            'image' => $processed->path,
+            'image_source_url' => $url,
+            'image_checksum' => $processed->checksum,
+            'image_conversions' => $processed->conversions,
+        ])->save();
+
+        if ($oldPath !== null && $oldPath !== $processed->path) {
+            $this->cleanup->deletePath($oldPath, 'public');
+            $this->cleanup->deleteConversions(is_array($oldConversions) ? $oldConversions : null, 'public');
+        }
 
         return $generation->refresh();
-    }
-
-    public function pathFor(Product $product): string
-    {
-        $product->loadMissing('category', 'fitments.generation.model.make');
-        $generation = $product->fitments->first()?->generation;
-        $model = $generation?->model;
-        $make = $model?->make;
-
-        return implode('/', [
-            'uploads',
-            'products',
-            $make?->slug ?: 'unknown-make',
-            $model?->slug ?: 'unknown-model',
-            $generation?->slug ?: 'unknown-generation',
-            $product->slug,
-            'image.webp',
-        ]);
-    }
-
-    public function vehicleGenerationPathFor(VehicleGeneration $generation): string
-    {
-        $generation->loadMissing('model.make');
-        $model = $generation->model;
-        $make = $model?->make;
-
-        return implode('/', [
-            'uploads',
-            'vehicles',
-            $make?->slug ?: 'unknown-make',
-            $model?->slug ?: 'unknown-model',
-            $generation->slug ?: 'unknown-generation',
-            'image.webp',
-        ]);
-    }
-
-    private function downloadBody(string $url): string
-    {
-        $response = Http::timeout(20)->retry(2, 300)->get($url);
-
-        if (! $response->successful()) {
-            throw new RuntimeException('Не удалось скачать изображение. HTTP '.$response->status());
-        }
-
-        $body = $response->body();
-        $size = strlen($body);
-
-        if ($size <= 0) {
-            throw new RuntimeException('Скачанное изображение пустое.');
-        }
-
-        if ($size > self::MAX_BYTES) {
-            throw new RuntimeException('Изображение больше допустимого размера.');
-        }
-
-        return $body;
     }
 }

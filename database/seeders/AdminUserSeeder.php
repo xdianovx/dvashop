@@ -11,22 +11,15 @@ class AdminUserSeeder extends Seeder
 {
     public function run(): void
     {
-        $name = env('ADMIN_NAME');
-        $email = env('ADMIN_EMAIL');
-        $password = env('ADMIN_PASSWORD');
-
-        if (blank($name) || blank($email) || blank($password)) {
-            $this->command?->warn('Super admin was not seeded: ADMIN_NAME, ADMIN_EMAIL or ADMIN_PASSWORD is empty.');
-
-            return;
-        }
+        $email = env('ADMIN_EMAIL', 'admin@example.com');
+        $password = env('ADMIN_PASSWORD', 'change-me');
 
         User::query()->updateOrCreate(
             ['email' => $email],
             [
-                'name' => $name,
+                'name' => env('ADMIN_NAME', 'DvaShop Super Admin'),
                 'password' => Hash::make($password),
-                'role' => UserRole::SuperAdmin,
+                'role' => UserRole::SuperAdmin->value,
                 'email_verified_at' => now(),
             ],
         );

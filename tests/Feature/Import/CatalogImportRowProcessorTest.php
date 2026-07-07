@@ -30,7 +30,7 @@ function catalogImportRun(array $state = []): ImportRun
 {
     return ImportRun::factory()->create(array_merge([
         'type' => 'catalog',
-        'status' => ImportRunStatus::Running,
+        'status' => ImportRunStatus::RunningRows,
         'total_rows' => 1,
         'detail_columns' => [
             6 => [
@@ -413,7 +413,7 @@ test('missing imported products are archived only inside current import source a
         ->and($oldCatalogProduct->fresh()->status)->toBe(ProductStatus::Active);
 
     $successfulRun = catalogImportRun([
-        'status' => ImportRunStatus::Running,
+        'status' => ImportRunStatus::RunningRows,
         'total_rows' => 1,
     ]);
 
@@ -465,7 +465,7 @@ test('catalog chunk archives missing products after successful import', function
 test('fake http image download saves product image file', function () {
     Storage::fake('public');
     Http::fake([
-        'https://example.test/image.jpg' => Http::response('fake-image-content', 200),
+        'https://example.test/image.jpg' => Http::response(test_image_binary('jpeg', 320, 240), 200, ['Content-Type' => 'image/jpeg']),
     ]);
 
     $run = catalogImportRun();
@@ -477,14 +477,16 @@ test('fake http image download saves product image file', function () {
     Storage::disk('public')->assertExists($image->path);
 
     expect(ProductImage::query()->count())->toBe(1)
-        ->and($image->path)->toEndWith('/image.webp')
+        ->and($image->path)->toStartWith('uploads/products/'.$product->getKey().'/')
+        ->and($image->path)->toEndWith('.webp')
+        ->and($image->mime)->toBe('image/webp')
         ->and($image->alt)->toBe($product->title);
 });
 
 test('fake http vehicle generation image download saves image path on generation', function () {
     Storage::fake('public');
     Http::fake([
-        'https://example.test/car.jpg' => Http::response('fake-car-image-content', 200),
+        'https://example.test/car.jpg' => Http::response(test_image_binary('jpeg', 640, 360), 200, ['Content-Type' => 'image/jpeg']),
     ]);
 
     $run = catalogImportRun();
@@ -495,5 +497,50 @@ test('fake http vehicle generation image download saves image path on generation
 
     Storage::disk('public')->assertExists($generation->image);
 
-    expect($generation->image)->toEndWith('/image.webp');
+    expect($generation->image)->toStartWith('uploads/vehicles/generations/'.$generation->getKey().'/')
+        ->and($generation->image)->toEndWith('.webp');
+});
+
+
+test('import counters are not inflated by repeated unchanged rows', function () {
+    $run = catalogImportRun();
+
+    app(ImportRowProcessor::class)->prepareDetailColumns($run, $run->detail_columns);
+    processCatalogRow($run, catalogRow());
+    processCatalogRow($run, catalogRow());
+
+    $run->refresh();
+
+    expect($run->created_makes)->toBe(1)
+        ->and($run->updated_makes)->toBe(0)
+        ->and($run->created_models)->toBe(1)
+        ->and($run->updated_models)->toBe(0)
+        ->and($run->created_generations)->toBe(1)
+        ->and($run->updated_generations)->toBe(0)
+        ->and($run->created_products)->toBe(1)
+        ->and($run->updated_products)->toBe(0);
+});
+
+test('long excel values produce bounded stable slugs and import keys', function () {
+    $long = str_repeat('Очень длинное значение из Excel ', 20);
+    $run = catalogImportRun();
+
+    processCatalogRow($run, catalogRow([
+        1 => $long,
+        2 => $long,
+        3 => $long,
+        4 => $long,
+        5 => $long,
+    ]));
+
+    $product = Product::query()->firstOrFail();
+    $make = VehicleMake::query()->firstOrFail();
+    $model = VehicleModel::query()->firstOrFail();
+    $generation = VehicleGeneration::query()->firstOrFail();
+
+    expect(strlen($make->slug))->toBeLessThanOrEqual(100)
+        ->and(strlen($model->slug))->toBeLessThanOrEqual(100)
+        ->and(strlen($generation->slug))->toBeLessThanOrEqual(100)
+        ->and(strlen($product->slug))->toBeLessThanOrEqual(150)
+        ->and(strlen($product->import_key))->toBeLessThanOrEqual(240);
 });

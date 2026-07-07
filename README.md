@@ -138,7 +138,7 @@ curl -I http://localhost:8080/admin
 /admin/imports/catalog
 ```
 
-Импорт на этом этапе только загружает файл, читает заголовки и строки чанками, пишет прогресс и логи. Создание товаров из строк и загрузка изображений в этом этапе не выполняются.
+Импорт загружает CSV/XLSX, читает лист `Каталог`, создаёт/обновляет марки, модели, поколения, товарные категории, товары, варианты, применимость и ставит изображения в очередь. Пауза в V1 останавливает только обработку строк; уже поставленные задачи изображений продолжают выполняться в очереди `imports-images`.
 
 Очереди для импорта:
 
@@ -158,4 +158,33 @@ docker compose exec app php artisan queue:work --queue=default,imports,imports-i
 ```bash
 docker compose exec app php artisan migrate
 docker compose exec app php artisan test tests/Feature/Import/CatalogImportInfrastructureTest.php
+```
+
+## Media storage and image processing
+
+Public images are stored on the `public` filesystem disk. Import source files are stored on the local private disk under `storage/app/imports/...` and are downloaded only through Filament actions. For local development run:
+
+```bash
+php artisan storage:link
+```
+
+Image uploads and import downloads use the shared media pipeline:
+
+- product images: `uploads/products/{product_id}/{uuid}.webp`
+- product conversions: `uploads/products/{product_id}/conversions/{uuid}_thumb.webp`, `..._card.webp`
+- vehicle generation images: `uploads/vehicles/generations/{generation_id}/{uuid}.webp`
+- vehicle make images: `uploads/vehicles/makes/{make_id}/{uuid}.webp`
+
+Supported source formats are JPEG, PNG and WebP. Non-images, SVG, PDF and HTML responses are rejected. The default source file limit is configured in `config/media.php` and can be overridden with `MEDIA_MAX_SOURCE_SIZE`.
+
+Import queues:
+
+- row import jobs: `imports`
+- remote image jobs: `imports-images`
+
+The local PHP image must have GD with WebP support. After Dockerfile changes rebuild the app container before running image tests:
+
+```bash
+docker compose build app
+docker compose up -d
 ```

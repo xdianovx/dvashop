@@ -9,6 +9,8 @@ use Illuminate\Support\Collection;
 
 class ImportLogger
 {
+    public function __construct(private readonly ImportRunStats $stats) {}
+
     public function info(ImportRun $run, string $message, array $context = []): ImportLog
     {
         return $this->write($run, ImportLogLevel::Info, $message, $context);
@@ -26,12 +28,22 @@ class ImportLogger
 
     public function write(ImportRun $run, ImportLogLevel $level, string $message, array $context = []): ImportLog
     {
-        return ImportLog::query()->create([
+        $log = ImportLog::query()->create([
             'import_run_id' => $run->getKey(),
             'level' => $level,
             'message' => $message,
             'context' => $context === [] ? null : $context,
         ]);
+
+        if ($level === ImportLogLevel::Warning) {
+            $this->stats->increment($run, 'warnings_count');
+        }
+
+        if ($level === ImportLogLevel::Error) {
+            $this->stats->increment($run, 'errors_count');
+        }
+
+        return $log;
     }
 
     /** @return Collection<int, ImportLog> */

@@ -7,6 +7,7 @@ use App\Models\ImportRun;
 use App\Services\ImportLogger;
 use App\Services\ImportStatusService;
 use App\Services\SpreadsheetReader;
+use App\Services\Import\ImportRowProcessor;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -36,6 +37,7 @@ class CatalogImportStartJob implements ShouldQueue
         SpreadsheetReader $reader,
         ImportStatusService $statusService,
         ImportLogger $logger,
+        ImportRowProcessor $rowProcessor,
     ): void {
         $run = ImportRun::query()->findOrFail($this->importRunId);
 
@@ -43,7 +45,7 @@ class CatalogImportStartJob implements ShouldQueue
             return;
         }
 
-        if (! in_array($run->status, [ImportRunStatus::Ready, ImportRunStatus::Paused, ImportRunStatus::Running], true)) {
+        if (! in_array($run->status, [ImportRunStatus::Ready, ImportRunStatus::Paused, ImportRunStatus::Running, ImportRunStatus::RunningRows], true)) {
             return;
         }
 
@@ -52,6 +54,7 @@ class CatalogImportStartJob implements ShouldQueue
             $absolutePath = Storage::disk('local')->path($run->stored_path);
 
             $headers = $reader->readMergedDetailHeaders($absolutePath);
+            $headers = $rowProcessor->prepareDetailColumns($run, $headers);
             $totalRows = $reader->countRows($absolutePath, 2);
 
             $run->forceFill([

@@ -161,28 +161,33 @@ class SpreadsheetReader
         $reader->open($path);
 
         try {
-            $firstRows = null;
-            $catalogRows = null;
+            $fallbackRows = null;
 
             foreach ($reader->getSheetIterator() as $sheet) {
-                $rows = [];
-                $rowIndex = 0;
+                $sheetName = method_exists($sheet, 'getName') ? $sheet->getName() : null;
 
-                foreach ($sheet->getRowIterator() as $row) {
-                    $rowIndex++;
-                    $rows[$rowIndex] = $row->toArray();
+                if ($sheetName === self::CATALOG_SHEET_NAME) {
+                    $rowIndex = 0;
+                    foreach ($sheet->getRowIterator() as $row) {
+                        $rowIndex++;
+                        yield $rowIndex => $row->toArray();
+                    }
+
+                    return;
                 }
 
-                $firstRows ??= $rows;
+                if ($fallbackRows === null) {
+                    $fallbackRows = [];
+                    $rowIndex = 0;
 
-                $sheetName = method_exists($sheet, 'getName') ? $sheet->getName() : null;
-                if ($sheetName === self::CATALOG_SHEET_NAME) {
-                    $catalogRows = $rows;
-                    break;
+                    foreach ($sheet->getRowIterator() as $row) {
+                        $rowIndex++;
+                        $fallbackRows[$rowIndex] = $row->toArray();
+                    }
                 }
             }
 
-            foreach (($catalogRows ?? $firstRows ?? []) as $index => $row) {
+            foreach (($fallbackRows ?? []) as $index => $row) {
                 yield $index => $row;
             }
         } finally {

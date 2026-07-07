@@ -73,8 +73,13 @@ class VehicleMakeResource extends Resource
                 ->helperText('Нормализованный ключ для импорта/поиска. Можно оставить пустым.'),
             FileUpload::make('image')
                 ->label('Изображение')
+                ->disk('public')
+                ->directory('uploads/vehicles/makes/manual')
                 ->image()
-                ->directory('vehicle-makes'),
+                ->imageEditor()
+                ->imagePreviewHeight('160')
+                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
+                ->maxSize((int) ceil(config('media.max_source_size', 15 * 1024 * 1024) / 1024)),
             TextInput::make('position')
                 ->label('Позиция')
                 ->numeric()

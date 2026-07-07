@@ -15,6 +15,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -43,7 +44,7 @@ class CatalogImportChunkJob implements ShouldQueue
     ): void {
         $run = ImportRun::query()->findOrFail($this->importRunId);
 
-        if ($run->status !== ImportRunStatus::Running) {
+        if (! $run->status?->isRowsRunning()) {
             return;
         }
 
@@ -55,19 +56,32 @@ class CatalogImportChunkJob implements ShouldQueue
             $processed = count($rows);
 
             if ($processed === 0) {
-                $statusService->markDone($run);
-                $logger->info($run, 'Импорт завершён');
+                $statusService->markRowsDone($run);
+                $logger->info($run, 'Строки импорта завершены', [
+                    'queued_images' => $run->fresh()->queued_images,
+                ]);
 
                 return;
             }
 
             foreach ($rows as $index => $row) {
-                $rowProcessor->process(
-                    run: $run,
-                    row: $row,
-                    detailColumns: $run->detail_columns ?? [],
-                    rowNumber: $offset + $index + 3,
-                );
+                $rowNumber = $offset + $index + 3;
+
+                try {
+                    DB::transaction(function () use ($rowProcessor, $run, $row, $rowNumber): void {
+                        $rowProcessor->process(
+                            run: $run,
+                            row: $row,
+                            detailColumns: $run->detail_columns ?? [],
+                            rowNumber: $rowNumber,
+                        );
+                    });
+                } catch (Throwable $e) {
+                    $logger->error($run, 'Ошибка обработки строки импорта', [
+                        'row' => $rowNumber,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
 
             $run->refresh();
@@ -86,14 +100,17 @@ class CatalogImportChunkJob implements ShouldQueue
 
             if ($run->processed_rows >= $run->total_rows) {
                 $archived = $products->archiveMissingProducts($run);
-                $statusService->markDone($run);
-                $logger->info($run, 'Импорт завершён', ['archived_products' => $archived]);
+                $statusService->markRowsDone($run);
+                $logger->info($run, 'Строки импорта завершены', [
+                    'archived_products' => $archived,
+                    'queued_images' => $run->fresh()->queued_images,
+                ]);
 
                 return;
             }
 
             $run->refresh();
-            if ($run->status === ImportRunStatus::Running) {
+            if ($run->status?->isRowsRunning()) {
                 CatalogImportChunkJob::dispatch($run->getKey())->onQueue('imports');
             }
         } catch (Throwable $e) {
