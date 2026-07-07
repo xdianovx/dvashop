@@ -71,6 +71,20 @@ class CatalogImportPage extends Page implements HasTable
         return $user?->role?->canAccessAdminPanel() ?? false;
     }
 
+    /** @return array<int, Action> */
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('import_help')
+                ->label('Как работает импорт?')
+                ->icon('heroicon-o-question-mark-circle')
+                ->modalHeading('Как работает импорт каталога')
+                ->modalContent(fn () => view('filament.pages.catalog-import-help'))
+                ->modalSubmitAction(false)
+                ->modalCancelActionLabel('Закрыть'),
+        ];
+    }
+
     public function table(Table $table): Table
     {
         return $table

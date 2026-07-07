@@ -85,12 +85,14 @@ class VehicleGeneration extends Model
 
     public function processManualImageIfNeeded(): void
     {
+        if (! $this->wasRecentlyCreated && ! $this->wasChanged('image')) {
+            return;
+        }
+
         if (! $this->image) {
-            if ($this->wasChanged('image')) {
-                $cleanup = app(MediaFileCleanupService::class);
-                $cleanup->deletePath($this->getOriginal('image'), 'public');
-                $cleanup->deleteConversions(is_array($this->getOriginal('image_conversions')) ? $this->getOriginal('image_conversions') : null, 'public');
-            }
+            $cleanup = app(MediaFileCleanupService::class);
+            $cleanup->deletePath($this->getOriginal('image'), 'public');
+            $cleanup->deleteConversions(is_array($this->getOriginal('image_conversions')) ? $this->getOriginal('image_conversions') : null, 'public');
 
             return;
         }

@@ -3,6 +3,7 @@
 use App\Enums\ImportLogLevel;
 use App\Enums\ImportRunStatus;
 use App\Enums\ProductStatus;
+use App\Enums\StockStatus;
 use App\Jobs\CatalogImportChunkJob;
 use App\Jobs\DownloadProductImageJob;
 use App\Jobs\DownloadVehicleGenerationImageJob;
@@ -1012,4 +1013,190 @@ test('missing default image is logged once per detail type and import continues'
     expect(Product::query()->count())->toBe(2)
         ->and(ProductImage::query()->count())->toBe(0)
         ->and(ImportLog::query()->where('message', 'Дефолтное изображение детали не найдено')->count())->toBe(1);
+});
+
+
+test('repeated import preserves manual product fields variants fitments and default images', function () {
+    $firstRun = catalogImportRun([
+        'detail_columns' => [
+            6 => [
+                'index' => 6,
+                'group' => null,
+                'parent_title' => null,
+                'title' => 'Порог',
+                'detail_title' => 'Порог',
+                'full_detail_title' => 'Порог',
+                'category_title' => 'Порог',
+            ],
+        ],
+    ]);
+
+    processCatalogRow($firstRun, catalogRow([6 => '1']));
+
+    $product = Product::query()->firstOrFail();
+    $variant = ProductVariant::query()->firstOrFail();
+    $manual = ProductImage::factory()->forProduct($product)->main()->create([
+        'disk' => 'public',
+        'path' => 'uploads/products/'.$product->getKey().'/manual-main.webp',
+        'source_type' => ProductImage::SOURCE_MANUAL,
+        'is_visible' => true,
+        'is_default' => false,
+    ]);
+
+    $product->forceFill([
+        'price' => 12345.67,
+        'sku' => 'MANUAL-SKU',
+        'description' => 'Ручное описание',
+        'short_description' => 'Ручное краткое описание',
+        'meta_title' => 'Ручной SEO title',
+        'meta_description' => 'Ручной SEO description',
+        'stock_status' => StockStatus::OutOfStock,
+    ])->save();
+
+    $variant->forceFill([
+        'sku' => 'MANUAL-VARIANT-SKU',
+        'price' => 7777.77,
+        'stock_quantity' => 42,
+        'stock_status' => StockStatus::OutOfStock,
+    ])->save();
+
+    $secondRun = catalogImportRun(['detail_columns' => $firstRun->detail_columns]);
+    processCatalogRow($secondRun, catalogRow([6 => '1.0']));
+
+    expect(Product::query()->count())->toBe(1)
+        ->and(ProductVariant::query()->count())->toBe(1)
+        ->and(ProductFitment::query()->count())->toBe(1)
+        ->and(ProductImage::query()->where('source_type', ProductImage::SOURCE_DEFAULT)->count())->toBe(1)
+        ->and($product->fresh()->price)->toEqual('12345.67')
+        ->and($product->fresh()->sku)->toBe('MANUAL-SKU')
+        ->and($product->fresh()->description)->toBe('Ручное описание')
+        ->and($product->fresh()->short_description)->toBe('Ручное краткое описание')
+        ->and($product->fresh()->meta_title)->toBe('Ручной SEO title')
+        ->and($product->fresh()->meta_description)->toBe('Ручной SEO description')
+        ->and($product->fresh()->stock_status)->toBe(StockStatus::OutOfStock)
+        ->and($variant->fresh()->sku)->toBe('MANUAL-VARIANT-SKU')
+        ->and($variant->fresh()->price)->toEqual('7777.77')
+        ->and($variant->fresh()->stock_quantity)->toBe(42)
+        ->and($variant->fresh()->stock_status)->toBe(StockStatus::OutOfStock)
+        ->and($manual->fresh()->is_main)->toBeTrue();
+});
+
+test('manual product and another import source are not archived by catalog import', function () {
+    $manualProduct = Product::factory()->create([
+        'import_key' => null,
+        'import_source' => null,
+        'status' => ProductStatus::Active,
+    ]);
+    $otherSource = Product::factory()->create([
+        'import_key' => 'supplier:old:product',
+        'import_source' => 'supplier',
+        'last_import_run_id' => 'old',
+        'status' => ProductStatus::Active,
+    ]);
+    $oldCatalog = Product::factory()->create([
+        'import_key' => 'catalog:old:product',
+        'import_source' => 'catalog',
+        'last_import_run_id' => 'old',
+        'status' => ProductStatus::Active,
+    ]);
+
+    $run = catalogImportRun(['status' => ImportRunStatus::RunningRows, 'total_rows' => 1]);
+
+    expect(app(ImportProductFactory::class)->archiveMissingProducts($run))->toBe(1)
+        ->and($oldCatalog->fresh()->status)->toBe(ProductStatus::Archived)
+        ->and($manualProduct->fresh()->status)->toBe(ProductStatus::Active)
+        ->and($otherSource->fresh()->status)->toBe(ProductStatus::Active);
+});
+
+test('changed product image url queues new import image and disappeared url keeps manual and import images', function () {
+    Storage::fake('public');
+    Queue::fake();
+
+    $run = catalogImportRun([
+        'detail_columns' => [
+            6 => [
+                'index' => 6,
+                'group' => null,
+                'parent_title' => null,
+                'title' => 'Порог',
+                'detail_title' => 'Порог',
+                'full_detail_title' => 'Порог',
+                'category_title' => 'Порог',
+            ],
+        ],
+    ]);
+
+    processCatalogRow($run, catalogRow([6 => 'https://example.test/old.jpg']));
+    $product = Product::query()->firstOrFail();
+    Storage::disk('public')->put('uploads/products/'.$product->getKey().'/old.webp', test_image_binary('webp'));
+    $import = ProductImage::factory()->forProduct($product)->main()->create([
+        'disk' => 'public',
+        'path' => 'uploads/products/'.$product->getKey().'/old.webp',
+        'source_type' => ProductImage::SOURCE_IMPORT,
+        'source_url' => 'https://example.test/old.jpg',
+        'is_visible' => true,
+    ]);
+    $manual = ProductImage::factory()->forProduct($product)->create([
+        'disk' => 'public',
+        'path' => 'uploads/products/'.$product->getKey().'/manual.webp',
+        'source_type' => ProductImage::SOURCE_MANUAL,
+        'is_visible' => true,
+    ]);
+
+    Queue::fake();
+    app(ImportRowProcessor::class)->process($run, catalogRow([6 => 'https://example.test/new.jpg']), $run->detail_columns, 4);
+
+    Queue::assertPushed(DownloadProductImageJob::class, fn (DownloadProductImageJob $job): bool => $job->url === 'https://example.test/new.jpg');
+
+    app(ImportRowProcessor::class)->process($run, catalogRow([6 => '1']), $run->detail_columns, 5);
+
+    expect($import->fresh())->not->toBeNull()
+        ->and($manual->fresh())->not->toBeNull()
+        ->and(ProductImage::query()->where('source_type', ProductImage::SOURCE_IMPORT)->count())->toBe(1)
+        ->and(ProductImage::query()->where('source_type', ProductImage::SOURCE_MANUAL)->count())->toBe(1)
+        ->and(ImportLog::query()->where('message', 'URL изображения товара исчез из файла импорта, существующие изображения сохранены')->count())->toBe(1);
+});
+
+test('vehicle generation image repeat import skips same url updates changed url and protects manual image', function () {
+    Storage::fake('public');
+    Queue::fake();
+
+    $run = catalogImportRun();
+    app(ImportRowProcessor::class)->process($run, catalogRow([0 => 'https://example.test/car-old.jpg', 6 => '']), $run->detail_columns, 3);
+    Queue::assertPushed(DownloadVehicleGenerationImageJob::class);
+
+    $generation = VehicleGeneration::query()->firstOrFail();
+    Storage::disk('public')->put('uploads/vehicles/generations/'.$generation->getKey().'/old.webp', test_image_binary('webp'));
+    $generation->forceFill([
+        'image' => 'uploads/vehicles/generations/'.$generation->getKey().'/old.webp',
+        'image_source_url' => 'https://example.test/car-old.jpg',
+    ])->saveQuietly();
+
+    Queue::fake();
+    app(ImportRowProcessor::class)->process($run, catalogRow([0 => 'https://example.test/car-old.jpg', 6 => '']), $run->detail_columns, 4);
+    Queue::assertNotPushed(DownloadVehicleGenerationImageJob::class);
+
+    app(ImportRowProcessor::class)->process($run, catalogRow([0 => 'https://example.test/car-new.jpg', 6 => '']), $run->detail_columns, 5);
+    Queue::assertPushed(DownloadVehicleGenerationImageJob::class, fn (DownloadVehicleGenerationImageJob $job): bool => $job->url === 'https://example.test/car-new.jpg');
+
+    $manualGeneration = VehicleGeneration::factory()->create([
+        'image' => 'uploads/vehicles/generations/manual.webp',
+        'image_source_url' => null,
+    ]);
+    Storage::disk('public')->put('uploads/vehicles/generations/manual.webp', test_image_binary('webp'));
+
+    app(ImportRowProcessor::class)->vehicleGeneration(
+        makeTitle: $manualGeneration->model->make->title,
+        modelTitle: $manualGeneration->model->title,
+        generationTitle: $manualGeneration->title,
+        years: $manualGeneration->years_label,
+        body: $manualGeneration->body,
+        sourceImageUrl: 'https://example.test/manual-protected.jpg',
+        run: $run,
+        rowNumber: 6,
+    );
+
+    expect($manualGeneration->fresh()->image)->toBe('uploads/vehicles/generations/manual.webp')
+        ->and($manualGeneration->fresh()->image_source_url)->toBeNull()
+        ->and(ImportLog::query()->where('message', 'Ручное фото поколения авто не перезаписано импортом')->exists())->toBeTrue();
 });

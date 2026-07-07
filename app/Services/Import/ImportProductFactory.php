@@ -37,6 +37,9 @@ class ImportProductFactory
     /** @var array<string, bool> */
     private array $missingDefaultImageWarnings = [];
 
+    /** @var array<string, bool> */
+    private array $missingProductImageUrlWarnings = [];
+
     /**
      * @param array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string} $detailHeader
      */
@@ -57,16 +60,22 @@ class ImportProductFactory
         /** @var Product $product */
         $product = Product::query()->firstOrNew(['import_key' => $importKey]);
         $wasCreated = ! $product->exists;
-        $product->fill([
+
+        $productAttributes = [
             'product_category_id' => $category->getKey(),
             'title' => $productTitle,
             'slug' => $slug,
             'status' => ProductStatus::Active,
-            'stock_status' => StockStatus::InStock,
-            'price' => null,
             'import_source' => $source,
             'last_import_run_id' => (string) $run->getKey(),
-        ]);
+        ];
+
+        if ($wasCreated) {
+            $productAttributes['stock_status'] = StockStatus::InStock;
+            $productAttributes['price'] = null;
+        }
+
+        $product->fill($productAttributes);
         $wasChanged = $product->isDirty();
         $product->save();
 
@@ -76,15 +85,21 @@ class ImportProductFactory
             $this->stats->increment($run, 'updated_products');
         }
 
-        ProductVariant::query()->updateOrCreate(
-            ['product_id' => $product->getKey(), 'is_default' => true],
-            [
+        $variant = ProductVariant::query()->firstOrNew([
+            'product_id' => $product->getKey(),
+            'is_default' => true,
+        ]);
+
+        if (! $variant->exists) {
+            $variant->fill([
                 'title' => 'Основной',
                 'price' => 0,
                 'stock_status' => StockStatus::InStock,
                 'is_active' => true,
-            ]
-        );
+            ])->save();
+        } elseif ($variant->title === null || $variant->title === '') {
+            $variant->forceFill(['title' => 'Основной'])->save();
+        }
 
         ProductFitment::query()->updateOrCreate(
             [
@@ -99,10 +114,15 @@ class ImportProductFactory
 
         $imageUrl ??= $this->isUrl($cellValue) ? trim($cellValue) : null;
 
-        if ($imageUrl !== null && $this->shouldQueueProductImage($product, $imageUrl, $run)) {
-            $this->statusService->imageQueued($run);
-            DownloadProductImageJob::dispatch($product->getKey(), $imageUrl, $run->getKey())->onQueue('imports-images');
-        } elseif ($imageUrl === null && $this->isPositiveAvailabilityCell($cellValue)) {
+        if ($imageUrl !== null) {
+            $this->promoteExistingImportImageIfPresent($product, $imageUrl);
+
+            if ($this->shouldQueueProductImage($product, $imageUrl, $run)) {
+                $this->statusService->imageQueued($run);
+                DownloadProductImageJob::dispatch($product->getKey(), $imageUrl, $run->getKey())->onQueue('imports-images');
+            }
+        } elseif ($this->isPositiveAvailabilityCell($cellValue)) {
+            $this->warnImportImageUrlDisappearedOnce($product, $run, $category);
             $this->attachDefaultImage($product, $category, $run);
         }
 
@@ -233,6 +253,66 @@ class ImportProductFactory
         if (! $image instanceof ProductImage) {
             $this->warnMissingDefaultImageOnce($run, $category);
         }
+    }
+
+    private function warnImportImageUrlDisappearedOnce(Product $product, ImportRun $run, ProductCategory $category): void
+    {
+        if (! $product->images()
+            ->where('source_type', ProductImage::SOURCE_IMPORT)
+            ->whereNotNull('source_url')
+            ->exists()) {
+            return;
+        }
+
+        $key = $run->getKey().':'.$product->getKey().':missing-url';
+
+        if (isset($this->missingProductImageUrlWarnings[$key])) {
+            return;
+        }
+
+        $this->missingProductImageUrlWarnings[$key] = true;
+
+        $this->logger->warning($run, 'URL изображения товара исчез из файла импорта, существующие изображения сохранены', [
+            'product_id' => $product->getKey(),
+            'import_key' => $product->import_key,
+            'category' => $category->full_title,
+        ]);
+    }
+
+    private function promoteExistingImportImageIfPresent(Product $product, string $url): void
+    {
+        if ($this->productHasManualMainImage($product)) {
+            return;
+        }
+
+        /** @var ProductImage|null $existing */
+        $existing = $product->images()
+            ->where('source_type', ProductImage::SOURCE_IMPORT)
+            ->where('source_url', $url)
+            ->where('is_visible', true)
+            ->first();
+
+        if (! $existing instanceof ProductImage) {
+            return;
+        }
+
+        $disk = $existing->disk ?: 'public';
+        $path = $existing->path;
+
+        if (! is_string($path) || $path === '' || ! Storage::disk($disk)->exists($path)) {
+            return;
+        }
+
+        $this->gallery->makeMain($existing);
+    }
+
+    private function productHasManualMainImage(Product $product): bool
+    {
+        return $product->images()
+            ->where('is_main', true)
+            ->where('is_visible', true)
+            ->where('source_type', ProductImage::SOURCE_MANUAL)
+            ->exists();
     }
 
     private function warnMissingDefaultImageOnce(ImportRun $run, ProductCategory $category): void

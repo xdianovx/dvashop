@@ -26,6 +26,10 @@ class ImportImageDownloader
             ->first();
 
         if ($existingByUrl instanceof ProductImage && is_string($existingByUrl->path) && $existingByUrl->path !== '' && Storage::disk($existingByUrl->disk ?: 'public')->exists($existingByUrl->path)) {
+            if (! $this->hasManualMainImage($product)) {
+                $existingByUrl->forceFill(['is_main' => true, 'is_visible' => true])->save();
+            }
+
             return $existingByUrl->refresh();
         }
 
@@ -43,14 +47,14 @@ class ImportImageDownloader
         if ($existing instanceof ProductImage) {
             $this->cleanup->deleteProcessedImage($processed);
 
-            if (! $this->hasNonDefaultMainImage($product)) {
+            if (! $this->hasManualMainImage($product)) {
                 $existing->forceFill(['is_main' => true, 'is_visible' => true])->save();
             }
 
             return $existing->refresh();
         }
 
-        $isMain = ! $this->hasNonDefaultMainImage($product);
+        $isMain = ! $this->hasManualMainImage($product);
         $position = (int) $product->images()->max('position') + 1;
 
         return ProductImage::query()->create(array_merge(
@@ -68,16 +72,12 @@ class ImportImageDownloader
     }
 
 
-    private function hasNonDefaultMainImage(Product $product): bool
+    private function hasManualMainImage(Product $product): bool
     {
         return $product->images()
             ->where('is_main', true)
             ->where('is_visible', true)
-            ->where(function ($query): void {
-                $query
-                    ->where('source_type', '!=', ProductImage::SOURCE_DEFAULT)
-                    ->orWhereNull('source_type');
-            })
+            ->where('source_type', ProductImage::SOURCE_MANUAL)
             ->exists();
     }
 
