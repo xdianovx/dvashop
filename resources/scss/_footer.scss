@@ -30,8 +30,7 @@
 
 .footer__inner {
     display: grid;
-    grid-template-columns: 1.4fr 1fr 1fr 1.3fr;
-    gap: 40px;
+    grid-template-columns: 388fr 360fr 298fr 402fr;
 }
 
 @media (max-width: 1200px) {
@@ -82,7 +81,7 @@
 .footer__links {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
 }
 
 .footer__link {
@@ -164,6 +163,17 @@
 .footer__subscribe-text {
     font-size: var(--fs-base);
     line-height: var(--lh-snug);
+}
+
+.footer__subscribe-btn {
+    display: flex;
+    width: 253px;
+    height: 63px;
+    margin-top: 4px;
+    border-radius: 60px;
+    font-family: 'Gilroy', system-ui, sans-serif;
+    font-size: var(--fs-lg);
+    color: var(--color-on-primary);
 }
 
 // Mobile footer (< 900px)

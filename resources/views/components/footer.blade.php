@@ -18,11 +18,11 @@
                 <nav class="footer__col" aria-label="О нас">
                     <h3 class="footer__heading">О нас</h3>
                     <ul class="footer__links">
-                        <li><a href="#" class="footer__link footer__link--arrow">Как мы работаем</a></li>
-                        <li><a href="#" class="footer__link footer__link--arrow">Наши преимущества</a></li>
-                        <li><a href="#" class="footer__link footer__link--arrow">Оплата и доставка</a></li>
+                        <li><a href="{{ route('how') }}" class="footer__link footer__link--arrow">Как мы работаем</a></li>
+                        <li><a href="{{ route('about') }}" class="footer__link footer__link--arrow">Наши преимущества</a></li>
+                        <li><a href="{{ route('payment') }}" class="footer__link footer__link--arrow">Оплата и доставка</a></li>
                         <li><a href="#" class="footer__link footer__link--arrow">Возврат и обмен</a></li>
-                        <li><a href="#" class="footer__link footer__link--arrow">Вопросы и ответы</a></li>
+                        <li><a href="{{ route('faq') }}" class="footer__link footer__link--arrow">Вопросы и ответы</a></li>
                     </ul>
                 </nav>
 
@@ -51,7 +51,7 @@
                     <p class="footer__subscribe-text">
                         Будьте в курсе последних событий, акций и выгодных предложений
                     </p>
-                    <a href="#" class="btn btn--primary">Подписаться</a>
+                    <a href="#" class="btn btn--primary footer__subscribe-btn">Подписаться</a>
                 </div>
             </div>
 
@@ -97,12 +97,12 @@
                 <nav class="footer__col" aria-label="Информация">
                     <h3 class="footer__heading">Информация</h3>
                     <ul class="footer__links">
-                        <li><a href="#" class="footer__link footer__link--arrow">Как мы работаем</a></li>
-                        <li><a href="#" class="footer__link footer__link--arrow">Наши преимущества</a></li>
-                        <li><a href="#" class="footer__link footer__link--arrow">Оплата и доставка</a></li>
+                        <li><a href="{{ route('how') }}" class="footer__link footer__link--arrow">Как мы работаем</a></li>
+                        <li><a href="{{ route('about') }}" class="footer__link footer__link--arrow">Наши преимущества</a></li>
+                        <li><a href="{{ route('payment') }}" class="footer__link footer__link--arrow">Оплата и доставка</a></li>
                         <li><a href="#" class="footer__link footer__link--arrow">Возврат и обмен</a></li>
-                        <li><a href="#" class="footer__link footer__link--arrow">Вопросы и ответы</a></li>
-                        <li><a href="#" class="footer__link footer__link--arrow">Сотрудничество</a></li>
+                        <li><a href="{{ route('faq') }}" class="footer__link footer__link--arrow">Вопросы и ответы</a></li>
+                        <li><a href="{{ route('partners') }}" class="footer__link footer__link--arrow">Сотрудничество</a></li>
                     </ul>
                 </nav>
 
