@@ -5,5 +5,6 @@
 @section('content')
     <x-hero-circles />
     <x-search />
+    <x-categories />
     <x-about />
 @endsection
