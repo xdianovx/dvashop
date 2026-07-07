@@ -87,12 +87,21 @@
 
 @media (max-width: 768px) {
     .catalog-search {
+        flex-direction: column;
+
+    }
+}
+
+@media (max-width: 768px) {
+    .catalog-search {
         margin-bottom: 24px;
+
     }
 
     .catalog-search__form {
         height: 46px;
         padding-left: 20px;
+        min-width: 0;
     }
 
     .catalog-search__input {

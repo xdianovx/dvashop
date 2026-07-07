@@ -1,5 +1,13 @@
 .hero-circles-section {
   margin-top: var(--section-gap);
+
+  @media (max-width: 900px) {
+    margin-top: 14px;
+  }
+
+  @media (max-width: 620px) {
+    margin-top: 10px;
+  }
 }
 
 .hero-circles__wrap {

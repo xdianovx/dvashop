@@ -1,5 +1,9 @@
 .search {
     margin-top: var(--section-gap);
+
+    @media screen and (max-width: 1200px) {
+        margin-top: 24px;
+    }
 }
 
 .search__form {
@@ -42,6 +46,10 @@
     font-weight: var(--fw-regular);
     font-size: var(--fs-base);
     line-height: var(--lh-snug);
+
+    @media (max-width: 768px) {
+        font-size: 10px;
+    }
 }
 
 .search__divider {
@@ -69,7 +77,7 @@
     }
 
     .search__field {
-        padding-left: 33px;
+        padding-left: 0;
     }
 
     .search__submit {
@@ -81,6 +89,8 @@
     display: none;
     width: 24px;
     height: 24px;
+
+    @media (max-width: 768px) {}
 }
 
 .search__submit-icon svg {
@@ -92,7 +102,7 @@
     .search__form {
         gap: 8px;
         padding: 6px 6px 6px 20px;
-        min-height: 56px;
+        height: 39px;
     }
 
     .search__submit {
@@ -113,5 +123,7 @@
 
     .search__submit-icon {
         display: block;
+        width: 18px;
+        height: 18px;
     }
 }

@@ -1,5 +1,9 @@
 .about {
     margin-top: var(--section-gap);
+
+    @media (max-width: 768px) {
+        margin-top: 24px;
+    }
 }
 
 .about__box {
@@ -152,6 +156,7 @@
 
     .about__card {
         gap: 10px;
+        align-items: flex-start;
         padding: 12px 13px;
         border-width: 1px;
         border-radius: 12px;
