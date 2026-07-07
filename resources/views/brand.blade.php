@@ -34,13 +34,10 @@
                 </button>
             </form>
 
-            <ul class="brand-page__grid">
+            <ul class="model-grid brand-page__grid">
                 @foreach ($models as $model)
-                    <li class="brand-page__item">
-                        <a href="{{ route('catalog.model') }}" class="brand-page__card">
-                            <span class="brand-page__thumb"></span>
-                            <span class="brand-page__name">{{ $model }}</span>
-                        </a>
+                    <li>
+                        <x-model-card :href="route('catalog.model')" :name="$model" variant="model" />
                     </li>
                 @endforeach
             </ul>
