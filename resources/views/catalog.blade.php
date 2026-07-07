@@ -53,7 +53,7 @@
             @foreach ($brands as $brand)
                 @php $slug = Str::slug($brand); @endphp
                 <li class="brands__item">
-                    <a href="#" class="brand-card">
+                    <a href="{{ route('catalog.make') }}" class="brand-card">
                         <span class="brand-card__logo">
                             <img src="/img/brands/{{ $slug }}.svg" alt="{{ $brand }}" loading="lazy">
                         </span>
