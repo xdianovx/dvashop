@@ -25,6 +25,18 @@ final class CatalogText
         return self::slug($value, $fallback, $maxLength);
     }
 
+    public static function plain(?string $value, int $maxLength = 250): string
+    {
+        $value = trim((string) $value);
+        $maxLength = max(16, $maxLength);
+
+        if (mb_strlen($value) <= $maxLength) {
+            return $value;
+        }
+
+        return trim(mb_substr($value, 0, $maxLength));
+    }
+
     /** @param array<int, string|null> $parts */
     public static function stableKey(array $parts, string $separator = ':', int $maxLength = 240, string $fallback = 'item'): string
     {

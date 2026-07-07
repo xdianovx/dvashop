@@ -149,10 +149,10 @@ class ImportRowProcessor
 
         $wasCreated = ! $generation->exists;
         $generation->fill([
-            'title' => $generationTitle,
+            'title' => CatalogText::plain($generationTitle, 250),
             'slug' => $generationNormKey,
-            'years_label' => $years ?: null,
-            'body' => $body ?: null,
+            'years_label' => $years !== null && $years !== '' ? CatalogText::plain($years, 250) : null,
+            'body' => $body !== null && $body !== '' ? CatalogText::plain($body, 250) : null,
             'image_source_url' => $imageUrl,
             'is_active' => true,
         ]);
@@ -184,7 +184,7 @@ class ImportRowProcessor
         $make = VehicleMake::query()->firstOrNew(['norm_key' => CatalogText::normKey($title, 'make', 100)]);
         $wasCreated = ! $make->exists;
         $make->fill([
-            'title' => $title,
+            'title' => CatalogText::plain($title, 250),
             'slug' => CatalogText::slug($title, 'make', 100),
             'is_active' => true,
         ]);
@@ -211,7 +211,7 @@ class ImportRowProcessor
         ]);
         $wasCreated = ! $model->exists;
         $model->fill([
-            'title' => $title,
+            'title' => CatalogText::plain($title, 250),
             'slug' => CatalogText::slug($title, 'model', 100),
             'is_active' => true,
         ]);
@@ -243,7 +243,7 @@ class ImportRowProcessor
         $wasTrashed = $category->exists && $category->trashed();
 
         $category->fill([
-            'title' => $title,
+            'title' => CatalogText::plain($title, 250),
             'is_active' => true,
         ]);
         $wasChanged = $category->isDirty();

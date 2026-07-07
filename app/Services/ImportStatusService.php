@@ -8,6 +8,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 class ImportStatusService
 {
@@ -19,6 +20,9 @@ class ImportStatusService
     public function createFromUpload(UploadedFile $file, string $type = 'catalog', int $chunkSize = 300): ImportRun
     {
         $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: 'csv');
+        $originalName = $file->getClientOriginalName();
+        $mimeType = $this->safeUploadedMimeType($file);
+
         $storedPath = $file->storeAs(
             "imports/{$type}",
             Str::uuid()->toString().'.'.$extension,
@@ -31,10 +35,10 @@ class ImportStatusService
 
         return $this->createFromStoredPath(
             type: $type,
-            originalName: $file->getClientOriginalName(),
+            originalName: $originalName,
             storedPath: $storedPath,
-            mimeType: $file->getClientMimeType(),
-            fileSize: $file->getSize(),
+            mimeType: $mimeType ?? $this->storedMimeType($storedPath),
+            fileSize: $this->storedFileSize($storedPath),
             chunkSize: $chunkSize,
         );
     }
@@ -55,8 +59,8 @@ class ImportStatusService
             'original_name' => $originalName,
             'stored_path' => $storedPath,
             'file_hash' => hash_file('sha256', $absolutePath),
-            'file_size' => $fileSize ?? filesize($absolutePath) ?: null,
-            'mime_type' => $mimeType,
+            'file_size' => $fileSize ?? $this->storedFileSize($storedPath),
+            'mime_type' => $mimeType ?? $this->storedMimeType($storedPath),
             'chunk_size' => $chunkSize,
         ]);
 
@@ -69,6 +73,47 @@ class ImportStatusService
         ]);
 
         return $run;
+    }
+
+    private function safeUploadedMimeType(UploadedFile $file): ?string
+    {
+        try {
+            $mimeType = $file->getClientMimeType();
+        } catch (Throwable) {
+            return null;
+        }
+
+        return is_string($mimeType) && $mimeType !== '' ? $mimeType : null;
+    }
+
+    private function storedFileSize(string $storedPath): ?int
+    {
+        try {
+            $size = Storage::disk('local')->size($storedPath);
+
+            if (is_int($size)) {
+                return $size;
+            }
+        } catch (Throwable) {
+            // Fall back to the absolute path below. Livewire temporary files can lose
+            // metadata after they are moved, but the stored import file is stable.
+        }
+
+        $absolutePath = Storage::disk('local')->path($storedPath);
+        $size = is_file($absolutePath) ? filesize($absolutePath) : false;
+
+        return is_int($size) ? $size : null;
+    }
+
+    private function storedMimeType(string $storedPath): ?string
+    {
+        try {
+            $mimeType = Storage::disk('local')->mimeType($storedPath);
+        } catch (Throwable) {
+            return null;
+        }
+
+        return is_string($mimeType) && $mimeType !== '' ? $mimeType : null;
     }
 
     public function start(ImportRun $run): ImportRun

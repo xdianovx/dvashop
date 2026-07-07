@@ -220,22 +220,43 @@ test('replacing vehicle generation image removes previous files and keeps same c
 
 test('product image deletion removes file and conversions', function () {
     $product = Product::factory()->create();
-    Storage::disk('public')->put('uploads/products/1/main.webp', 'main');
-    Storage::disk('public')->put('uploads/products/1/conversions/main_thumb.webp', 'thumb');
+
+    $directory = 'uploads/products/'.$product->getKey();
+    $mainPath = $directory.'/main.webp';
+    $thumbPath = $directory.'/conversions/main_thumb.webp';
+
+    $mainBinary = test_image_binary('webp', 80, 60);
+    $thumbBinary = test_image_binary('webp', 30, 30);
+
+    Storage::disk('public')->put($mainPath, $mainBinary);
+    Storage::disk('public')->put($thumbPath, $thumbBinary);
 
     $image = ProductImage::factory()->forProduct($product)->create([
         'disk' => 'public',
-        'path' => 'uploads/products/1/main.webp',
+        'path' => $mainPath,
+        'mime' => 'image/webp',
+        'width' => 80,
+        'height' => 60,
+        'size' => strlen($mainBinary),
+        'checksum' => hash('sha256', $mainBinary),
         'conversions' => [
-            'thumb' => ['disk' => 'public', 'path' => 'uploads/products/1/conversions/main_thumb.webp'],
+            'thumb' => [
+                'disk' => 'public',
+                'path' => $thumbPath,
+                'mime' => 'image/webp',
+                'width' => 30,
+                'height' => 30,
+                'size' => strlen($thumbBinary),
+            ],
         ],
     ]);
 
     $image->delete();
 
-    Storage::disk('public')->assertMissing('uploads/products/1/main.webp');
-    Storage::disk('public')->assertMissing('uploads/products/1/conversions/main_thumb.webp');
+    Storage::disk('public')->assertMissing($mainPath);
+    Storage::disk('public')->assertMissing($thumbPath);
 });
+
 
 test('image job with missing product is counted as failed and can finish import', function () {
     $run = ImportRun::factory()->create([

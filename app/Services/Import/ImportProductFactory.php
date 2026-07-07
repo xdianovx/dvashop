@@ -15,6 +15,7 @@ use App\Models\VehicleGeneration;
 use App\Services\ImportRunStats;
 use App\Services\ImportStatusService;
 use App\Support\CatalogText;
+use Illuminate\Support\Str;
 
 class ImportProductFactory
 {
@@ -119,7 +120,7 @@ class ImportProductFactory
     {
         $generation->loadMissing('model.make');
 
-        return trim(implode(' ', array_filter([
+        $title = trim(implode(' ', array_filter([
             $category->title,
             'для',
             $generation->model?->make?->title,
@@ -128,6 +129,8 @@ class ImportProductFactory
             $generation->years_label,
             $generation->body,
         ], static fn (?string $part): bool => trim((string) $part) !== '')));
+
+        return CatalogText::plain($title, 250);
     }
 
     public function importKey(VehicleGeneration $generation, ProductCategory $category, string $source = 'catalog'): string
