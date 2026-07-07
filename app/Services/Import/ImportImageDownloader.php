@@ -43,14 +43,14 @@ class ImportImageDownloader
         if ($existing instanceof ProductImage) {
             $this->cleanup->deleteProcessedImage($processed);
 
-            if (! $product->images()->where('is_main', true)->exists()) {
+            if (! $this->hasNonDefaultMainImage($product)) {
                 $existing->forceFill(['is_main' => true, 'is_visible' => true])->save();
             }
 
             return $existing->refresh();
         }
 
-        $isMain = ! $product->images()->where('is_main', true)->exists();
+        $isMain = ! $this->hasNonDefaultMainImage($product);
         $position = (int) $product->images()->max('position') + 1;
 
         return ProductImage::query()->create(array_merge(
@@ -65,6 +65,20 @@ class ImportImageDownloader
                 'is_visible' => true,
             ],
         ));
+    }
+
+
+    private function hasNonDefaultMainImage(Product $product): bool
+    {
+        return $product->images()
+            ->where('is_main', true)
+            ->where('is_visible', true)
+            ->where(function ($query): void {
+                $query
+                    ->where('source_type', '!=', 'default')
+                    ->orWhereNull('source_type');
+            })
+            ->exists();
     }
 
     public function downloadVehicleGenerationImage(VehicleGeneration $generation, string $url): VehicleGeneration

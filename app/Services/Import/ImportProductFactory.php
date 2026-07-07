@@ -2,10 +2,12 @@
 
 namespace App\Services\Import;
 
+use App\Enums\ImportLogLevel;
 use App\Enums\ImportRunStatus;
 use App\Enums\ProductStatus;
 use App\Enums\StockStatus;
 use App\Jobs\DownloadProductImageJob;
+use App\Models\ImportLog;
 use App\Models\ImportRun;
 use App\Models\Product;
 use App\Models\ProductCategory;
@@ -13,8 +15,10 @@ use App\Models\ProductFitment;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
+use App\Services\ImportLogger;
 use App\Services\ImportRunStats;
 use App\Services\ImportStatusService;
+use App\Services\Media\DefaultProductImageService;
 use App\Support\CatalogText;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -24,7 +28,12 @@ class ImportProductFactory
     public function __construct(
         private readonly ImportRunStats $stats,
         private readonly ImportStatusService $statusService,
+        private readonly DefaultProductImageService $defaultImages,
+        private readonly ImportLogger $logger,
     ) {}
+
+    /** @var array<string, bool> */
+    private array $missingDefaultImageWarnings = [];
 
     /**
      * @param array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string} $detailHeader
@@ -91,6 +100,8 @@ class ImportProductFactory
         if ($imageUrl !== null && $this->shouldQueueProductImage($product, $imageUrl, $run)) {
             $this->statusService->imageQueued($run);
             DownloadProductImageJob::dispatch($product->getKey(), $imageUrl, $run->getKey())->onQueue('imports-images');
+        } elseif ($imageUrl === null && $this->isPositiveAvailabilityCell($cellValue)) {
+            $this->attachDefaultImage($product, $category, $run);
         }
 
         return $product->refresh();
@@ -211,6 +222,106 @@ class ImportProductFactory
         return filter_var(trim($value), FILTER_VALIDATE_URL) !== false;
     }
 
+
+
+    private function attachDefaultImage(Product $product, ProductCategory $category, ImportRun $run): void
+    {
+        $default = $this->defaultImages->forCategory($category);
+
+        if ($default === null) {
+            $this->warnMissingDefaultImageOnce($run, $category);
+
+            return;
+        }
+
+        $existing = ProductImage::query()
+            ->where('product_id', $product->getKey())
+            ->where('source_type', 'default')
+            ->where('is_default', true)
+            ->where('path', $default['path'])
+            ->first();
+
+        $hasMain = $this->productHasMainImage($product);
+
+        if ($existing instanceof ProductImage) {
+            $updates = [
+                'disk' => DefaultProductImageService::DISK,
+                'source_type' => 'default',
+                'is_default' => true,
+                'is_visible' => true,
+            ];
+
+            if (! $hasMain && ! $existing->is_main) {
+                $updates['is_main'] = true;
+            }
+
+            $existing->forceFill($updates)->save();
+
+            return;
+        }
+
+        $position = (int) $product->images()->max('position') + 1;
+
+        ProductImage::query()->create([
+            'product_id' => $product->getKey(),
+            'product_variant_id' => $product->defaultVariant?->getKey(),
+            'disk' => DefaultProductImageService::DISK,
+            'path' => $default['path'],
+            'source_url' => null,
+            'source_type' => 'default',
+            'is_default' => true,
+            'is_visible' => true,
+            'is_main' => ! $hasMain,
+            'position' => $position,
+            'alt' => $product->title,
+        ]);
+    }
+
+    private function warnMissingDefaultImageOnce(ImportRun $run, ProductCategory $category): void
+    {
+        $categoryKey = $category->full_slug ?: $category->slug ?: (string) $category->getKey();
+        $key = $run->getKey().':'.$categoryKey;
+
+        if (isset($this->missingDefaultImageWarnings[$key])) {
+            return;
+        }
+
+        $alreadyLogged = ImportLog::query()
+            ->where('import_run_id', $run->getKey())
+            ->where('level', ImportLogLevel::Warning->value)
+            ->where('message', 'Дефолтное изображение детали не найдено')
+            ->where('context->category_full_slug', $categoryKey)
+            ->exists();
+
+        if ($alreadyLogged) {
+            $this->missingDefaultImageWarnings[$key] = true;
+
+            return;
+        }
+
+        $this->missingDefaultImageWarnings[$key] = true;
+
+        $this->logger->warning($run, 'Дефолтное изображение детали не найдено', [
+            'category_id' => $category->getKey(),
+            'category' => $category->full_title,
+            'category_full_slug' => $categoryKey,
+        ]);
+    }
+
+    private function productHasMainImage(Product $product): bool
+    {
+        return $product->images()
+            ->where('is_main', true)
+            ->where('is_visible', true)
+            ->exists();
+    }
+
+    private function isPositiveAvailabilityCell(string $value): bool
+    {
+        $normalized = mb_strtolower(str_replace(',', '.', trim($value)));
+
+        return in_array($normalized, ['да', 'yes', 'true'], true) || preg_match('/^1(?:\.0+)?$/', $normalized) === 1;
+    }
 
     /** @var array<string, bool> */
     private array $queuedProductImages = [];

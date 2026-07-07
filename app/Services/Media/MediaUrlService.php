@@ -7,29 +7,11 @@ use App\Models\ProductCategory;
 use App\Models\ProductImage;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
-use App\Support\CatalogText;
 use Illuminate\Support\Facades\Storage;
 
 class MediaUrlService
 {
     private const PLACEHOLDER_PATH = 'img/placeholders/image.svg';
-
-    /** @var array<string, string> */
-    private const PRODUCT_DEFAULT_IMAGES = [
-        'porog' => 'porog.png',
-        'arka/zadniaia' => 'arka-zadniaia.jpg',
-        'arka/peredniaia' => 'arka-peredniaia.jpg',
-        'arka/vnutrenniaia' => 'arka-vnutrenniaia.jpeg',
-        'arka/vnutrenniaia-universalnaia' => 'arka-vnutrenniaia-universalnaia.jpeg',
-        'arka/karman-zadniaia' => 'arka-karman-zadniaia.jpg',
-        'penka/zadnei-dveri' => 'penka-zadnei-dveri.jpg',
-        'penka/perednei-dveri' => 'penka-perednei-dveri.jpg',
-        'penka/bagaznika' => 'penka-bagaznika.jpg',
-        'lonzeron' => 'lonzeron.png',
-        'torcevaia-zagluska' => 'torcevaia-zagluska.jpeg',
-        'remkomplekt-pola' => 'remkomplekt-pola.jpeg',
-        'usilitel-soedinitel-porogov' => 'usilitel-soedinitel-porogov.png',
-    ];
 
     public function placeholderUrl(): string
     {
@@ -74,6 +56,10 @@ class MediaUrlService
             return $this->placeholderUrl();
         }
 
+        if ($image->source_type === 'default' || $image->is_default || $image->disk === DefaultProductImageService::DISK) {
+            return app(DefaultProductImageService::class)->urlForPath($image->path) ?? $this->placeholderUrl();
+        }
+
         return $this->publicDiskUrlOrPlaceholder($image->path, $image->disk ?: 'public');
     }
 
@@ -96,21 +82,9 @@ class MediaUrlService
             return null;
         }
 
-        foreach ($this->categoryDefaultKeys($category) as $key) {
-            $file = self::PRODUCT_DEFAULT_IMAGES[$key] ?? null;
+        $default = app(DefaultProductImageService::class)->forCategory($category);
 
-            if (! is_string($file) || $file === '') {
-                continue;
-            }
-
-            $relativePath = 'img/products_default/'.$file;
-
-            if (is_file(public_path($relativePath))) {
-                return asset($relativePath);
-            }
-        }
-
-        return null;
+        return is_array($default) ? $default['url'] : null;
     }
 
     public function vehicleGenerationImageUrl(VehicleGeneration $generation): string
@@ -145,17 +119,4 @@ class MediaUrlService
         return $category instanceof ProductCategory ? $category : null;
     }
 
-    /** @return array<int, string> */
-    private function categoryDefaultKeys(ProductCategory $category): array
-    {
-        $fullSlug = trim((string) ($category->full_slug ?: $category->slug), '/');
-        $slug = trim((string) $category->slug, '/');
-        $titleSlug = CatalogText::slug($category->title, 'category', 100);
-
-        return array_values(array_unique(array_filter([
-            $fullSlug,
-            $slug,
-            $titleSlug,
-        ], static fn (string $key): bool => $key !== '')));
-    }
 }

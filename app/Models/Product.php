@@ -72,6 +72,7 @@ class Product extends Model
         return $this->hasOne(ProductImage::class)
             ->where('is_visible', true)
             ->where('is_main', true)
+            ->orderByRaw("case source_type when 'manual' then 0 when 'import' then 1 when 'default' then 2 else 3 end")
             ->oldest('position')
             ->oldest('id');
     }

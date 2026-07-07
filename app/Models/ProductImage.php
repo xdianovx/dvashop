@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Media\DefaultProductImageService;
 use App\Services\Media\ImageProcessingService;
 use App\Services\Media\MediaFileCleanupService;
 use App\Services\Media\MediaUrlService;
@@ -51,13 +52,20 @@ class ProductImage extends Model
     protected static function booted(): void
     {
         static::saving(function (self $image): void {
-            $image->disk = is_string($image->disk) && $image->disk !== '' ? $image->disk : 'public';
             $image->source_type = is_string($image->source_type) && $image->source_type !== ''
                 ? $image->source_type
                 : ($image->source_url ? 'import' : 'manual');
+            $image->is_default ??= $image->source_type === 'default';
+            $image->disk = is_string($image->disk) && $image->disk !== ''
+                ? $image->disk
+                : ($image->is_default || $image->source_type === 'default' ? DefaultProductImageService::DISK : 'public');
             $image->position ??= 0;
-            $image->is_default ??= false;
             $image->is_visible ??= true;
+
+            if ($image->is_default) {
+                $image->source_type = 'default';
+                $image->disk = DefaultProductImageService::DISK;
+            }
 
             if ($image->is_main) {
                 $image->is_visible = true;
@@ -76,6 +84,10 @@ class ProductImage extends Model
 
     public function processManualUploadIfNeeded(): void
     {
+        if ($this->isDefaultImageReference()) {
+            return;
+        }
+
         if (! $this->product_id || ! $this->path || filter_var($this->path, FILTER_VALIDATE_URL)) {
             return;
         }
@@ -137,9 +149,22 @@ class ProductImage extends Model
 
     public function deleteFiles(): void
     {
+        if ($this->isDefaultImageReference()) {
+            return;
+        }
+
         $cleanup = app(MediaFileCleanupService::class);
         $cleanup->deletePath($this->path, $this->disk ?: 'public');
         $cleanup->deleteConversions($this->conversions, $this->disk ?: 'public');
+    }
+
+
+    private function isDefaultImageReference(): bool
+    {
+        return $this->source_type === 'default'
+            || $this->is_default
+            || $this->disk === DefaultProductImageService::DISK
+            || (is_string($this->path) && str_starts_with($this->path, DefaultProductImageService::DIRECTORY.'/'));
     }
 
     private function ensureSingleMainImage(): void
