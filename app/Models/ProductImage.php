@@ -76,6 +76,10 @@ class ProductImage extends Model
             return;
         }
 
+        $oldPath = $this->getOriginal('path');
+        $oldConversions = $this->getOriginal('conversions');
+        $oldDisk = $this->getOriginal('disk') ?: 'public';
+
         try {
             $processed = app(ImageProcessingService::class)->processStoredPublicImage(
                 path: $this->path,
@@ -105,6 +109,12 @@ class ProductImage extends Model
         }
 
         $this->forceFill($processed->toProductImageAttributes())->saveQuietly();
+
+        if (is_string($oldPath) && $oldPath !== '' && $oldPath !== $processed->path) {
+            $cleanup = app(MediaFileCleanupService::class);
+            $cleanup->deletePath($oldPath, is_string($oldDisk) && $oldDisk !== '' ? $oldDisk : 'public');
+            $cleanup->deleteConversions(is_array($oldConversions) ? $oldConversions : null, is_string($oldDisk) && $oldDisk !== '' ? $oldDisk : 'public');
+        }
     }
 
     public function deleteFiles(): void

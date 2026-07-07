@@ -26,3 +26,7 @@ bootstrap/cache/*.php
 *.log
 .DS_Store
 Thumbs.db
+
+*.patch
+*:Zone.Identifier
+.env.local.bak

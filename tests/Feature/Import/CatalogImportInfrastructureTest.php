@@ -278,3 +278,88 @@ test('legacy upload action name is not exposed on import page', function () {
         ->assertSee('wire:submit.prevent="submitImport"', false)
         ->assertDontSee('wire:submit.prevent="upload"', false);
 });
+
+test('start action is idempotent and does not push duplicate start jobs', function () {
+    Queue::fake();
+
+    $this->actingAs(User::factory()->admin()->create());
+    $run = ImportRun::factory()->create(['status' => ImportRunStatus::Ready]);
+    $page = app(CatalogImportPage::class);
+
+    $page->start($run->getKey(), notify: false);
+    $page->start($run->getKey(), notify: false);
+
+    Queue::assertPushed(CatalogImportStartJob::class, 1);
+});
+
+test('start job initializes detail columns only once and keeps progress on repeated run', function () {
+    Storage::fake('local');
+    Queue::fake();
+
+    Storage::disk('local')->put('imports/catalog/catalog.csv', implode("\n", [
+        ',,,,,,Кузовные детали',
+        'Фото,Марка,Модель,Поколение,Годы,Кузов,Пороги',
+        ',Toyota,Camry,XV70,2017-2023,седан,1',
+    ]));
+
+    $run = ImportRun::factory()->create([
+        'status' => ImportRunStatus::RunningRows,
+        'stored_path' => 'imports/catalog/catalog.csv',
+        'processed_rows' => 0,
+        'current_row' => 0,
+    ]);
+
+    $job = new CatalogImportStartJob($run->getKey());
+    $job->handle(app(SpreadsheetReader::class), app(ImportStatusService::class), app(ImportLogger::class), app(\App\Services\Import\ImportRowProcessor::class));
+
+    $firstDetailColumns = $run->fresh()->detail_columns;
+    $run->fresh()->forceFill(['processed_rows' => 1, 'current_row' => 1])->save();
+
+    $job->handle(app(SpreadsheetReader::class), app(ImportStatusService::class), app(ImportLogger::class), app(\App\Services\Import\ImportRowProcessor::class));
+
+    expect($run->fresh()->detail_columns)->toBe($firstDetailColumns)
+        ->and($run->fresh()->processed_rows)->toBe(1);
+});
+
+test('done failed and canceled imports are not restarted', function (ImportRunStatus $status) {
+    Queue::fake();
+
+    $this->actingAs(User::factory()->admin()->create());
+    $run = ImportRun::factory()->create(['status' => $status]);
+
+    app(CatalogImportPage::class)->start($run->getKey(), notify: false);
+
+    Queue::assertNotPushed(CatalogImportStartJob::class);
+    expect($run->fresh()->status)->toBe($status);
+})->with([ImportRunStatus::Done, ImportRunStatus::Failed, ImportRunStatus::Canceled]);
+
+test('resume after pause keeps current position and queues start continuation', function () {
+    Queue::fake();
+
+    $this->actingAs(User::factory()->admin()->create());
+    $run = ImportRun::factory()->create([
+        'status' => ImportRunStatus::Paused,
+        'total_rows' => 10,
+        'processed_rows' => 4,
+        'current_row' => 4,
+        'initialized_at' => now(),
+    ]);
+
+    app(CatalogImportPage::class)->resume($run->getKey());
+
+    Queue::assertPushed(CatalogImportStartJob::class);
+    expect($run->fresh()->current_row)->toBe(4)
+        ->and($run->fresh()->processed_rows)->toBe(4)
+        ->and($run->fresh()->status)->toBe(ImportRunStatus::RunningRows);
+});
+
+test('report includes archive skipped reason', function () {
+    $run = ImportRun::factory()->create([
+        'archive_skipped' => true,
+        'archive_skip_reason' => 'row_errors',
+    ]);
+
+    $response = app(ImportRunReportExporter::class)->summaryCsv($run);
+
+    expect($response)->toBeInstanceOf(StreamedResponse::class);
+});

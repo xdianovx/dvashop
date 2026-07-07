@@ -99,10 +99,26 @@ class CatalogImportChunkJob implements ShouldQueue
             ]);
 
             if ($run->processed_rows >= $run->total_rows) {
-                $archived = $products->archiveMissingProducts($run);
+                $archived = 0;
+                $run->refresh();
+
+                if ($run->errors_count > 0) {
+                    $run->forceFill([
+                        'archive_skipped' => true,
+                        'archive_skip_reason' => 'row_errors',
+                    ])->save();
+
+                    $logger->warning($run, 'Автоархивация пропущена, потому что во время импорта были ошибки строк.', [
+                        'errors_count' => $run->errors_count,
+                    ]);
+                } elseif (! in_array($run->status, [ImportRunStatus::Failed, ImportRunStatus::Canceled], true)) {
+                    $archived = $products->archiveMissingProducts($run);
+                }
+
                 $statusService->markRowsDone($run);
                 $logger->info($run, 'Строки импорта завершены', [
                     'archived_products' => $archived,
+                    'archive_skipped' => (bool) $run->fresh()->archive_skipped,
                     'queued_images' => $run->fresh()->queued_images,
                 ]);
 

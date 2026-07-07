@@ -74,6 +74,8 @@ class ImportRunReportExporter
         yield ['created_products', $run->created_products];
         yield ['updated_products', $run->updated_products];
         yield ['archived_products', $run->archived_products];
+        yield ['archive_skipped', $run->archive_skipped ? 'yes' : 'no'];
+        yield ['archive_skip_reason', $run->archive_skip_reason];
         yield ['queued_images', $run->queued_images];
         yield ['processed_images', $run->processed_images];
         yield ['failed_images', $run->failed_images];

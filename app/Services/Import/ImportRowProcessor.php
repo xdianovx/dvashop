@@ -12,10 +12,14 @@ use App\Services\ImportLogger;
 use App\Services\ImportRunStats;
 use App\Services\ImportStatusService;
 use App\Support\CatalogText;
+use Illuminate\Support\Facades\Storage;
 
 class ImportRowProcessor
 {
     public const DETAIL_START_COLUMN = 6;
+
+    /** @var array<int, ProductCategory> */
+    private array $categoryCache = [];
 
     public function __construct(
         private readonly ImportLogger $logger,
@@ -33,7 +37,10 @@ class ImportRowProcessor
         $prepared = [];
 
         foreach ($detailColumns as $columnIndex => $detailHeader) {
-            $category = $this->productCategory($detailHeader, $run);
+            $category = $this->productCategory($detailHeader, $run, true);
+            if (! $category instanceof ProductCategory) {
+                continue;
+            }
             $detailHeader['category_id'] = $category->getKey();
             $prepared[(int) $columnIndex] = $detailHeader;
         }
@@ -47,7 +54,7 @@ class ImportRowProcessor
      */
     public function process(ImportRun $run, array $row, array $detailColumns, int $rowNumber): void
     {
-        $vehicleImageUrl = $this->cell($row[0] ?? null);
+        $vehicleImageCell = $this->cell($row[0] ?? null);
         $makeTitle = $this->cell($row[1] ?? null);
         $modelTitle = $this->cell($row[2] ?? null);
         $generationTitle = $this->cell($row[3] ?? null);
@@ -65,7 +72,7 @@ class ImportRowProcessor
             return;
         }
 
-        $generation = $this->vehicleGeneration($makeTitle, $modelTitle, $generationTitle, $years, $body, $vehicleImageUrl, $run);
+        $generation = $this->vehicleGeneration($makeTitle, $modelTitle, $generationTitle, $years, $body, $vehicleImageCell, $run, $rowNumber);
 
         foreach ($detailColumns as $columnIndex => $detailHeader) {
             $cellValue = $this->cell($row[$columnIndex] ?? null);
@@ -75,7 +82,11 @@ class ImportRowProcessor
                 continue;
             }
 
-            $category = $this->productCategory($detailHeader, $run);
+            $category = $this->productCategory($detailHeader, $run, false, $rowNumber, (int) $columnIndex);
+
+            if (! $category instanceof ProductCategory) {
+                continue;
+            }
 
             if (! $availableCell['is_standard']) {
                 $this->logger->warning($run, 'Нестандартное значение товарной ячейки принято как наличие товара', [
@@ -101,13 +112,32 @@ class ImportRowProcessor
     /**
      * @param array{index:int, group:string|null, title:string, category_title:string, category_id?:int} $detailHeader
      */
-    public function productCategory(array $detailHeader, ?ImportRun $run = null): ProductCategory
+    public function productCategory(array $detailHeader, ?ImportRun $run = null, bool $createIfMissing = true, ?int $rowNumber = null, ?int $columnIndex = null): ?ProductCategory
     {
         if (! empty($detailHeader['category_id'])) {
-            $category = ProductCategory::query()->find($detailHeader['category_id']);
+            $categoryId = (int) $detailHeader['category_id'];
+
+            if (isset($this->categoryCache[$categoryId])) {
+                return $this->categoryCache[$categoryId];
+            }
+
+            $category = ProductCategory::query()->find($categoryId);
 
             if ($category instanceof ProductCategory) {
-                return $category;
+                return $this->categoryCache[$categoryId] = $category;
+            }
+
+            if (! $createIfMissing) {
+                if ($run !== null) {
+                    $this->logger->warning($run, 'Категория товара из detail_columns не найдена, ячейка пропущена', [
+                        'row' => $rowNumber,
+                        'column' => $columnIndex === null ? null : $this->columnName($columnIndex),
+                        'column_index' => $columnIndex,
+                        'category_id' => $categoryId,
+                    ]);
+                }
+
+                return null;
             }
         }
 
@@ -135,11 +165,12 @@ class ImportRowProcessor
         ?string $body = null,
         ?string $sourceImageUrl = null,
         ?ImportRun $run = null,
+        ?int $rowNumber = null,
     ): VehicleGeneration {
         $make = $this->firstOrUpdateMake($makeTitle, $run);
         $model = $this->firstOrUpdateModel($make, $modelTitle, $run);
         $generationNormKey = CatalogText::normKey(trim($generationTitle.' '.$years.' '.$body), 'generation', 120);
-        $imageUrl = $this->isUrl($this->cell($sourceImageUrl)) ? $this->cell($sourceImageUrl) : null;
+        $imageUrl = $this->vehicleImageUrl($sourceImageUrl, $run, $rowNumber);
 
         /** @var VehicleGeneration $generation */
         $generation = VehicleGeneration::query()->firstOrNew([
@@ -148,14 +179,19 @@ class ImportRowProcessor
         ]);
 
         $wasCreated = ! $generation->exists;
-        $generation->fill([
+        $generationAttributes = [
             'title' => CatalogText::plain($generationTitle, 250),
             'slug' => $generationNormKey,
             'years_label' => $years !== null && $years !== '' ? CatalogText::plain($years, 250) : null,
             'body' => $body !== null && $body !== '' ? CatalogText::plain($body, 250) : null,
-            'image_source_url' => $imageUrl,
             'is_active' => true,
-        ]);
+        ];
+
+        if ($imageUrl !== null) {
+            $generationAttributes['image_source_url'] = $imageUrl;
+        }
+
+        $generation->fill($generationAttributes);
         $wasChanged = $generation->isDirty();
         $generation->save();
 
@@ -167,7 +203,7 @@ class ImportRowProcessor
             }
         }
 
-        if ($imageUrl !== null && ($wasCreated || $generation->wasChanged('image_source_url') || $generation->image === null)) {
+        if ($imageUrl !== null && $this->shouldQueueVehicleImage($generation, $imageUrl, $run)) {
             if ($run !== null) {
                 $this->statusService->imageQueued($run);
             }
@@ -290,6 +326,56 @@ class ImportRowProcessor
         return filter_var(trim($value), FILTER_VALIDATE_URL) !== false;
     }
 
+
+    /** @var array<string, bool> */
+    private array $queuedVehicleImages = [];
+
+    private function vehicleImageUrl(?string $value, ?ImportRun $run, ?int $rowNumber): ?string
+    {
+        $value = $this->cell($value);
+
+        if ($value === '') {
+            return null;
+        }
+
+        if ($this->isUrl($value)) {
+            return $value;
+        }
+
+        $availability = $this->availableCell($value);
+
+        if ($availability !== null && $availability['is_standard'] && $availability['image_url'] === null) {
+            return null;
+        }
+
+        if ($run !== null) {
+            $this->logger->warning($run, 'Некорректное значение в колонке фото автомобиля пропущено', [
+                'row' => $rowNumber,
+                'column' => 'A',
+                'value' => $value,
+            ]);
+        }
+
+        return null;
+    }
+
+    private function shouldQueueVehicleImage(VehicleGeneration $generation, string $url, ?ImportRun $run): bool
+    {
+        $key = ($run?->getKey() ?? 0).':'.$generation->getKey().':'.sha1($url);
+
+        if (isset($this->queuedVehicleImages[$key])) {
+            return false;
+        }
+
+        if ($generation->image_source_url === $url && is_string($generation->image) && $generation->image !== '' && Storage::disk('public')->exists($generation->image)) {
+            return false;
+        }
+
+        $this->queuedVehicleImages[$key] = true;
+
+        return true;
+    }
+
     private function columnName(int $zeroBasedIndex): string
     {
         $number = $zeroBasedIndex + 1;
@@ -306,6 +392,6 @@ class ImportRowProcessor
 
     private function cell(mixed $value): string
     {
-        return trim((string) $value);
+        return CatalogText::plain($value, 1000);
     }
 }

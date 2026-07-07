@@ -8,7 +8,7 @@ final class CatalogText
 {
     public static function slug(?string $value, string $fallback = 'item', int $maxLength = 120): string
     {
-        $source = trim((string) $value);
+        $source = self::plain($value, max(250, $maxLength * 2));
         $slug = Str::slug($source);
 
         if ($slug === '') {
@@ -25,9 +25,12 @@ final class CatalogText
         return self::slug($value, $fallback, $maxLength);
     }
 
-    public static function plain(?string $value, int $maxLength = 250): string
+    public static function plain(mixed $value, int $maxLength = 250): string
     {
-        $value = trim((string) $value);
+        $value = (string) $value;
+        $value = str_replace("\xc2\xa0", ' ', $value);
+        $value = preg_replace('/[\s\x{00A0}]+/u', ' ', $value) ?? $value;
+        $value = trim($value);
         $maxLength = max(16, $maxLength);
 
         if (mb_strlen($value) <= $maxLength) {
@@ -58,7 +61,7 @@ final class CatalogText
     public static function slugPath(array $segments, int $maxLength = 250): string
     {
         $path = implode('/', array_values(array_filter(array_map(
-            static fn (?string $segment): string => trim((string) $segment, '/'),
+            static fn (?string $segment): string => trim(self::plain($segment, 250), '/'),
             $segments,
         ), static fn (string $segment): bool => $segment !== '')));
 

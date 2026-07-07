@@ -7,6 +7,7 @@ use App\Models\ProductImage;
 use App\Models\VehicleGeneration;
 use App\Services\Media\ImageDownloadService;
 use App\Services\Media\MediaFileCleanupService;
+use Illuminate\Support\Facades\Storage;
 
 class ImportImageDownloader
 {
@@ -18,6 +19,15 @@ class ImportImageDownloader
     public function download(Product $product, string $url): ProductImage
     {
         $product->loadMissing('defaultVariant');
+
+        $existingByUrl = ProductImage::query()
+            ->where('product_id', $product->getKey())
+            ->where('source_url', $url)
+            ->first();
+
+        if ($existingByUrl instanceof ProductImage && is_string($existingByUrl->path) && $existingByUrl->path !== '' && Storage::disk($existingByUrl->disk ?: 'public')->exists($existingByUrl->path)) {
+            return $existingByUrl->refresh();
+        }
 
         $processed = $this->downloader->download(
             url: $url,
@@ -57,6 +67,10 @@ class ImportImageDownloader
 
     public function downloadVehicleGenerationImage(VehicleGeneration $generation, string $url): VehicleGeneration
     {
+        if ($generation->image_source_url === $url && is_string($generation->image) && $generation->image !== '' && Storage::disk('public')->exists($generation->image)) {
+            return $generation->refresh();
+        }
+
         $processed = $this->downloader->download(
             url: $url,
             profile: 'vehicle_image',
