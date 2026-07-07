@@ -211,15 +211,30 @@ class ProductResource extends Resource
                                     TextInput::make('alt')
                                         ->label('Alt')
                                         ->maxLength(255),
+                                    Select::make('source_type')
+                                        ->label('Источник')
+                                        ->options([
+                                            'manual' => 'Ручная загрузка',
+                                            'import' => 'Импорт',
+                                            'default' => 'Дефолтное',
+                                        ])
+                                        ->default('manual')
+                                        ->required(),
                                     TextInput::make('position')
                                         ->label('Позиция')
                                         ->numeric()
                                         ->default(0)
                                         ->required(),
+                                    Toggle::make('is_default')
+                                        ->label('Дефолтное')
+                                        ->default(false),
                                     Toggle::make('is_main')
                                         ->label('Главное')
-                                        ->helperText('После сохранения у товара останется только одно главное изображение.')
+                                        ->helperText('После сохранения у товара останется только одно главное изображение. Главное изображение всегда видимое.')
                                         ->default(false),
+                                    Toggle::make('is_visible')
+                                        ->label('Показывать')
+                                        ->default(true),
                                 ])
                                 ->reorderable()
                                 ->columns(3)
@@ -276,9 +291,9 @@ class ProductResource extends Resource
         return $table
             ->defaultSort('position')
             ->columns([
-                ImageColumn::make('mainImage.path')
+                ImageColumn::make('main_image_url')
                     ->label('Фото')
-                    ->disk('public')
+                    ->getStateUsing(fn (Product $record): string => $record->main_image_url)
                     ->square()
                     ->toggleable(),
                 TextColumn::make('title')
@@ -345,6 +360,7 @@ class ProductResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
+            ->with(['category', 'mainImage'])
             ->withoutGlobalScopes([
                 SoftDeletingScope::class,
             ]);

@@ -44,7 +44,7 @@ class ImportImageDownloader
             $this->cleanup->deleteProcessedImage($processed);
 
             if (! $product->images()->where('is_main', true)->exists()) {
-                $existing->forceFill(['is_main' => true])->save();
+                $existing->forceFill(['is_main' => true, 'is_visible' => true])->save();
             }
 
             return $existing->refresh();
@@ -59,8 +59,10 @@ class ImportImageDownloader
                 'product_id' => $product->getKey(),
                 'product_variant_id' => $product->defaultVariant?->getKey(),
                 'alt' => $product->title,
+                'source_type' => 'import',
                 'position' => $position,
                 'is_main' => $isMain,
+                'is_visible' => true,
             ],
         ));
     }
