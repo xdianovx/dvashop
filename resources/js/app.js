@@ -41,11 +41,37 @@ document.querySelectorAll('[data-faq-toggle]').forEach((toggle) => {
     });
 });
 
-// Burger toggle. Mobile menu open/close will hook onto this state later.
+// Burger toggles the mobile menu dropdown.
+const mobileMenu = document.querySelector('[data-mobile-menu]');
+
 document.querySelectorAll('[data-burger]').forEach((burger) => {
-    burger.addEventListener('click', () => {
-        const isOpen = burger.classList.toggle('active');
-        burger.setAttribute('aria-expanded', String(isOpen));
+    const setOpen = (open) => {
+        burger.classList.toggle('active', open);
+        burger.setAttribute('aria-expanded', String(open));
+        mobileMenu?.classList.toggle('mobile-menu--open', open);
+    };
+
+    burger.addEventListener('click', (event) => {
+        event.stopPropagation();
+        setOpen(!burger.classList.contains('active'));
+    });
+
+    mobileMenu?.querySelector('[data-mobile-menu-close]')?.addEventListener('click', () => setOpen(false));
+
+    mobileMenu?.querySelectorAll('.mobile-menu__link').forEach((link) => {
+        link.addEventListener('click', () => setOpen(false));
+    });
+
+    document.addEventListener('click', (event) => {
+        if (mobileMenu?.classList.contains('mobile-menu--open') && !mobileMenu.contains(event.target)) {
+            setOpen(false);
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && mobileMenu?.classList.contains('mobile-menu--open')) {
+            setOpen(false);
+        }
     });
 });
 
