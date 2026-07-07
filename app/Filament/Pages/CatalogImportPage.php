@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Enums\ImportRunStatus;
+use App\Jobs\CatalogImportChunkJob;
 use App\Jobs\CatalogImportStartJob;
 use App\Models\ImportLog;
 use App\Models\ImportRun;
@@ -214,7 +215,7 @@ class CatalogImportPage extends Page implements HasTable
     {
         $run = ImportRun::query()->findOrFail($runId);
 
-        if (! in_array($run->status, [ImportRunStatus::Ready, ImportRunStatus::Paused], true)) {
+        if ($run->status !== ImportRunStatus::Ready) {
             if ($notify) {
                 Notification::make()->title('Импорт уже запущен или завершён')->warning()->send();
             }
@@ -249,7 +250,7 @@ class CatalogImportPage extends Page implements HasTable
         $run = ($statusService ?? app(ImportStatusService::class))->resume(ImportRun::query()->findOrFail($runId));
 
         if ($run->status?->isRowsRunning()) {
-            CatalogImportStartJob::dispatch($run->getKey())->onQueue('imports');
+            CatalogImportChunkJob::dispatch($run->getKey())->onQueue('imports');
         }
 
         Notification::make()->title('Импорт продолжен')->success()->send();

@@ -9,3 +9,14 @@
 /.github export-ignore
 CHANGELOG.md export-ignore
 .styleci.yml export-ignore
+
+/.env export-ignore
+/.env.* export-ignore
+/public/storage export-ignore
+/public/hot export-ignore
+/vendor export-ignore
+/node_modules export-ignore
+/*.patch export-ignore
+/bootstrap/cache/*.php export-ignore
+/.env.example -export-ignore
+/.env.docker.example -export-ignore
