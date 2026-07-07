@@ -46,6 +46,32 @@ test('file upload creates import run', function () {
     Storage::disk('local')->assertExists($run->stored_path);
 });
 
+test('file upload metadata is read from stored import file instead of temporary upload', function () {
+    Storage::fake('local');
+
+    $path = storage_path('framework/testing/livewire-metadata-catalog.csv');
+    if (! is_dir(dirname($path))) {
+        mkdir(dirname($path), 0777, true);
+    }
+
+    file_put_contents($path, importCsvContent());
+
+    $file = new class($path, 'catalog.csv', 'text/csv', null, true) extends UploadedFile {
+        public function getSize(): int|false
+        {
+            throw new RuntimeException('Temporary upload metadata must not be read after storing.');
+        }
+    };
+
+    $run = app(ImportStatusService::class)->createFromUpload($file);
+
+    expect($run->original_name)->toBe('catalog.csv')
+        ->and($run->file_size)->toBe(strlen(importCsvContent()))
+        ->and($run->file_hash)->toHaveLength(64);
+
+    Storage::disk('local')->assertExists($run->stored_path);
+});
+
 test('start changes import status', function () {
     $run = ImportRun::factory()->create(['status' => ImportRunStatus::Ready]);
 
