@@ -11,9 +11,12 @@ use RuntimeException;
 
 class ImportStatusService
 {
-    public function __construct(private readonly ImportLogger $logger) {}
+    public function __construct(
+        private readonly ImportLogger $logger,
+        private readonly ImportRunStats $stats,
+    ) {}
 
-    public function createFromUpload(UploadedFile $file, string $type = 'catalog'): ImportRun
+    public function createFromUpload(UploadedFile $file, string $type = 'catalog', int $chunkSize = 300): ImportRun
     {
         $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: 'csv');
         $storedPath = $file->storeAs(
@@ -32,6 +35,7 @@ class ImportStatusService
             storedPath: $storedPath,
             mimeType: $file->getClientMimeType(),
             fileSize: $file->getSize(),
+            chunkSize: $chunkSize,
         );
     }
 
@@ -60,6 +64,8 @@ class ImportStatusService
             'original_name' => $originalName,
             'stored_path' => $storedPath,
             'file_size' => $run->file_size,
+            'type' => $run->type,
+            'chunk_size' => $run->chunk_size,
         ]);
 
         return $run;
@@ -68,7 +74,7 @@ class ImportStatusService
     public function start(ImportRun $run): ImportRun
     {
         $run->forceFill([
-            'status' => ImportRunStatus::Running,
+            'status' => ImportRunStatus::RunningRows,
             'started_at' => $run->started_at ?? now(),
             'finished_at' => null,
             'last_error' => null,
@@ -80,7 +86,7 @@ class ImportStatusService
 
     public function pause(ImportRun $run): ImportRun
     {
-        if ($run->status === ImportRunStatus::Running) {
+        if ($run->status?->isRowsRunning()) {
             $run->forceFill([
                 'status' => ImportRunStatus::Paused,
                 'heartbeat_at' => now(),
@@ -95,7 +101,15 @@ class ImportStatusService
     public function resume(ImportRun $run): ImportRun
     {
         if ($run->status === ImportRunStatus::Paused) {
-            $this->start($run);
+            if ($run->processed_rows >= $run->total_rows && $run->hasPendingImages()) {
+                $run->forceFill([
+                    'status' => ImportRunStatus::ProcessingImages,
+                    'heartbeat_at' => now(),
+                ])->save();
+            } else {
+                $this->start($run);
+            }
+
             $this->logger->info($run, 'Импорт продолжен');
         }
 
@@ -117,12 +131,24 @@ class ImportStatusService
         return $run->refresh();
     }
 
+    public function markRowsDone(ImportRun $run): ImportRun
+    {
+        $run->refresh();
+        $run->forceFill([
+            'processed_rows' => $run->total_rows,
+            'current_row' => $run->total_rows,
+            'status' => $run->hasPendingImages() ? ImportRunStatus::ProcessingImages : ImportRunStatus::Done,
+            'finished_at' => $run->hasPendingImages() ? null : now(),
+            'heartbeat_at' => now(),
+        ])->save();
+
+        return $run->refresh();
+    }
+
     public function markDone(ImportRun $run): ImportRun
     {
         $run->forceFill([
             'status' => ImportRunStatus::Done,
-            'processed_rows' => $run->total_rows,
-            'current_row' => $run->total_rows,
             'finished_at' => now(),
             'heartbeat_at' => now(),
         ])->save();
@@ -146,6 +172,44 @@ class ImportStatusService
 
     public function heartbeat(ImportRun $run): ImportRun
     {
+        $run->forceFill(['heartbeat_at' => now()])->save();
+
+        return $run->refresh();
+    }
+
+    public function imageQueued(ImportRun $run, int $count = 1): void
+    {
+        $this->stats->increment($run, 'queued_images', $count);
+    }
+
+    public function imageProcessed(ImportRun $run): ImportRun
+    {
+        $this->stats->increment($run, 'processed_images');
+
+        return $this->finishImagesIfComplete($run);
+    }
+
+    public function imageFailed(ImportRun $run): ImportRun
+    {
+        $this->stats->increment($run, 'failed_images');
+
+        return $this->finishImagesIfComplete($run);
+    }
+
+    public function finishImagesIfComplete(ImportRun $run): ImportRun
+    {
+        $run->refresh();
+
+        if ($run->status === ImportRunStatus::ProcessingImages && $run->imagesFinished()) {
+            $this->logger->info($run, 'Обработка изображений завершена', [
+                'processed_images' => $run->processed_images,
+                'failed_images' => $run->failed_images,
+                'queued_images' => $run->queued_images,
+            ]);
+
+            return $this->markDone($run);
+        }
+
         $run->forceFill(['heartbeat_at' => now()])->save();
 
         return $run->refresh();

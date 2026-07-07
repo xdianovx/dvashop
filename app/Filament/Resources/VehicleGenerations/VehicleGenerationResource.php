@@ -87,8 +87,13 @@ class VehicleGenerationResource extends Resource
                 ->maxLength(255),
             FileUpload::make('image')
                 ->label('Изображение')
+                ->disk('public')
+                ->directory('uploads/vehicles/generations/manual')
                 ->image()
-                ->directory('vehicle-generations'),
+                ->imageEditor()
+                ->imagePreviewHeight('160')
+                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
+                ->maxSize((int) ceil(config('media.max_source_size', 15 * 1024 * 1024) / 1024)),
             TextInput::make('image_source_url')
                 ->label('URL исходного фото')
                 ->url()

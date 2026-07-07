@@ -61,6 +61,11 @@ class Product extends Model
         return $this->hasMany(ProductImage::class);
     }
 
+    public function mainImage(): HasOne
+    {
+        return $this->hasOne(ProductImage::class)->where('is_main', true)->oldest('position');
+    }
+
     public function fitments(): HasMany
     {
         return $this->hasMany(ProductFitment::class);
@@ -87,7 +92,7 @@ class Product extends Model
     protected static function booted(): void
     {
         static::saving(function (self $product): void {
-            $product->slug = CatalogText::slug($product->slug ?: $product->title);
+            $product->slug = CatalogText::slug($product->slug ?: $product->title, 'product', 150);
             $product->status ??= ProductStatus::Draft;
             $product->stock_status ??= StockStatus::InStock;
             $product->position ??= 0;

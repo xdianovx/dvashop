@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\Media\ImageProcessingService;
+use App\Services\Media\MediaFileCleanupService;
 use App\Support\CatalogText;
 use Database\Factories\VehicleGenerationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -13,6 +15,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 #[Fillable([
     'vehicle_model_id',
@@ -22,6 +26,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'years_label',
     'body',
     'image',
+    'image_checksum',
+    'image_conversions',
     'image_source_url',
     'position',
     'is_active',
@@ -64,11 +70,49 @@ class VehicleGeneration extends Model
     protected static function booted(): void
     {
         static::saving(function (self $generation): void {
-            $generation->slug = CatalogText::slug($generation->slug ?: $generation->title);
-            $generation->norm_key = CatalogText::normKey($generation->norm_key ?: $generation->title);
+            $generation->slug = CatalogText::slug($generation->slug ?: $generation->title, 'generation', 100);
+            $generation->norm_key = CatalogText::normKey($generation->norm_key ?: $generation->title, 'generation', 120);
             $generation->position ??= 0;
             $generation->is_active ??= true;
         });
+
+        static::saved(function (self $generation): void {
+            $generation->processManualImageIfNeeded();
+        });
+    }
+
+
+    public function processManualImageIfNeeded(): void
+    {
+        if (! $this->image || filter_var($this->image, FILTER_VALIDATE_URL)) {
+            return;
+        }
+
+        if (str_starts_with($this->image, 'uploads/vehicles/generations/'.$this->getKey().'/') && str_ends_with($this->image, '.webp')) {
+            return;
+        }
+
+        $disk = Storage::disk('public');
+        if (! $disk->exists($this->image)) {
+            return;
+        }
+
+        try {
+            $processed = app(ImageProcessingService::class)->processStoredPublicImage(
+                path: $this->image,
+                profile: 'vehicle_image',
+                directory: 'uploads/vehicles/generations/'.$this->getKey(),
+                originalUrl: $this->image_source_url,
+            );
+        } catch (Throwable $e) {
+            throw $e;
+        }
+
+        $this->forceFill([
+            'image' => $processed->path,
+            'image_checksum' => $processed->checksum,
+            'image_conversions' => $processed->conversions,
+        ])->saveQuietly();
     }
 
     protected function casts(): array
@@ -76,6 +120,7 @@ class VehicleGeneration extends Model
         return [
             'is_active' => 'boolean',
             'position' => 'integer',
+            'image_conversions' => 'array',
         ];
     }
 }

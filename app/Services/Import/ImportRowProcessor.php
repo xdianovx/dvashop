@@ -9,6 +9,8 @@ use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Models\VehicleModel;
 use App\Services\ImportLogger;
+use App\Services\ImportRunStats;
+use App\Services\ImportStatusService;
 use App\Support\CatalogText;
 
 class ImportRowProcessor
@@ -18,11 +20,30 @@ class ImportRowProcessor
     public function __construct(
         private readonly ImportLogger $logger,
         private readonly ImportProductFactory $products,
+        private readonly ImportRunStats $stats,
+        private readonly ImportStatusService $statusService,
     ) {}
 
     /**
+     * @param array<int, array{index:int, group:string|null, title:string, category_title:string, category_id?:int}> $detailColumns
+     * @return array<int, array{index:int, group:string|null, title:string, category_title:string, category_id:int}>
+     */
+    public function prepareDetailColumns(ImportRun $run, array $detailColumns): array
+    {
+        $prepared = [];
+
+        foreach ($detailColumns as $columnIndex => $detailHeader) {
+            $category = $this->productCategory($detailHeader, $run);
+            $detailHeader['category_id'] = $category->getKey();
+            $prepared[(int) $columnIndex] = $detailHeader;
+        }
+
+        return $prepared;
+    }
+
+    /**
      * @param array<int, mixed> $row
-     * @param array<int, array{index:int, group:string|null, title:string, category_title:string}> $detailColumns
+     * @param array<int, array{index:int, group:string|null, title:string, category_title:string, category_id?:int}> $detailColumns
      */
     public function process(ImportRun $run, array $row, array $detailColumns, int $rowNumber): void
     {
@@ -54,7 +75,7 @@ class ImportRowProcessor
                 continue;
             }
 
-            $category = $this->productCategory($detailHeader);
+            $category = $this->productCategory($detailHeader, $run);
 
             if (! $availableCell['is_standard']) {
                 $this->logger->warning($run, 'Нестандартное значение товарной ячейки принято как наличие товара', [
@@ -78,10 +99,18 @@ class ImportRowProcessor
     }
 
     /**
-     * @param array{index:int, group:string|null, title:string, category_title:string} $detailHeader
+     * @param array{index:int, group:string|null, title:string, category_title:string, category_id?:int} $detailHeader
      */
-    public function productCategory(array $detailHeader): ProductCategory
+    public function productCategory(array $detailHeader, ?ImportRun $run = null): ProductCategory
     {
+        if (! empty($detailHeader['category_id'])) {
+            $category = ProductCategory::query()->find($detailHeader['category_id']);
+
+            if ($category instanceof ProductCategory) {
+                return $category;
+            }
+        }
+
         $groupTitle = $this->cell($detailHeader['group'] ?? null);
         $categoryTitle = $this->cell($detailHeader['category_title'] ?? $detailHeader['title'] ?? null);
 
@@ -90,12 +119,12 @@ class ImportRowProcessor
         }
 
         if ($groupTitle === '' || $groupTitle === $categoryTitle) {
-            return $this->firstOrRestoreCategory(null, $categoryTitle);
+            return $this->firstOrRestoreCategory(null, $categoryTitle, $run);
         }
 
-        $parent = $this->firstOrRestoreCategory(null, $groupTitle);
+        $parent = $this->firstOrRestoreCategory(null, $groupTitle, $run);
 
-        return $this->firstOrRestoreCategory($parent, $categoryTitle);
+        return $this->firstOrRestoreCategory($parent, $categoryTitle, $run);
     }
 
     public function vehicleGeneration(
@@ -107,55 +136,102 @@ class ImportRowProcessor
         ?string $sourceImageUrl = null,
         ?ImportRun $run = null,
     ): VehicleGeneration {
-        $make = VehicleMake::query()->updateOrCreate(
-            ['norm_key' => CatalogText::normKey($makeTitle)],
-            [
-                'title' => $makeTitle,
-                'slug' => CatalogText::slug($makeTitle),
-                'is_active' => true,
-            ]
-        );
-
-        $model = VehicleModel::query()->updateOrCreate(
-            [
-                'vehicle_make_id' => $make->getKey(),
-                'norm_key' => CatalogText::normKey($modelTitle),
-            ],
-            [
-                'title' => $modelTitle,
-                'slug' => CatalogText::slug($modelTitle),
-                'is_active' => true,
-            ]
-        );
-
-        $generationNormKey = CatalogText::normKey(trim($generationTitle.' '.$years.' '.$body));
+        $make = $this->firstOrUpdateMake($makeTitle, $run);
+        $model = $this->firstOrUpdateModel($make, $modelTitle, $run);
+        $generationNormKey = CatalogText::normKey(trim($generationTitle.' '.$years.' '.$body), 'generation', 120);
         $imageUrl = $this->isUrl($this->cell($sourceImageUrl)) ? $this->cell($sourceImageUrl) : null;
 
-        $generation = VehicleGeneration::query()->updateOrCreate(
-            [
-                'vehicle_model_id' => $model->getKey(),
-                'norm_key' => $generationNormKey,
-            ],
-            [
-                'title' => $generationTitle,
-                'slug' => $generationNormKey,
-                'years_label' => $years ?: null,
-                'body' => $body ?: null,
-                'image_source_url' => $imageUrl,
-                'is_active' => true,
-            ]
-        );
+        /** @var VehicleGeneration $generation */
+        $generation = VehicleGeneration::query()->firstOrNew([
+            'vehicle_model_id' => $model->getKey(),
+            'norm_key' => $generationNormKey,
+        ]);
 
-        if ($imageUrl !== null && ($generation->wasRecentlyCreated || $generation->wasChanged('image_source_url') || $generation->image === null)) {
+        $wasCreated = ! $generation->exists;
+        $generation->fill([
+            'title' => $generationTitle,
+            'slug' => $generationNormKey,
+            'years_label' => $years ?: null,
+            'body' => $body ?: null,
+            'image_source_url' => $imageUrl,
+            'is_active' => true,
+        ]);
+        $wasChanged = $generation->isDirty();
+        $generation->save();
+
+        if ($run !== null) {
+            if ($wasCreated) {
+                $this->stats->increment($run, 'created_generations');
+            } elseif ($wasChanged) {
+                $this->stats->increment($run, 'updated_generations');
+            }
+        }
+
+        if ($imageUrl !== null && ($wasCreated || $generation->wasChanged('image_source_url') || $generation->image === null)) {
+            if ($run !== null) {
+                $this->statusService->imageQueued($run);
+            }
+
             DownloadVehicleGenerationImageJob::dispatch($generation->getKey(), $imageUrl, $run?->getKey())->onQueue('imports-images');
         }
 
-        return $generation;
+        return $generation->refresh();
     }
 
-    private function firstOrRestoreCategory(?ProductCategory $parent, string $title): ProductCategory
+    private function firstOrUpdateMake(string $title, ?ImportRun $run): VehicleMake
     {
-        $slug = CatalogText::slug($title);
+        /** @var VehicleMake $make */
+        $make = VehicleMake::query()->firstOrNew(['norm_key' => CatalogText::normKey($title, 'make', 100)]);
+        $wasCreated = ! $make->exists;
+        $make->fill([
+            'title' => $title,
+            'slug' => CatalogText::slug($title, 'make', 100),
+            'is_active' => true,
+        ]);
+        $wasChanged = $make->isDirty();
+        $make->save();
+
+        if ($run !== null) {
+            if ($wasCreated) {
+                $this->stats->increment($run, 'created_makes');
+            } elseif ($wasChanged) {
+                $this->stats->increment($run, 'updated_makes');
+            }
+        }
+
+        return $make->refresh();
+    }
+
+    private function firstOrUpdateModel(VehicleMake $make, string $title, ?ImportRun $run): VehicleModel
+    {
+        /** @var VehicleModel $model */
+        $model = VehicleModel::query()->firstOrNew([
+            'vehicle_make_id' => $make->getKey(),
+            'norm_key' => CatalogText::normKey($title, 'model', 100),
+        ]);
+        $wasCreated = ! $model->exists;
+        $model->fill([
+            'title' => $title,
+            'slug' => CatalogText::slug($title, 'model', 100),
+            'is_active' => true,
+        ]);
+        $wasChanged = $model->isDirty();
+        $model->save();
+
+        if ($run !== null) {
+            if ($wasCreated) {
+                $this->stats->increment($run, 'created_models');
+            } elseif ($wasChanged) {
+                $this->stats->increment($run, 'updated_models');
+            }
+        }
+
+        return $model->refresh();
+    }
+
+    private function firstOrRestoreCategory(?ProductCategory $parent, string $title, ?ImportRun $run = null): ProductCategory
+    {
+        $slug = CatalogText::slug($title, 'category', 80);
 
         /** @var ProductCategory $category */
         $category = ProductCategory::withTrashed()->firstOrNew([
@@ -163,16 +239,28 @@ class ImportRowProcessor
             'slug' => $slug,
         ]);
 
+        $wasCreated = ! $category->exists;
+        $wasTrashed = $category->exists && $category->trashed();
+
         $category->fill([
             'title' => $title,
             'is_active' => true,
         ]);
+        $wasChanged = $category->isDirty();
 
         if ($category->trashed()) {
             $category->restore();
         }
 
         $category->save();
+
+        if ($run !== null) {
+            if ($wasCreated) {
+                $this->stats->increment($run, 'created_categories');
+            } elseif ($wasChanged || $wasTrashed) {
+                $this->stats->increment($run, 'updated_categories');
+            }
+        }
 
         return $category->refresh();
     }

@@ -19,6 +19,7 @@ use Filament\Actions\ForceDeleteAction;
 use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\RestoreBulkAction;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\KeyValue;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
@@ -30,6 +31,7 @@ use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
+use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
@@ -191,14 +193,20 @@ class ProductResource extends Resource
                     Tab::make('Изображения')
                         ->schema([
                             Repeater::make('images')
-                                ->label('Изображения')
+                                ->label('Медиатека товара')
                                 ->relationship()
                                 ->orderColumn('position')
                                 ->schema([
-                                    TextInput::make('path')
-                                        ->label('Путь')
+                                    FileUpload::make('path')
+                                        ->label('Изображение')
+                                        ->disk('public')
+                                        ->directory('uploads/products/manual')
+                                        ->image()
+                                        ->imageEditor()
+                                        ->imagePreviewHeight('160')
+                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
+                                        ->maxSize((int) ceil(config('media.max_source_size', 15 * 1024 * 1024) / 1024))
                                         ->required()
-                                        ->maxLength(255)
                                         ->columnSpanFull(),
                                     TextInput::make('alt')
                                         ->label('Alt')
@@ -210,8 +218,10 @@ class ProductResource extends Resource
                                         ->required(),
                                     Toggle::make('is_main')
                                         ->label('Главное')
+                                        ->helperText('После сохранения у товара останется только одно главное изображение.')
                                         ->default(false),
                                 ])
+                                ->reorderable()
                                 ->columns(3)
                                 ->addActionLabel('Добавить изображение')
                                 ->columnSpanFull(),
@@ -266,6 +276,11 @@ class ProductResource extends Resource
         return $table
             ->defaultSort('position')
             ->columns([
+                ImageColumn::make('mainImage.path')
+                    ->label('Фото')
+                    ->disk('public')
+                    ->square()
+                    ->toggleable(),
                 TextColumn::make('title')
                     ->label('Название')
                     ->searchable()

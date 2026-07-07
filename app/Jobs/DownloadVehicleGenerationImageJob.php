@@ -2,10 +2,12 @@
 
 namespace App\Jobs;
 
+use App\Enums\ImportRunStatus;
 use App\Models\ImportRun;
 use App\Models\VehicleGeneration;
 use App\Services\Import\ImportImageDownloader;
 use App\Services\ImportLogger;
+use App\Services\ImportStatusService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -20,7 +22,7 @@ class DownloadVehicleGenerationImageJob implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
-    public int $tries = 3;
+    public int $tries = 1;
 
     public int $timeout = 60;
 
@@ -30,22 +32,55 @@ class DownloadVehicleGenerationImageJob implements ShouldQueue
         public ?int $importRunId = null,
     ) {}
 
-    public function handle(ImportImageDownloader $downloader, ImportLogger $logger): void
+    public function handle(ImportImageDownloader $downloader, ImportLogger $logger, ImportStatusService $statusService): void
     {
-        $generation = VehicleGeneration::query()->findOrFail($this->vehicleGenerationId);
+        $run = $this->importRun();
+
+        if ($run?->status === ImportRunStatus::Canceled || $run?->status === ImportRunStatus::Failed) {
+            return;
+        }
 
         try {
-            $downloader->downloadVehicleGenerationImage($generation, $this->url);
-        } catch (Throwable $e) {
-            if ($this->importRunId !== null && ($run = ImportRun::query()->find($this->importRunId))) {
-                $logger->warning($run, 'Не удалось скачать изображение поколения авто', [
-                    'vehicle_generation_id' => $this->vehicleGenerationId,
-                    'url' => $this->url,
-                    'error' => $e->getMessage(),
-                ]);
+            $generation = VehicleGeneration::query()->find($this->vehicleGenerationId);
+
+            if (! $generation instanceof VehicleGeneration) {
+                throw new \RuntimeException('Поколение авто для изображения не найдено.');
             }
 
-            throw $e;
+            $downloader->downloadVehicleGenerationImage($generation, $this->url);
+
+            if ($run !== null) {
+                $statusService->imageProcessed($run);
+            }
+        } catch (Throwable $e) {
+            $this->recordFailure($logger, $statusService, $e);
         }
+    }
+
+    public function failed(Throwable $e): void
+    {
+        $this->recordFailure(app(ImportLogger::class), app(ImportStatusService::class), $e);
+    }
+
+    private function recordFailure(ImportLogger $logger, ImportStatusService $statusService, Throwable $e): void
+    {
+        $run = $this->importRun();
+
+        if ($run === null || $run->status === ImportRunStatus::Canceled || $run->status === ImportRunStatus::Failed) {
+            return;
+        }
+
+        $logger->warning($run, 'Не удалось скачать изображение поколения авто', [
+            'vehicle_generation_id' => $this->vehicleGenerationId,
+            'url' => $this->url,
+            'error' => $e->getMessage(),
+        ]);
+
+        $statusService->imageFailed($run);
+    }
+
+    private function importRun(): ?ImportRun
+    {
+        return $this->importRunId === null ? null : ImportRun::query()->find($this->importRunId);
     }
 }

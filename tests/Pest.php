@@ -48,3 +48,23 @@ function something()
 {
     // ..
 }
+
+function test_image_binary(string $format = 'jpeg', int $width = 32, int $height = 24): string
+{
+    $image = imagecreatetruecolor($width, $height);
+    $background = imagecolorallocate($image, 210, 80, 40);
+    imagefilledrectangle($image, 0, 0, $width, $height, $background);
+
+    ob_start();
+
+    match (strtolower($format)) {
+        'png' => imagepng($image),
+        'webp' => imagewebp($image, null, 80),
+        default => imagejpeg($image, null, 85),
+    };
+
+    $binary = (string) ob_get_clean();
+    imagedestroy($image);
+
+    return $binary;
+}

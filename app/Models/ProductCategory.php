@@ -78,7 +78,7 @@ class ProductCategory extends Model
     protected static function booted(): void
     {
         static::saving(function (self $category): void {
-            $category->slug = CatalogText::slug($category->slug ?: $category->title);
+            $category->slug = CatalogText::slug($category->slug ?: $category->title, 'category', 80);
             $category->position ??= 0;
             $category->is_active ??= true;
             $category->rebuildPathFields();
@@ -97,13 +97,13 @@ class ProductCategory extends Model
 
         if ($parent instanceof self) {
             $this->depth = $parent->depth + 1;
-            $this->full_slug = $parent->full_slug.'/'.$this->slug;
+            $this->full_slug = CatalogText::slugPath([$parent->full_slug, $this->slug], 250);
 
             return;
         }
 
         $this->depth = 0;
-        $this->full_slug = $this->slug;
+        $this->full_slug = CatalogText::slugPath([$this->slug], 250);
     }
 
     protected function casts(): array

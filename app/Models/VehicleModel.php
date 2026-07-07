@@ -52,8 +52,8 @@ class VehicleModel extends Model
     protected static function booted(): void
     {
         static::saving(function (self $model): void {
-            $model->slug = CatalogText::slug($model->slug ?: $model->title);
-            $model->norm_key = CatalogText::normKey($model->norm_key ?: $model->title);
+            $model->slug = CatalogText::slug($model->slug ?: $model->title, 'model', 100);
+            $model->norm_key = CatalogText::normKey($model->norm_key ?: $model->title, 'model', 100);
             $model->position ??= 0;
             $model->is_active ??= true;
         });

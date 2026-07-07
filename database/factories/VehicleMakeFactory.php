@@ -22,6 +22,8 @@ class VehicleMakeFactory extends Factory
             'slug' => Str::slug($title),
             'norm_key' => Str::slug($title),
             'image' => null,
+            'image_checksum' => null,
+            'image_conversions' => null,
             'position' => fake()->numberBetween(0, 500),
             'is_active' => true,
             'meta_title' => null,
