@@ -1,0 +1,403 @@
+.categories {
+    margin-top: var(--section-gap);
+}
+
+.categories__grid {
+    display: grid;
+    grid-template-columns: 721fr 354fr 353fr;
+    grid-template-areas:
+        'sills commercial repair'
+        'front rear rear';
+    grid-auto-rows: 438px;
+    gap: 10px;
+}
+
+.categories__card {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    border-radius: var(--radius-card);
+    background-color: var(--color-primary);
+}
+
+.categories__card--sills {
+    grid-area: sills;
+}
+
+.categories__card--commercial {
+    grid-area: commercial;
+    background-color: var(--color-primary-dark);
+}
+
+.categories__card--repair {
+    grid-area: repair;
+}
+
+.categories__card--front {
+    grid-area: front;
+}
+
+.categories__card--rear {
+    grid-area: rear;
+    background-color: var(--color-primary-dark);
+}
+
+.categories__layer {
+    position: absolute;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.categories__layer--blend {
+    mix-blend-mode: multiply;
+}
+
+.categories__layer img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    object-fit: cover;
+}
+
+.categories__card--sills .categories__layer {
+    left: 0;
+    top: 0;
+    width: 637px;
+    height: 382px;
+}
+
+.categories__card--commercial .categories__layer {
+    left: -82px;
+    top: -13px;
+    width: 445px;
+    height: 443px;
+}
+
+.categories__card--commercial .categories__layer img {
+    inset: auto;
+    left: -138.49%;
+    top: -46.11%;
+    width: 238.59%;
+    height: 146.11%;
+}
+
+.categories__card--repair .categories__layer {
+    left: -40px;
+    top: 28px;
+    width: 635px;
+    height: 339px;
+}
+
+.categories__card--front .categories__layer {
+    left: -304px;
+    top: -317px;
+    width: 833px;
+    height: 880px;
+}
+
+.categories__card--rear .categories__layer {
+    left: 53px;
+    top: 0;
+    width: 657px;
+    border-radius: var(--radius-card);
+}
+
+.categories__card--rear .categories__layer--1 {
+    height: 502px;
+}
+
+.categories__card--rear .categories__layer--2 {
+    height: 438px;
+}
+
+.categories__card--rear .categories__layer img {
+    inset: auto;
+    left: 14.55%;
+    width: 85.5%;
+}
+
+.categories__card--rear .categories__layer--1 img {
+    top: -42.78%;
+    height: 122.16%;
+}
+
+.categories__card--rear .categories__layer--2 img {
+    top: -49.03%;
+    height: 140.02%;
+}
+
+.categories__pill {
+    position: absolute;
+    bottom: 19px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    height: 62px;
+    padding: 0 10px 0 30px;
+    border: 1px solid var(--color-on-dark);
+    border-radius: var(--radius-pill);
+    font-family: var(--font-display);
+    font-weight: var(--fw-regular);
+    font-size: var(--fs-xl);
+    line-height: var(--lh-tight);
+    color: var(--color-on-dark);
+    white-space: nowrap;
+}
+
+.categories__pill--two-lines {
+    height: 84px;
+}
+
+.categories__card--sills .categories__pill,
+.categories__card--front .categories__pill {
+    right: 19px;
+}
+
+.categories__card--commercial .categories__pill,
+.categories__card--repair .categories__pill,
+.categories__card--rear .categories__pill {
+    left: 19px;
+}
+
+.categories__pill-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 42px;
+    height: 42px;
+    border: 1px solid var(--color-on-dark);
+    border-radius: 50%;
+}
+
+.categories__pill-icon img {
+    width: 27px;
+    height: 27px;
+}
+
+@media (max-width: 1200px) {
+    .categories__grid {
+        grid-auto-rows: 320px;
+    }
+
+    .categories__pill {
+        gap: 10px;
+        height: 52px;
+        padding: 0 8px 0 22px;
+        font-size: 18px;
+    }
+
+    .categories__pill--two-lines {
+        height: 66px;
+    }
+
+    .categories__pill-icon {
+        width: 34px;
+        height: 34px;
+    }
+
+    .categories__pill-icon img {
+        width: 22px;
+        height: 22px;
+    }
+
+    .categories__card--sills .categories__layer {
+        width: 478px;
+        height: 287px;
+    }
+
+    .categories__card--commercial .categories__layer {
+        left: -62px;
+        top: -10px;
+        width: 334px;
+        height: 332px;
+    }
+
+    .categories__card--repair .categories__layer {
+        left: -30px;
+        top: 21px;
+        width: 476px;
+        height: 254px;
+    }
+
+    .categories__card--front .categories__layer {
+        left: -228px;
+        top: -238px;
+        width: 625px;
+        height: 660px;
+    }
+
+    .categories__card--rear .categories__layer {
+        left: 40px;
+        width: 493px;
+    }
+
+    .categories__card--rear .categories__layer--1 {
+        height: 377px;
+    }
+
+    .categories__card--rear .categories__layer--2 {
+        height: 329px;
+    }
+}
+
+@media (max-width: 768px) {
+    .categories__grid {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    .categories__card {
+        height: 90px;
+        border-radius: 16px;
+    }
+
+    .categories__card--front {
+        order: 1;
+        background-color: var(--color-primary-dark);
+    }
+
+    .categories__card--sills {
+        order: 2;
+    }
+
+    .categories__card--rear {
+        order: 3;
+        background-color: var(--color-primary);
+    }
+
+    .categories__card--commercial {
+        order: 4;
+        background-color: var(--color-primary);
+    }
+
+    .categories__card--repair {
+        order: 5;
+        background-color: var(--color-primary-dark);
+    }
+
+    .categories__card--sills .categories__layer--1 {
+        left: -2px;
+        top: -14px;
+        width: 181px;
+        height: 108px;
+    }
+
+    .categories__card--sills .categories__layer--2 {
+        left: -2px;
+        top: -15px;
+        width: 181px;
+        height: 108px;
+    }
+
+    .categories__card--commercial .categories__layer--1 {
+        left: -65px;
+        top: -41px;
+        width: 251px;
+        height: 172px;
+    }
+
+    .categories__card--commercial .categories__layer--1 img {
+        left: -64.26%;
+        top: -46.11%;
+        width: 164.32%;
+        height: 146.11%;
+    }
+
+    .categories__card--commercial .categories__layer--2 {
+        left: -143px;
+        top: -42px;
+        width: 328px;
+        height: 129px;
+    }
+
+    .categories__card--commercial .categories__layer--2 img {
+        left: -25.9%;
+        top: -61.48%;
+        width: 125.95%;
+        height: 194.81%;
+    }
+
+    .categories__card--repair .categories__layer--1 {
+        left: -37px;
+        top: -48px;
+        width: 250px;
+        height: 133px;
+    }
+
+    .categories__card--repair .categories__layer--2 {
+        left: -38px;
+        top: -48px;
+        width: 250px;
+        height: 133px;
+    }
+
+    .categories__card--front .categories__layer--1,
+    .categories__card--front .categories__layer--3 {
+        left: -83px;
+        top: -124px;
+        width: 267px;
+        height: 282px;
+    }
+
+    .categories__card--front .categories__layer--2 {
+        display: none;
+    }
+
+    .categories__card--rear .categories__layer {
+        border-radius: 0;
+        transform: scaleX(-1);
+    }
+
+    .categories__card--rear .categories__layer--1 {
+        left: 1px;
+        top: -2px;
+        width: 171px;
+        height: 131px;
+    }
+
+    .categories__card--rear .categories__layer--2 {
+        left: 0;
+        top: -2px;
+        width: 172px;
+        height: 115px;
+    }
+
+    .categories__pill {
+        left: auto;
+        right: 5px;
+        bottom: 5px;
+        gap: 6px;
+        height: 30px;
+        padding: 0 4px 0 12px;
+        font-size: 10px;
+    }
+
+    .categories__card--sills .categories__pill,
+    .categories__card--front .categories__pill {
+        right: 5px;
+    }
+
+    .categories__card--commercial .categories__pill,
+    .categories__card--repair .categories__pill,
+    .categories__card--rear .categories__pill {
+        left: auto;
+    }
+
+    .categories__pill--two-lines {
+        height: 34px;
+    }
+
+    .categories__pill-icon {
+        width: 22px;
+        height: 22px;
+    }
+
+    .categories__pill-icon img {
+        width: 11px;
+        height: 11px;
+    }
+}
