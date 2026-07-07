@@ -1,0 +1,231 @@
+.brand-page {
+    margin-top: 36px;
+    padding-bottom: var(--section-gap);
+}
+
+.brand-page__body {
+    display: flex;
+    flex-direction: column;
+}
+
+.brand-page__title {
+    order: 1;
+    margin-top: 52px;
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-3xl);
+    line-height: var(--lh-snug);
+    color: var(--color-primary-dark);
+}
+
+.brand-page__search {
+    order: 2;
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 64px;
+    margin-top: 36px;
+    border-radius: 79px;
+    background-color: var(--color-surface);
+    box-shadow: 0 4px 2px rgba(0, 0, 0, 0.25);
+}
+
+.brand-page__search-input {
+    flex: 1 1 auto;
+    height: 100%;
+    padding: 0 270px 0 47px;
+    border: none;
+    background: none;
+    font-family: 'Gilroy', system-ui, sans-serif;
+    font-size: var(--fs-base);
+    line-height: 1.2;
+    color: var(--color-text);
+}
+
+.brand-page__search-input::placeholder {
+    color: var(--color-muted);
+    opacity: 0.74;
+}
+
+.brand-page__search-input:focus {
+    outline: none;
+}
+
+.brand-page__search-submit {
+    position: absolute;
+    right: 0;
+    top: 1px;
+    width: 253px;
+    height: 63px;
+    font-family: 'Gilroy', system-ui, sans-serif;
+    font-size: var(--fs-lg);
+}
+
+.brand-page__search-icon {
+    display: none;
+}
+
+.brand-page__subtitle {
+    order: 3;
+    margin-top: 52px;
+    font-family: var(--font-display);
+    font-weight: var(--fw-bold);
+    font-size: 32px;
+    line-height: var(--lh-snug);
+    color: var(--color-primary-dark);
+}
+
+.brand-page__filters {
+    display: none;
+    order: 4;
+}
+
+.brand-page__grid {
+    order: 5;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 36px;
+}
+
+.brand-page__card {
+    display: block;
+}
+
+.brand-page__thumb {
+    display: block;
+    aspect-ratio: 228 / 157;
+    border-radius: var(--radius-lg);
+    background-color: var(--color-border);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+}
+
+.brand-page__thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.brand-page__name {
+    display: block;
+    margin-top: 13px;
+    font-family: 'Gilroy', system-ui, sans-serif;
+    font-weight: var(--fw-medium);
+    font-size: 26px;
+    line-height: var(--lh-tight);
+    text-align: center;
+    color: var(--color-ink);
+}
+
+.brand-page__card:hover .brand-page__name {
+    color: var(--color-primary);
+}
+
+@media (max-width: 1200px) {
+    .brand-page__grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .brand-page__name {
+        font-size: 20px;
+    }
+}
+
+@media (max-width: 768px) {
+    .brand-page {
+        margin-top: 12px;
+    }
+
+    .brand-page__title {
+        display: none;
+    }
+
+    .brand-page__subtitle {
+        order: 1;
+        margin-top: 22px;
+        font-size: 22px;
+        letter-spacing: 0.22px;
+        text-align: center;
+        text-transform: uppercase;
+    }
+
+    .brand-page__filters {
+        order: 2;
+        display: flex;
+        gap: 8px;
+        margin-top: 11px;
+    }
+
+    .brand-page__filter {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 33px;
+        padding: 0 13px;
+        border: 1px solid rgba(229, 231, 235, 0.9);
+        border-radius: var(--radius-pill);
+        background-color: var(--color-surface);
+        font-family: 'Gilroy', system-ui, sans-serif;
+        font-size: 10px;
+        color: var(--color-text);
+    }
+
+    .brand-page__filter--active {
+        border-color: var(--color-primary-dark);
+        box-shadow: -1px 0 2.7px rgba(23, 80, 183, 0.66);
+    }
+
+    .brand-page__search {
+        order: 3;
+        height: 39px;
+        margin-top: 10px;
+        border-radius: 47px;
+        box-shadow: 0 2px 1.75px rgba(0, 0, 0, 0.11);
+    }
+
+    .brand-page__search-input {
+        padding: 0 44px 0 14px;
+        font-family: 'Golos Text', system-ui, sans-serif;
+        font-size: 8px;
+        color: #a1a1a1;
+    }
+
+    .brand-page__search-submit {
+        display: none;
+    }
+
+    .brand-page__search-icon {
+        display: flex;
+        align-items: center;
+        position: absolute;
+        right: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+
+    .brand-page__search-icon img {
+        width: 17px;
+        height: 17px;
+    }
+
+    .brand-page__grid {
+        order: 4;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px 6px;
+        margin-top: 21px;
+    }
+
+    .brand-page__thumb {
+        border-radius: 12px;
+        background-color: #d4d4d4;
+        box-shadow: none;
+    }
+
+    .brand-page__name {
+        margin-top: 6px;
+        font-weight: var(--fw-semibold);
+        font-size: 10px;
+        color: var(--color-primary-dark);
+    }
+}
