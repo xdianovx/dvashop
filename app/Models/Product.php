@@ -77,6 +77,21 @@ class Product extends Model
             ->oldest('id');
     }
 
+    public function manualImages(): HasMany
+    {
+        return $this->hasMany(ProductImage::class)->where('source_type', ProductImage::SOURCE_MANUAL);
+    }
+
+    public function importImages(): HasMany
+    {
+        return $this->hasMany(ProductImage::class)->where('source_type', ProductImage::SOURCE_IMPORT);
+    }
+
+    public function defaultImages(): HasMany
+    {
+        return $this->hasMany(ProductImage::class)->where('source_type', ProductImage::SOURCE_DEFAULT)->where('is_default', true);
+    }
+
     public function ensureSingleMainImage(?ProductImage $mainImage = null): void
     {
         $mainImage ??= $this->images()->where('is_main', true)->latest('updated_at')->latest('id')->first();
@@ -126,6 +141,18 @@ class Product extends Model
     protected function active(Builder $query): void
     {
         $query->where('status', ProductStatus::Active->value);
+    }
+
+    #[Scope]
+    protected function withoutVisibleImages(Builder $query): void
+    {
+        $query->whereDoesntHave('images', fn (Builder $imageQuery): Builder => $imageQuery->where('is_visible', true));
+    }
+
+    #[Scope]
+    protected function withImageSource(Builder $query, string $sourceType): void
+    {
+        $query->whereHas('images', fn (Builder $imageQuery): Builder => $imageQuery->where('source_type', $sourceType));
     }
 
     protected static function booted(): void

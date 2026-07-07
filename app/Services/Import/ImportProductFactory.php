@@ -19,6 +19,7 @@ use App\Services\ImportLogger;
 use App\Services\ImportRunStats;
 use App\Services\ImportStatusService;
 use App\Services\Media\DefaultProductImageService;
+use App\Services\Media\ProductGalleryService;
 use App\Support\CatalogText;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -29,6 +30,7 @@ class ImportProductFactory
         private readonly ImportRunStats $stats,
         private readonly ImportStatusService $statusService,
         private readonly DefaultProductImageService $defaultImages,
+        private readonly ProductGalleryService $gallery,
         private readonly ImportLogger $logger,
     ) {}
 
@@ -226,55 +228,11 @@ class ImportProductFactory
 
     private function attachDefaultImage(Product $product, ProductCategory $category, ImportRun $run): void
     {
-        $default = $this->defaultImages->forCategory($category);
+        $image = $this->gallery->ensureDefaultImage($product->refresh());
 
-        if ($default === null) {
+        if (! $image instanceof ProductImage) {
             $this->warnMissingDefaultImageOnce($run, $category);
-
-            return;
         }
-
-        $existing = ProductImage::query()
-            ->where('product_id', $product->getKey())
-            ->where('source_type', 'default')
-            ->where('is_default', true)
-            ->where('path', $default['path'])
-            ->first();
-
-        $hasMain = $this->productHasMainImage($product);
-
-        if ($existing instanceof ProductImage) {
-            $updates = [
-                'disk' => DefaultProductImageService::DISK,
-                'source_type' => 'default',
-                'is_default' => true,
-                'is_visible' => true,
-            ];
-
-            if (! $hasMain && ! $existing->is_main) {
-                $updates['is_main'] = true;
-            }
-
-            $existing->forceFill($updates)->save();
-
-            return;
-        }
-
-        $position = (int) $product->images()->max('position') + 1;
-
-        ProductImage::query()->create([
-            'product_id' => $product->getKey(),
-            'product_variant_id' => $product->defaultVariant?->getKey(),
-            'disk' => DefaultProductImageService::DISK,
-            'path' => $default['path'],
-            'source_url' => null,
-            'source_type' => 'default',
-            'is_default' => true,
-            'is_visible' => true,
-            'is_main' => ! $hasMain,
-            'position' => $position,
-            'alt' => $product->title,
-        ]);
     }
 
     private function warnMissingDefaultImageOnce(ImportRun $run, ProductCategory $category): void

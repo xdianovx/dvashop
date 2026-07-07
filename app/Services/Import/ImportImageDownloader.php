@@ -59,7 +59,7 @@ class ImportImageDownloader
                 'product_id' => $product->getKey(),
                 'product_variant_id' => $product->defaultVariant?->getKey(),
                 'alt' => $product->title,
-                'source_type' => 'import',
+                'source_type' => ProductImage::SOURCE_IMPORT,
                 'position' => $position,
                 'is_main' => $isMain,
                 'is_visible' => true,
@@ -75,7 +75,7 @@ class ImportImageDownloader
             ->where('is_visible', true)
             ->where(function ($query): void {
                 $query
-                    ->where('source_type', '!=', 'default')
+                    ->where('source_type', '!=', ProductImage::SOURCE_DEFAULT)
                     ->orWhereNull('source_type');
             })
             ->exists();
