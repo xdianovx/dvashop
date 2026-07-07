@@ -9,5 +9,6 @@ Route::view('/car', 'car')->name('catalog.model');
 Route::view('/part', 'part')->name('products.show');
 Route::view('/faq', 'faq')->name('faq');
 Route::view('/payment', 'payment')->name('payment');
+Route::view('/how', 'how')->name('how');
 Route::view('/cart', 'cart')->name('cart.show');
 Route::view('/checkout', 'checkout')->name('checkout.show');
