@@ -6,7 +6,7 @@
                 <a href="#" class="header__util-link">О нас</a>
                 <a href="#" class="header__util-link">Как мы работаем</a>
                 <a href="#" class="header__util-link">Оплата и доставка</a>
-                <a href="#" class="header__util-link">Вопросы и ответы</a>
+                <a href="{{ route('faq') }}" class="header__util-link">Вопросы и ответы</a>
                 <a href="#" class="header__util-link">Возвраты и обмен</a>
             </nav>
         </div>

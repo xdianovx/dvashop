@@ -8,7 +8,7 @@
         <a href="#" class="mobile-menu__link">О нас</a>
         <a href="#" class="mobile-menu__link">Как мы работаем</a>
         <a href="#" class="mobile-menu__link">Оплата и доставка</a>
-        <a href="#" class="mobile-menu__link">Вопросы и ответы</a>
+        <a href="{{ route('faq') }}" class="mobile-menu__link">Вопросы и ответы</a>
         <a href="#" class="mobile-menu__link">Возврат и обмен</a>
     </nav>
 </div>

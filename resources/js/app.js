@@ -30,6 +30,17 @@ document.querySelectorAll('.part-tabs').forEach((group) => {
     });
 });
 
+// FAQ page category tabs — single active pill.
+document.querySelectorAll('[data-faq-tabs]').forEach((group) => {
+    const tabs = group.querySelectorAll('[data-faq-tab]');
+    tabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+            tabs.forEach((t) => t.classList.remove('faq-page__tab--active'));
+            tab.classList.add('faq-page__tab--active');
+        });
+    });
+});
+
 // FAQ accordion.
 document.querySelectorAll('[data-faq-toggle]').forEach((toggle) => {
     const item = toggle.closest('[data-faq-item]');
