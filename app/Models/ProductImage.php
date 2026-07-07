@@ -6,6 +6,7 @@ use App\Services\Media\DefaultProductImageService;
 use App\Services\Media\ImageProcessingService;
 use App\Services\Media\MediaFileCleanupService;
 use App\Services\Media\MediaUrlService;
+use App\Services\Media\ProductGalleryService;
 use Database\Factories\ProductImageFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -36,6 +37,10 @@ use Throwable;
 ])]
 class ProductImage extends Model
 {
+    public const SOURCE_DEFAULT = 'default';
+    public const SOURCE_IMPORT = 'import';
+    public const SOURCE_MANUAL = 'manual';
+
     /** @use HasFactory<ProductImageFactory> */
     use HasFactory;
 
@@ -54,16 +59,16 @@ class ProductImage extends Model
         static::saving(function (self $image): void {
             $image->source_type = is_string($image->source_type) && $image->source_type !== ''
                 ? $image->source_type
-                : ($image->source_url ? 'import' : 'manual');
-            $image->is_default ??= $image->source_type === 'default';
+                : ($image->source_url ? self::SOURCE_IMPORT : self::SOURCE_MANUAL);
+            $image->is_default ??= $image->source_type === self::SOURCE_DEFAULT;
             $image->disk = is_string($image->disk) && $image->disk !== ''
                 ? $image->disk
-                : ($image->is_default || $image->source_type === 'default' ? DefaultProductImageService::DISK : 'public');
+                : ($image->is_default || $image->source_type === self::SOURCE_DEFAULT ? DefaultProductImageService::DISK : 'public');
             $image->position ??= 0;
             $image->is_visible ??= true;
 
             if ($image->is_default) {
-                $image->source_type = 'default';
+                $image->source_type = self::SOURCE_DEFAULT;
                 $image->disk = DefaultProductImageService::DISK;
             }
 
@@ -78,7 +83,14 @@ class ProductImage extends Model
         });
 
         static::deleted(function (self $image): void {
+            $product = $image->product;
+            $wasMain = (bool) $image->is_main;
+
             $image->deleteFiles();
+
+            if ($wasMain && $product instanceof Product) {
+                app(ProductGalleryService::class)->promoteMainImage($product->refresh());
+            }
         });
     }
 
@@ -161,7 +173,7 @@ class ProductImage extends Model
 
     private function isDefaultImageReference(): bool
     {
-        return $this->source_type === 'default'
+        return $this->source_type === self::SOURCE_DEFAULT
             || $this->is_default
             || $this->disk === DefaultProductImageService::DISK
             || (is_string($this->path) && str_starts_with($this->path, DefaultProductImageService::DIRECTORY.'/'));
@@ -174,6 +186,26 @@ class ProductImage extends Model
         }
 
         $this->product?->ensureSingleMainImage($this);
+    }
+
+    public static function sourceTypeLabel(?string $sourceType): string
+    {
+        return match ($sourceType) {
+            self::SOURCE_DEFAULT => 'Дефолтное',
+            self::SOURCE_IMPORT => 'Импорт',
+            self::SOURCE_MANUAL => 'Ручное',
+            default => 'Не указан',
+        };
+    }
+
+    public static function sourceTypeColor(?string $sourceType): string
+    {
+        return match ($sourceType) {
+            self::SOURCE_DEFAULT => 'gray',
+            self::SOURCE_IMPORT => 'info',
+            self::SOURCE_MANUAL => 'success',
+            default => 'warning',
+        };
     }
 
     public function getUrlAttribute(): string

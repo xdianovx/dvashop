@@ -7,10 +7,14 @@ use App\Enums\StockStatus;
 use App\Filament\Resources\Products\Pages\CreateProduct;
 use App\Filament\Resources\Products\Pages\EditProduct;
 use App\Filament\Resources\Products\Pages\ListProducts;
+use App\Filament\Resources\Products\RelationManagers\ImagesRelationManager;
 use App\Models\Product;
 use App\Models\ProductCategory;
+use App\Models\ProductImage;
 use App\Models\VehicleGeneration;
+use App\Services\Media\ProductGalleryService;
 use BackedEnum;
+use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -19,7 +23,6 @@ use Filament\Actions\ForceDeleteAction;
 use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\RestoreBulkAction;
-use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\KeyValue;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
@@ -33,6 +36,7 @@ use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Filters\TrashedFilter;
@@ -190,55 +194,13 @@ class ProductResource extends Resource
                                 ->columnSpanFull(),
                         ])
                         ->columns(2),
-                    Tab::make('Изображения')
+                    Tab::make('Галерея')
                         ->schema([
-                            Repeater::make('images')
-                                ->label('Медиатека товара')
-                                ->relationship()
-                                ->orderColumn('position')
-                                ->schema([
-                                    FileUpload::make('path')
-                                        ->label('Изображение')
-                                        ->disk('public')
-                                        ->directory('uploads/products/manual')
-                                        ->image()
-                                        ->imageEditor()
-                                        ->imagePreviewHeight('160')
-                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
-                                        ->maxSize((int) ceil(config('media.max_source_size', 15 * 1024 * 1024) / 1024))
-                                        ->required()
-                                        ->columnSpanFull(),
-                                    TextInput::make('alt')
-                                        ->label('Alt')
-                                        ->maxLength(255),
-                                    Select::make('source_type')
-                                        ->label('Источник')
-                                        ->options([
-                                            'manual' => 'Ручная загрузка',
-                                            'import' => 'Импорт',
-                                            'default' => 'Дефолтное',
-                                        ])
-                                        ->default('manual')
-                                        ->required(),
-                                    TextInput::make('position')
-                                        ->label('Позиция')
-                                        ->numeric()
-                                        ->default(0)
-                                        ->required(),
-                                    Toggle::make('is_default')
-                                        ->label('Дефолтное')
-                                        ->default(false),
-                                    Toggle::make('is_main')
-                                        ->label('Главное')
-                                        ->helperText('После сохранения у товара останется только одно главное изображение. Главное изображение всегда видимое.')
-                                        ->default(false),
-                                    Toggle::make('is_visible')
-                                        ->label('Показывать')
-                                        ->default(true),
-                                ])
-                                ->reorderable()
-                                ->columns(3)
-                                ->addActionLabel('Добавить изображение')
+                            TextInput::make('gallery_help')
+                                ->label('Изображения товара')
+                                ->default('Галерея редактируется в блоке «Изображения» на странице товара: можно загрузить ручные изображения, выбрать главное, менять видимость, порядок и сбрасывать к дефолтному.')
+                                ->disabled()
+                                ->dehydrated(false)
                                 ->columnSpanFull(),
                         ]),
                     Tab::make('Применимость')
@@ -347,10 +309,57 @@ class ProductResource extends Resource
                     ->options(StockStatus::options()),
                 TernaryFilter::make('is_featured')
                     ->label('Рекомендуемый'),
+                Filter::make('without_images')
+                    ->label('Без изображения')
+                    ->query(fn (Builder $query): Builder => self::applyWithoutVisibleImagesFilter($query)),
+                Filter::make('with_default_image')
+                    ->label('С дефолтным изображением')
+                    ->query(fn (Builder $query): Builder => self::applyImageSourceFilter($query, ProductImage::SOURCE_DEFAULT)),
+                Filter::make('with_manual_image')
+                    ->label('С ручным изображением')
+                    ->query(fn (Builder $query): Builder => self::applyImageSourceFilter($query, ProductImage::SOURCE_MANUAL)),
+                Filter::make('with_import_image')
+                    ->label('С импортным изображением')
+                    ->query(fn (Builder $query): Builder => self::applyImageSourceFilter($query, ProductImage::SOURCE_IMPORT)),
+                SelectFilter::make('product_category_id')
+                    ->label('Категория')
+                    ->options(fn (): array => ProductCategory::query()
+                        ->orderBy('full_slug')
+                        ->get()
+                        ->mapWithKeys(fn (ProductCategory $category): array => [
+                            $category->getKey() => $category->full_title,
+                        ])
+                        ->all()),
+                SelectFilter::make('import_source')
+                    ->label('Источник импорта')
+                    ->options(fn (): array => Product::query()
+                        ->whereNotNull('import_source')
+                        ->where('import_source', '!=', '')
+                        ->distinct()
+                        ->orderBy('import_source')
+                        ->pluck('import_source', 'import_source')
+                        ->all()),
                 TrashedFilter::make(),
             ])
             ->recordActions([
                 EditAction::make(),
+                Action::make('gallery')
+                    ->label('Галерея')
+                    ->icon('heroicon-o-photo')
+                    ->url(fn (Product $record): string => self::getUrl('edit', ['record' => $record])),
+                Action::make('make_default_main')
+                    ->label('Дефолтное главным')
+                    ->icon('heroicon-o-star')
+                    ->requiresConfirmation()
+                    ->action(fn (Product $record): ProductImage => app(ProductGalleryService::class)->makeDefaultMain($record)),
+                Action::make('reset_gallery_to_default')
+                    ->label('Сбросить к дефолтной')
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalHeading('Сбросить галерею к дефолтному изображению?')
+                    ->modalDescription('Будут удалены все ручные и импортные изображения товара вместе с файлами. Файл из public/img/products_default не удаляется.')
+                    ->action(fn (Product $record): ProductImage => app(ProductGalleryService::class)->resetToDefault($record)),
                 DeleteAction::make(),
                 RestoreAction::make(),
                 ForceDeleteAction::make(),
@@ -367,10 +376,27 @@ class ProductResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->with(['category.parent', 'mainImage'])
+            ->with(['category.parent', 'mainImage', 'images'])
             ->withoutGlobalScopes([
                 SoftDeletingScope::class,
             ]);
+    }
+
+    public static function getRelations(): array
+    {
+        return [
+            ImagesRelationManager::class,
+        ];
+    }
+
+    public static function applyWithoutVisibleImagesFilter(Builder $query): Builder
+    {
+        return $query->whereDoesntHave('images', fn (Builder $imageQuery): Builder => $imageQuery->where('is_visible', true));
+    }
+
+    public static function applyImageSourceFilter(Builder $query, string $sourceType): Builder
+    {
+        return $query->whereHas('images', fn (Builder $imageQuery): Builder => $imageQuery->where('source_type', $sourceType));
     }
 
     public static function getPages(): array
