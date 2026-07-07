@@ -46,7 +46,7 @@ class CatalogImportStartJob implements ShouldQueue
             return;
         }
 
-        if (! in_array($run->status, [ImportRunStatus::Ready, ImportRunStatus::Paused, ImportRunStatus::Running, ImportRunStatus::RunningRows], true)) {
+        if (! in_array($run->status, [ImportRunStatus::Ready, ImportRunStatus::Running, ImportRunStatus::RunningRows], true)) {
             return;
         }
 
@@ -58,16 +58,9 @@ class CatalogImportStartJob implements ShouldQueue
                 /** @var ImportRun $locked */
                 $locked = ImportRun::query()->whereKey($this->importRunId)->lockForUpdate()->firstOrFail();
 
-                if ($locked->isTerminal()) {
-                    return;
-                }
-
-                if ($locked->initialized_at !== null) {
-                    if ($locked->status?->isRowsRunning() && $locked->processed_rows < $locked->total_rows) {
-                        $shouldDispatchChunk = true;
-                    }
-
-                    $logger->info($locked, 'Повторный старт проигнорирован: импорт уже инициализирован', [
+                if ($locked->initialized_at !== null || ! in_array($locked->status, [ImportRunStatus::Ready, ImportRunStatus::Running, ImportRunStatus::RunningRows], true)) {
+                    $logger->info($locked, 'Повторный старт проигнорирован: импорт уже инициализирован или не готов к первичному старту', [
+                        'status' => $locked->status?->value,
                         'processed_rows' => $locked->processed_rows,
                         'total_rows' => $locked->total_rows,
                     ]);
@@ -76,6 +69,11 @@ class CatalogImportStartJob implements ShouldQueue
                 }
 
                 $locked = $statusService->start($locked);
+
+                if (! $locked->status?->isRowsRunning()) {
+                    return;
+                }
+
                 $absolutePath = Storage::disk('local')->path($locked->stored_path);
 
                 $headers = $reader->readMergedDetailHeaders($absolutePath);

@@ -120,11 +120,11 @@ class ImportStatusService
     {
         $run->refresh();
 
-        if ($run->isTerminal() || in_array($run->status, [ImportRunStatus::RunningRows, ImportRunStatus::Running, ImportRunStatus::ProcessingImages], true)) {
+        if ($run->isTerminal() || in_array($run->status, [ImportRunStatus::RunningRows, ImportRunStatus::Running, ImportRunStatus::ProcessingImages, ImportRunStatus::Paused], true)) {
             return $run;
         }
 
-        if (! in_array($run->status, [ImportRunStatus::Ready, ImportRunStatus::Paused], true)) {
+        if ($run->status !== ImportRunStatus::Ready) {
             return $run;
         }
 
@@ -155,6 +155,8 @@ class ImportStatusService
 
     public function resume(ImportRun $run): ImportRun
     {
+        $run->refresh();
+
         if ($run->status === ImportRunStatus::Paused) {
             if ($run->processed_rows >= $run->total_rows && $run->hasPendingImages()) {
                 $run->forceFill([
@@ -162,10 +164,15 @@ class ImportStatusService
                     'heartbeat_at' => now(),
                 ])->save();
             } else {
-                $this->start($run);
+                $run->forceFill([
+                    'status' => ImportRunStatus::RunningRows,
+                    'started_at' => $run->started_at ?? now(),
+                    'finished_at' => null,
+                    'heartbeat_at' => now(),
+                ])->save();
             }
 
-            $this->logger->info($run, 'Импорт продолжен');
+            $this->logger->info($run->fresh(), 'Импорт продолжен');
         }
 
         return $run->refresh();

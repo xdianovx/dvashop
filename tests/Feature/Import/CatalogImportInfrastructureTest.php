@@ -7,6 +7,7 @@ use App\Filament\Pages\CatalogImportPage;
 use App\Jobs\DownloadProductImageJob;
 use Livewire\Livewire;
 use Illuminate\Support\Facades\Queue;
+use App\Jobs\CatalogImportChunkJob;
 use App\Jobs\CatalogImportStartJob;
 use App\Models\Product;
 use App\Models\User;
@@ -333,7 +334,7 @@ test('done failed and canceled imports are not restarted', function (ImportRunSt
     expect($run->fresh()->status)->toBe($status);
 })->with([ImportRunStatus::Done, ImportRunStatus::Failed, ImportRunStatus::Canceled]);
 
-test('resume after pause keeps current position and queues start continuation', function () {
+test('resume after pause keeps current position and queues chunk continuation', function () {
     Queue::fake();
 
     $this->actingAs(User::factory()->admin()->create());
@@ -347,7 +348,7 @@ test('resume after pause keeps current position and queues start continuation', 
 
     app(CatalogImportPage::class)->resume($run->getKey());
 
-    Queue::assertPushed(CatalogImportStartJob::class);
+    Queue::assertPushed(CatalogImportChunkJob::class);
     expect($run->fresh()->current_row)->toBe(4)
         ->and($run->fresh()->processed_rows)->toBe(4)
         ->and($run->fresh()->status)->toBe(ImportRunStatus::RunningRows);
