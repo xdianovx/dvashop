@@ -22,8 +22,7 @@ Route::get('/catalog/{makeSlug}/{modelSlug}/{generationSlug}', [CatalogControlle
 
 // Public product URLs use /products/{slug}: it maps to the Product entity directly and avoids the old generic /part route.
 Route::get('/products/{productSlug}', [ProductController::class, 'show'])->name('products.show');
-Route::redirect('/part', '/catalog');
-Route::redirect('/car', '/catalog');
+
 
 Route::get('/cart', [CartController::class, 'show'])->name('cart.show');
 Route::post('/cart/items', [CartController::class, 'storeItem'])->name('cart.items.store');
