@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Services\Media\ImageProcessingService;
 use App\Services\Media\MediaFileCleanupService;
+use App\Services\Media\MediaUrlService;
 use Database\Factories\ProductImageFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -19,6 +20,7 @@ use Throwable;
     'path',
     'original_path',
     'source_url',
+    'source_type',
     'mime',
     'width',
     'height',
@@ -27,7 +29,9 @@ use Throwable;
     'conversions',
     'alt',
     'position',
+    'is_default',
     'is_main',
+    'is_visible',
 ])]
 class ProductImage extends Model
 {
@@ -46,6 +50,20 @@ class ProductImage extends Model
 
     protected static function booted(): void
     {
+        static::saving(function (self $image): void {
+            $image->disk = is_string($image->disk) && $image->disk !== '' ? $image->disk : 'public';
+            $image->source_type = is_string($image->source_type) && $image->source_type !== ''
+                ? $image->source_type
+                : ($image->source_url ? 'import' : 'manual');
+            $image->position ??= 0;
+            $image->is_default ??= false;
+            $image->is_visible ??= true;
+
+            if ($image->is_main) {
+                $image->is_visible = true;
+            }
+        });
+
         static::saved(function (self $image): void {
             $image->processManualUploadIfNeeded();
             $image->ensureSingleMainImage();
@@ -102,7 +120,7 @@ class ProductImage extends Model
             $this->deleteQuietly();
 
             if ($this->is_main && ! $duplicate->is_main) {
-                $duplicate->forceFill(['is_main' => true])->save();
+                $duplicate->forceFill(['is_main' => true, 'is_visible' => true])->save();
             }
 
             return;
@@ -130,18 +148,21 @@ class ProductImage extends Model
             return;
         }
 
-        self::query()
-            ->where('product_id', $this->product_id)
-            ->whereKeyNot($this->getKey())
-            ->where('is_main', true)
-            ->update(['is_main' => false]);
+        $this->product?->ensureSingleMainImage($this);
+    }
+
+    public function getUrlAttribute(): string
+    {
+        return app(MediaUrlService::class)->productImageUrl($this);
     }
 
     protected function casts(): array
     {
         return [
             'position' => 'integer',
+            'is_default' => 'boolean',
             'is_main' => 'boolean',
+            'is_visible' => 'boolean',
             'width' => 'integer',
             'height' => 'integer',
             'size' => 'integer',

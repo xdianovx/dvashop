@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\ProductStatus;
 use App\Enums\StockStatus;
+use App\Services\Media\MediaUrlService;
 use App\Support\CatalogText;
 use Database\Factories\ProductFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -58,12 +59,49 @@ class Product extends Model
 
     public function images(): HasMany
     {
-        return $this->hasMany(ProductImage::class);
+        return $this->hasMany(ProductImage::class)->orderBy('position')->orderBy('id');
+    }
+
+    public function visibleImages(): HasMany
+    {
+        return $this->hasMany(ProductImage::class)->where('is_visible', true)->orderBy('position')->orderBy('id');
     }
 
     public function mainImage(): HasOne
     {
-        return $this->hasOne(ProductImage::class)->where('is_main', true)->oldest('position');
+        return $this->hasOne(ProductImage::class)
+            ->where('is_visible', true)
+            ->where('is_main', true)
+            ->oldest('position')
+            ->oldest('id');
+    }
+
+    public function ensureSingleMainImage(?ProductImage $mainImage = null): void
+    {
+        $mainImage ??= $this->images()->where('is_main', true)->latest('updated_at')->latest('id')->first();
+
+        if (! $mainImage instanceof ProductImage) {
+            return;
+        }
+
+        $this->images()
+            ->whereKeyNot($mainImage->getKey())
+            ->where('is_main', true)
+            ->update(['is_main' => false]);
+
+        if (! $mainImage->is_visible) {
+            $mainImage->forceFill(['is_visible' => true])->saveQuietly();
+        }
+    }
+
+    public function getMainImageUrlAttribute(): string
+    {
+        return app(MediaUrlService::class)->productMainImageUrl($this);
+    }
+
+    public function getDefaultImageUrlAttribute(): string
+    {
+        return app(MediaUrlService::class)->productDefaultImageUrl($this) ?? app(MediaUrlService::class)->placeholderUrl();
     }
 
     public function fitments(): HasMany

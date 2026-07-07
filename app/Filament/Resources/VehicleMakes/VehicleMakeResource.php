@@ -103,8 +103,9 @@ class VehicleMakeResource extends Resource
         return $table
             ->defaultSort('position')
             ->columns([
-                ImageColumn::make('image')
+                ImageColumn::make('image_url')
                     ->label('Фото')
+                    ->getStateUsing(fn (VehicleMake $record): string => $record->image_url)
                     ->square()
                     ->toggleable(),
                 TextColumn::make('title')

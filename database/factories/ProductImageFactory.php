@@ -23,6 +23,7 @@ class ProductImageFactory extends Factory
             'path' => 'products/'.fake()->uuid().'.jpg',
             'original_path' => null,
             'source_url' => null,
+            'source_type' => 'manual',
             'mime' => null,
             'width' => null,
             'height' => null,
@@ -31,7 +32,9 @@ class ProductImageFactory extends Factory
             'conversions' => null,
             'alt' => fake()->optional()->sentence(3),
             'position' => fake()->numberBetween(0, 50),
+            'is_default' => false,
             'is_main' => false,
+            'is_visible' => true,
         ];
     }
 

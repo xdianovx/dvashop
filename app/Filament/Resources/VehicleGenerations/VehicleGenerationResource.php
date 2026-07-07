@@ -121,8 +121,9 @@ class VehicleGenerationResource extends Resource
         return $table
             ->defaultSort('position')
             ->columns([
-                ImageColumn::make('image')
+                ImageColumn::make('image_url')
                     ->label('Фото')
+                    ->getStateUsing(fn (VehicleGeneration $record): string => $record->image_url)
                     ->square()
                     ->toggleable(),
                 TextColumn::make('model.make.title')
@@ -186,6 +187,7 @@ class VehicleGenerationResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
+            ->with('model.make')
             ->withoutGlobalScopes([
                 SoftDeletingScope::class,
             ]);

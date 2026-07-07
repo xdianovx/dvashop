@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Services\Media\ImageProcessingService;
 use App\Services\Media\MediaFileCleanupService;
+use App\Services\Media\MediaUrlService;
 use App\Support\CatalogText;
 use Database\Factories\VehicleMakeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -108,6 +109,11 @@ class VehicleMake extends Model
             $cleanup->deletePath($oldPath, 'public');
             $cleanup->deleteConversions(is_array($oldConversions) ? $oldConversions : null, 'public');
         }
+    }
+
+    public function getImageUrlAttribute(): string
+    {
+        return app(MediaUrlService::class)->vehicleMakeImageUrl($this);
     }
 
     protected function casts(): array
