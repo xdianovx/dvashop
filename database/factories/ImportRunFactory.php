@@ -36,6 +36,8 @@ class ImportRunFactory extends Factory
             'created_products' => 0,
             'updated_products' => 0,
             'archived_products' => 0,
+            'archive_skipped' => false,
+            'archive_skip_reason' => null,
             'queued_images' => 0,
             'processed_images' => 0,
             'failed_images' => 0,

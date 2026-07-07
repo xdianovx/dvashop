@@ -61,7 +61,17 @@ class VehicleMake extends Model
 
     public function processManualImageIfNeeded(): void
     {
-        if (! $this->image || filter_var($this->image, FILTER_VALIDATE_URL)) {
+        if (! $this->image) {
+            if ($this->wasChanged('image')) {
+                $cleanup = app(MediaFileCleanupService::class);
+                $cleanup->deletePath($this->getOriginal('image'), 'public');
+                $cleanup->deleteConversions(is_array($this->getOriginal('image_conversions')) ? $this->getOriginal('image_conversions') : null, 'public');
+            }
+
+            return;
+        }
+
+        if (filter_var($this->image, FILTER_VALIDATE_URL)) {
             return;
         }
 
@@ -73,6 +83,9 @@ class VehicleMake extends Model
         if (! $disk->exists($this->image)) {
             return;
         }
+
+        $oldPath = $this->getOriginal('image');
+        $oldConversions = $this->getOriginal('image_conversions');
 
         try {
             $processed = app(ImageProcessingService::class)->processStoredPublicImage(
@@ -89,6 +102,12 @@ class VehicleMake extends Model
             'image_checksum' => $processed->checksum,
             'image_conversions' => $processed->conversions,
         ])->saveQuietly();
+
+        if (is_string($oldPath) && $oldPath !== '' && $oldPath !== $processed->path) {
+            $cleanup = app(MediaFileCleanupService::class);
+            $cleanup->deletePath($oldPath, 'public');
+            $cleanup->deleteConversions(is_array($oldConversions) ? $oldConversions : null, 'public');
+        }
     }
 
     protected function casts(): array

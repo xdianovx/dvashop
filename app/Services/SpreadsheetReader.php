@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Services\Import\CatalogImportHeaderParser;
+use App\Support\CatalogText;
 use InvalidArgumentException;
 use OpenSpout\Reader\XLSX\Reader as XlsxReader;
 use SplFileObject;
@@ -215,7 +216,7 @@ class SpreadsheetReader
 
         return array_map(static function (mixed $value): mixed {
             if (is_string($value)) {
-                return trim($value);
+                return CatalogText::plain($value, 1000);
             }
 
             return $value;

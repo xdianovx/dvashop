@@ -21,6 +21,7 @@ use App\Services\Import\ImportRowProcessor;
 use App\Services\SpreadsheetReader;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 
@@ -543,4 +544,204 @@ test('long excel values produce bounded stable slugs and import keys', function 
         ->and(strlen($generation->slug))->toBeLessThanOrEqual(100)
         ->and(strlen($product->slug))->toBeLessThanOrEqual(150)
         ->and(strlen($product->import_key))->toBeLessThanOrEqual(240);
+});
+
+test('excel text normalization removes line breaks and duplicate spaces from categories and product titles', function () {
+    $path = storage_path('framework/testing/catalog-normalized-headers.xlsx');
+
+    writeCatalogTestXlsx($path, [
+        1 => [12 => 'Пенка'],
+        2 => [12 => "Задней\nдвери", 13 => "Передней\t  двери", 15 => 'Усилитель / соединитель   порогов'],
+        3 => [1 => 'Toyota', 2 => 'Camry', 3 => 'XV70', 4 => '2017-2023', 5 => 'седан', 12 => '1', 13 => '1', 15 => '1'],
+    ], ['M1:O1']);
+
+    $headers = app(SpreadsheetReader::class)->readMergedDetailHeaders($path);
+    $run = catalogImportRun(['detail_columns' => $headers]);
+
+    app(ImportRowProcessor::class)->process(
+        run: $run,
+        row: app(SpreadsheetReader::class)->readChunk($path, 0, 1, 2)[0],
+        detailColumns: $headers,
+        rowNumber: 3,
+    );
+
+    expect($headers[12]['category_title'])->toBe('Задней двери')
+        ->and($headers[13]['category_title'])->toBe('Передней двери')
+        ->and($headers[15]['category_title'])->toBe('Усилитель / соединитель порогов')
+        ->and(ProductCategory::query()->where('title', "Задней\nдвери")->exists())->toBeFalse()
+        ->and(ProductCategory::query()->where('title', 'Задней двери')->exists())->toBeTrue()
+        ->and(Product::query()->where('title', 'like', "%\n%")->exists())->toBeFalse()
+        ->and(Product::query()->where('title', 'like', "%  %")->exists())->toBeFalse();
+});
+
+test('chunk skips auto archive when row errors were logged', function () {
+    Storage::fake('local');
+    Queue::fake();
+
+    $oldProduct = Product::factory()->create([
+        'import_key' => 'catalog:old:product',
+        'import_source' => 'catalog',
+        'last_import_run_id' => '1',
+        'status' => ProductStatus::Active,
+    ]);
+
+    Storage::disk('local')->put('imports/catalog/catalog.csv', implode("\n", [
+        ',,,,,,Кузовные детали',
+        'Фото,Марка,Модель,Поколение,Годы,Кузов,Пороги',
+        ',Toyota,Camry,XV70,2017-2023,седан,1',
+    ]));
+
+    $run = catalogImportRun([
+        'stored_path' => 'imports/catalog/catalog.csv',
+        'total_rows' => 1,
+        'processed_rows' => 0,
+        'current_row' => 0,
+        'chunk_size' => 10,
+        'errors_count' => 1,
+        'detail_columns' => app(SpreadsheetReader::class)->readMergedDetailHeaders(
+            Storage::disk('local')->path('imports/catalog/catalog.csv')
+        ),
+    ]);
+
+    (new CatalogImportChunkJob($run->getKey()))->handle(
+        app(SpreadsheetReader::class),
+        app(\App\Services\ImportStatusService::class),
+        app(\App\Services\ImportLogger::class),
+        app(ImportRowProcessor::class),
+        app(ImportProductFactory::class),
+    );
+
+    expect($oldProduct->fresh()->status)->toBe(ProductStatus::Active)
+        ->and($run->fresh()->archive_skipped)->toBeTrue()
+        ->and(ImportLog::query()->where('message', 'like', '%Автоархивация пропущена%')->exists())->toBeTrue();
+});
+
+test('missing prepared category id skips only current product cell and writes warning', function () {
+    $run = catalogImportRun([
+        'detail_columns' => [
+            6 => ['index' => 6, 'group' => null, 'title' => 'Порог', 'category_title' => 'Порог', 'category_id' => 999999],
+            7 => ['index' => 7, 'group' => null, 'title' => 'Арка', 'category_title' => 'Арка'],
+        ],
+    ]);
+
+    app(ImportRowProcessor::class)->process($run, catalogRow([6 => '1', 7 => '1']), $run->detail_columns, 3);
+
+    expect(Product::query()->count())->toBe(1)
+        ->and(ImportLog::query()->where('message', 'like', '%detail_columns не найдена%')->exists())->toBeTrue();
+});
+
+test('product image source url is not queued again when existing file is present', function () {
+    Storage::fake('public');
+    Queue::fake();
+
+    $run = catalogImportRun();
+    processCatalogRow($run, catalogRow());
+    $product = Product::query()->firstOrFail();
+    $category = $product->category()->firstOrFail();
+
+    Storage::disk('public')->put('uploads/products/'.$product->getKey().'/existing.webp', test_image_binary('webp', 20, 20));
+    ProductImage::factory()->forProduct($product)->create([
+        'disk' => 'public',
+        'path' => 'uploads/products/'.$product->getKey().'/existing.webp',
+        'source_url' => 'https://example.test/part.jpg',
+        'checksum' => 'existing-checksum',
+    ]);
+
+    Queue::fake();
+
+    app(ImportProductFactory::class)->createOrUpdateFromCell(
+        run: $run,
+        generation: VehicleGeneration::query()->firstOrFail(),
+        category: $category,
+        detailHeader: ['index' => 6, 'group' => null, 'title' => 'Порог', 'category_title' => 'Порог'],
+        cellValue: 'https://example.test/part.jpg',
+        imageUrl: 'https://example.test/part.jpg',
+    );
+
+    Queue::assertNotPushed(\App\Jobs\DownloadProductImageJob::class);
+});
+
+test('product image source url is queued again when existing record file is missing', function () {
+    Storage::fake('public');
+    Queue::fake();
+
+    $run = catalogImportRun();
+    processCatalogRow($run, catalogRow());
+    $product = Product::query()->firstOrFail();
+
+    ProductImage::factory()->forProduct($product)->create([
+        'disk' => 'public',
+        'path' => 'uploads/products/'.$product->getKey().'/missing.webp',
+        'source_url' => 'https://example.test/part.jpg',
+        'checksum' => 'missing-checksum',
+    ]);
+
+    app(ImportProductFactory::class)->createOrUpdateFromCell(
+        run: $run,
+        generation: VehicleGeneration::query()->firstOrFail(),
+        category: ProductCategory::query()->firstOrFail(),
+        detailHeader: ['index' => 6, 'group' => null, 'title' => 'Порог', 'category_title' => 'Порог'],
+        cellValue: 'https://example.test/part.jpg',
+        imageUrl: 'https://example.test/part.jpg',
+    );
+
+    Queue::assertPushed(\App\Jobs\DownloadProductImageJob::class);
+});
+
+test('vehicle image column availability and garbage values never create product images', function () {
+    Queue::fake();
+
+    $run = catalogImportRun();
+    processCatalogRow($run, catalogRow([0 => '1.0']));
+
+    Queue::assertNotPushed(DownloadVehicleGenerationImageJob::class);
+    expect(ProductImage::query()->count())->toBe(0)
+        ->and($run->fresh()->warnings_count)->toBe(0);
+
+    app(ImportRowProcessor::class)->process($run, catalogRow([0 => 'not image']), $run->detail_columns, 4);
+
+    expect(ImportLog::query()->where('message', 'like', '%колонке фото автомобиля%')->exists())->toBeTrue()
+        ->and(ProductImage::query()->count())->toBe(0);
+});
+
+test('vehicle image url is not queued again when source file exists', function () {
+    Storage::fake('public');
+    Queue::fake();
+
+    $run = catalogImportRun();
+    app(ImportRowProcessor::class)->process($run, catalogRow([0 => 'https://example.test/car.jpg']), $run->detail_columns, 3);
+    Queue::assertPushed(DownloadVehicleGenerationImageJob::class);
+
+    $generation = VehicleGeneration::query()->firstOrFail();
+    Storage::disk('public')->put('uploads/vehicles/generations/'.$generation->getKey().'/existing.webp', test_image_binary('webp', 20, 20));
+    $generation->forceFill([
+        'image' => 'uploads/vehicles/generations/'.$generation->getKey().'/existing.webp',
+        'image_source_url' => 'https://example.test/car.jpg',
+    ])->saveQuietly();
+
+    Queue::fake();
+    app(ImportRowProcessor::class)->process($run, catalogRow([0 => 'https://example.test/car.jpg']), $run->detail_columns, 4);
+
+    Queue::assertNotPushed(DownloadVehicleGenerationImageJob::class);
+});
+
+test('import inspect command outputs category tree and does not write to database', function () {
+    $path = storage_path('framework/testing/inspect-command.xlsx');
+
+    writeCatalogTestXlsx($path, [
+        1 => [7 => 'Арка', 12 => 'Пенка'],
+        2 => [7 => 'Задняя', 12 => "Задней\nдвери", 15 => 'Лонжерон'],
+        3 => [0 => '1.0', 1 => 'Toyota', 2 => 'Camry', 3 => 'XV70', 4 => '2017-2023', 5 => 'седан', 7 => '1', 12 => 'https://example.test/part.jpg', 15 => '1'],
+    ], ['H1:L1', 'M1:O1']);
+
+    Artisan::call('import:inspect-file', ['path' => $path]);
+    $output = Artisan::output();
+
+    expect($output)->toContain('Data rows: 1')
+        ->and($output)->toContain('Пенка')
+        ->and($output)->toContain('Задней двери')
+        ->and($output)->toContain('Лонжерон')
+        ->and($output)->toContain('Проверка P:S')
+        ->and(ImportRun::query()->count())->toBe(0)
+        ->and(Product::query()->count())->toBe(0);
 });

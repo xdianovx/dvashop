@@ -2,6 +2,7 @@
 
 namespace App\Services\Import;
 
+use App\Support\CatalogText;
 use ZipArchive;
 
 class CatalogImportHeaderParser
@@ -310,6 +311,6 @@ class CatalogImportHeaderParser
 
     private function cellString(mixed $value): string
     {
-        return trim((string) $value);
+        return CatalogText::plain($value, 250);
     }
 }

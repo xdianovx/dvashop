@@ -27,3 +27,8 @@ Homestead.yaml
 Thumbs.db
 *.patch
 *:Zone.Identifier
+
+.env.*
+!.env.example
+!.env.docker.example
+.env.local.bak

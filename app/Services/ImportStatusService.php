@@ -118,6 +118,16 @@ class ImportStatusService
 
     public function start(ImportRun $run): ImportRun
     {
+        $run->refresh();
+
+        if ($run->isTerminal() || in_array($run->status, [ImportRunStatus::RunningRows, ImportRunStatus::Running, ImportRunStatus::ProcessingImages], true)) {
+            return $run;
+        }
+
+        if (! in_array($run->status, [ImportRunStatus::Ready, ImportRunStatus::Paused], true)) {
+            return $run;
+        }
+
         $run->forceFill([
             'status' => ImportRunStatus::RunningRows,
             'started_at' => $run->started_at ?? now(),
@@ -192,6 +202,12 @@ class ImportStatusService
 
     public function markDone(ImportRun $run): ImportRun
     {
+        $run->refresh();
+
+        if (in_array($run->status, [ImportRunStatus::Failed, ImportRunStatus::Canceled], true)) {
+            return $run;
+        }
+
         $run->forceFill([
             'status' => ImportRunStatus::Done,
             'finished_at' => now(),

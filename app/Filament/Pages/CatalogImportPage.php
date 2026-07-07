@@ -214,12 +214,19 @@ class CatalogImportPage extends Page implements HasTable
     {
         $run = ImportRun::query()->findOrFail($runId);
 
-        if ($run->isTerminal()) {
+        if (! in_array($run->status, [ImportRunStatus::Ready, ImportRunStatus::Paused], true)) {
+            if ($notify) {
+                Notification::make()->title('Импорт уже запущен или завершён')->warning()->send();
+            }
+
             return null;
         }
 
-        ($statusService ?? app(ImportStatusService::class))->start($run);
-        CatalogImportStartJob::dispatch($run->getKey())->onQueue('imports');
+        $run = ($statusService ?? app(ImportStatusService::class))->start($run);
+
+        if ($run->status?->isRowsRunning()) {
+            CatalogImportStartJob::dispatch($run->getKey())->onQueue('imports');
+        }
 
         if ($notify) {
             Notification::make()->title('Импорт запущен')->success()->send();

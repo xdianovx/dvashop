@@ -10,11 +10,13 @@ use App\Models\ImportRun;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductFitment;
+use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
 use App\Services\ImportRunStats;
 use App\Services\ImportStatusService;
 use App\Support\CatalogText;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class ImportProductFactory
@@ -86,7 +88,7 @@ class ImportProductFactory
 
         $imageUrl ??= $this->isUrl($cellValue) ? trim($cellValue) : null;
 
-        if ($imageUrl !== null) {
+        if ($imageUrl !== null && $this->shouldQueueProductImage($product, $imageUrl, $run)) {
             $this->statusService->imageQueued($run);
             DownloadProductImageJob::dispatch($product->getKey(), $imageUrl, $run->getKey())->onQueue('imports-images');
         }
@@ -158,6 +160,37 @@ class ImportProductFactory
     public function isUrl(string $value): bool
     {
         return filter_var(trim($value), FILTER_VALIDATE_URL) !== false;
+    }
+
+
+    /** @var array<string, bool> */
+    private array $queuedProductImages = [];
+
+    private function shouldQueueProductImage(Product $product, string $url, ImportRun $run): bool
+    {
+        $key = $run->getKey().':'.$product->getKey().':'.sha1($url);
+
+        if (isset($this->queuedProductImages[$key])) {
+            return false;
+        }
+
+        $existing = ProductImage::query()
+            ->where('product_id', $product->getKey())
+            ->where('source_url', $url)
+            ->first();
+
+        if ($existing instanceof ProductImage) {
+            $disk = $existing->disk ?: 'public';
+            $path = $existing->path;
+
+            if (is_string($path) && $path !== '' && Storage::disk($disk)->exists($path)) {
+                return false;
+            }
+        }
+
+        $this->queuedProductImages[$key] = true;
+
+        return true;
     }
 
     private function sourceFor(ImportRun $run): string

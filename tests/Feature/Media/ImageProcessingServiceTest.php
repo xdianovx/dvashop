@@ -291,3 +291,80 @@ test('image job with missing vehicle generation is counted as failed and can fin
         ->and($run->fresh()->status)->toBe(ImportRunStatus::Done)
         ->and(ImportLog::query()->where('level', ImportLogLevel::Warning->value)->exists())->toBeTrue();
 });
+
+test('replacing product image path removes previous files after successful processing', function () {
+    $product = Product::factory()->create();
+    $oldMain = 'uploads/products/'.$product->getKey().'/old.webp';
+    $oldThumb = 'uploads/products/'.$product->getKey().'/conversions/old_thumb.webp';
+
+    Storage::disk('public')->put($oldMain, test_image_binary('webp', 80, 60));
+    Storage::disk('public')->put($oldThumb, test_image_binary('webp', 30, 30));
+    Storage::disk('public')->put('uploads/products/manual/new.jpg', test_image_binary('jpeg', 120, 90));
+
+    $image = ProductImage::factory()->forProduct($product)->create([
+        'disk' => 'public',
+        'path' => $oldMain,
+        'mime' => 'image/webp',
+        'checksum' => 'old-checksum',
+        'conversions' => ['thumb' => ['disk' => 'public', 'path' => $oldThumb]],
+    ]);
+
+    $image->forceFill(['path' => 'uploads/products/manual/new.jpg', 'mime' => null, 'checksum' => null])->save();
+
+    Storage::disk('public')->assertMissing($oldMain);
+    Storage::disk('public')->assertMissing($oldThumb);
+    Storage::disk('public')->assertExists($image->fresh()->path);
+});
+
+test('failed product image replacement keeps previous file', function () {
+    $product = Product::factory()->create();
+    $oldMain = 'uploads/products/'.$product->getKey().'/old.webp';
+
+    Storage::disk('public')->put($oldMain, test_image_binary('webp', 80, 60));
+    Storage::disk('public')->put('uploads/products/manual/not-image.txt', 'not an image');
+
+    $image = ProductImage::factory()->forProduct($product)->create([
+        'disk' => 'public',
+        'path' => $oldMain,
+        'mime' => 'image/webp',
+        'checksum' => 'old-checksum',
+    ]);
+
+    expect(fn () => $image->forceFill(['path' => 'uploads/products/manual/not-image.txt', 'mime' => null, 'checksum' => null])->save())
+        ->toThrow(InvalidArgumentException::class);
+
+    Storage::disk('public')->assertExists($oldMain);
+});
+
+test('replacing vehicle make and generation images removes previous files', function () {
+    $makeOld = 'uploads/vehicles/makes/old.webp';
+    $generationOld = 'uploads/vehicles/generations/old.webp';
+
+    Storage::disk('public')->put($makeOld, test_image_binary('webp', 80, 60));
+    Storage::disk('public')->put($generationOld, test_image_binary('webp', 80, 60));
+    Storage::disk('public')->put('uploads/vehicles/makes/manual/new.jpg', test_image_binary('jpeg', 120, 90));
+    Storage::disk('public')->put('uploads/vehicles/generations/manual/new.jpg', test_image_binary('jpeg', 120, 90));
+
+    $make = VehicleMake::factory()->create(['image' => $makeOld, 'image_checksum' => 'old']);
+    $generation = VehicleGeneration::factory()->create(['image' => $generationOld, 'image_checksum' => 'old']);
+
+    $make->forceFill(['image' => 'uploads/vehicles/makes/manual/new.jpg'])->save();
+    $generation->forceFill(['image' => 'uploads/vehicles/generations/manual/new.jpg'])->save();
+
+    Storage::disk('public')->assertMissing($makeOld);
+    Storage::disk('public')->assertMissing($generationOld);
+    Storage::disk('public')->assertExists($make->fresh()->image);
+    Storage::disk('public')->assertExists($generation->fresh()->image);
+});
+
+test('image job failed callback increments failed images and does not finish canceled import', function () {
+    $run = ImportRun::factory()->create([
+        'status' => ImportRunStatus::Canceled,
+        'queued_images' => 1,
+    ]);
+
+    (new DownloadProductImageJob(999999, 'https://example.test/missing.jpg', $run->getKey()))->failed(new RuntimeException('fatal'));
+
+    expect($run->fresh()->failed_images)->toBe(0)
+        ->and($run->fresh()->status)->toBe(ImportRunStatus::Canceled);
+});
