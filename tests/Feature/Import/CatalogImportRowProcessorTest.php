@@ -4,6 +4,7 @@ use App\Enums\ImportLogLevel;
 use App\Enums\ImportRunStatus;
 use App\Enums\ProductStatus;
 use App\Jobs\CatalogImportChunkJob;
+use App\Jobs\DownloadProductImageJob;
 use App\Jobs\DownloadVehicleGenerationImageJob;
 use App\Models\ImportLog;
 use App\Models\ImportRun;
@@ -18,6 +19,7 @@ use App\Models\VehicleModel;
 use App\Services\Import\ImportImageDownloader;
 use App\Services\Import\ImportProductFactory;
 use App\Services\Import\ImportRowProcessor;
+use App\Services\Media\DefaultProductImageService;
 use App\Services\SpreadsheetReader;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -703,13 +705,13 @@ test('vehicle image column availability and garbage values never create product 
     Queue::fake();
 
     $run = catalogImportRun();
-    processCatalogRow($run, catalogRow([0 => '1.0']));
+    processCatalogRow($run, catalogRow([0 => '1.0', 6 => '']));
 
     Queue::assertNotPushed(DownloadVehicleGenerationImageJob::class);
     expect(ProductImage::query()->count())->toBe(0)
         ->and($run->fresh()->warnings_count)->toBe(0);
 
-    app(ImportRowProcessor::class)->process($run, catalogRow([0 => 'not image']), $run->detail_columns, 4);
+    app(ImportRowProcessor::class)->process($run, catalogRow([0 => 'not image', 6 => '']), $run->detail_columns, 4);
 
     expect(ImportLog::query()->where('message', 'like', '%колонке фото автомобиля%')->exists())->toBeTrue()
         ->and(ProductImage::query()->count())->toBe(0);
@@ -845,4 +847,169 @@ test('import inspect command outputs category tree and does not write to databas
         ->and($output)->toContain('Проверка P:S')
         ->and(ImportRun::query()->count())->toBe(0)
         ->and(Product::query()->count())->toBe(0);
+});
+
+
+test('positive availability cell attaches default image for root detail', function () {
+    $run = catalogImportRun([
+        'detail_columns' => [
+            6 => [
+                'index' => 6,
+                'group' => null,
+                'parent_title' => null,
+                'title' => 'Порог',
+                'detail_title' => 'Порог',
+                'full_detail_title' => 'Порог',
+                'category_title' => 'Порог',
+            ],
+        ],
+    ]);
+
+    processCatalogRow($run, catalogRow([6 => '1.0']));
+
+    $product = Product::query()->firstOrFail();
+    $image = ProductImage::query()->firstOrFail();
+
+    expect($image->product_id)->toBe($product->getKey())
+        ->and($image->source_type)->toBe('default')
+        ->and($image->is_default)->toBeTrue()
+        ->and($image->is_visible)->toBeTrue()
+        ->and($image->is_main)->toBeTrue()
+        ->and($image->disk)->toBe(DefaultProductImageService::DISK)
+        ->and($image->path)->toStartWith('img/products_default/porog.')
+        ->and($product->fresh()->main_image_url)->toContain('img/products_default/porog.');
+});
+
+test('grouped imported details attach mapped default images', function (string $parentTitle, string $detailTitle, string $expectedKey) {
+    $run = catalogImportRun([
+        'detail_columns' => [
+            6 => [
+                'index' => 6,
+                'group' => $parentTitle,
+                'parent_title' => $parentTitle,
+                'title' => $detailTitle,
+                'detail_title' => $detailTitle,
+                'full_detail_title' => $parentTitle.' '.mb_strtolower(mb_substr($detailTitle, 0, 1)).mb_substr($detailTitle, 1),
+                'category_title' => $detailTitle,
+            ],
+        ],
+    ]);
+
+    processCatalogRow($run, catalogRow([6 => 'да']));
+
+    $image = ProductImage::query()->firstOrFail();
+
+    expect($image->source_type)->toBe('default')
+        ->and($image->is_default)->toBeTrue()
+        ->and($image->path)->toStartWith('img/products_default/'.$expectedKey.'.');
+})->with([
+    'arka vnutrenniaia universalnaia' => ['Арка', 'Внутренняя универсальная', 'arka-vnutrenniaia-universalnaia'],
+    'penka zadnei dveri' => ['Пенка', 'Задней двери', 'penka-zadnei-dveri'],
+]);
+
+test('product cell URL queues import image and does not attach default image', function () {
+    $run = catalogImportRun([
+        'detail_columns' => [
+            6 => [
+                'index' => 6,
+                'group' => null,
+                'parent_title' => null,
+                'title' => 'Порог',
+                'detail_title' => 'Порог',
+                'full_detail_title' => 'Порог',
+                'category_title' => 'Порог',
+            ],
+        ],
+    ]);
+    $url = 'https://example.test/porog.jpg';
+
+    processCatalogRow($run, catalogRow([6 => $url]));
+
+    $product = Product::query()->firstOrFail();
+
+    expect(ProductImage::query()->count())->toBe(0);
+    Queue::assertPushed(DownloadProductImageJob::class, fn (DownloadProductImageJob $job): bool => $job->productId === $product->getKey()
+        && $job->url === $url
+        && $job->importRunId === $run->getKey());
+});
+
+test('repeated import does not duplicate default ProductImage', function () {
+    $firstRun = catalogImportRun([
+        'detail_columns' => [
+            6 => [
+                'index' => 6,
+                'group' => null,
+                'parent_title' => null,
+                'title' => 'Порог',
+                'detail_title' => 'Порог',
+                'full_detail_title' => 'Порог',
+                'category_title' => 'Порог',
+            ],
+        ],
+    ]);
+    $secondRun = catalogImportRun(['detail_columns' => $firstRun->detail_columns]);
+
+    processCatalogRow($firstRun, catalogRow([6 => '1']));
+    processCatalogRow($secondRun, catalogRow([6 => 'true']));
+
+    expect(Product::query()->count())->toBe(1)
+        ->and(ProductImage::query()->where('source_type', 'default')->count())->toBe(1);
+});
+
+test('manual main image is not reset by default image on repeated import', function () {
+    $run = catalogImportRun([
+        'detail_columns' => [
+            6 => [
+                'index' => 6,
+                'group' => null,
+                'parent_title' => null,
+                'title' => 'Порог',
+                'detail_title' => 'Порог',
+                'full_detail_title' => 'Порог',
+                'category_title' => 'Порог',
+            ],
+        ],
+    ]);
+
+    processCatalogRow($run, catalogRow([6 => '1']));
+
+    $product = Product::query()->firstOrFail();
+    $default = ProductImage::query()->where('source_type', 'default')->firstOrFail();
+    $manual = ProductImage::factory()->forProduct($product)->main()->create([
+        'disk' => 'public',
+        'path' => 'uploads/products/'.$product->getKey().'/manual.webp',
+        'source_type' => 'manual',
+        'is_default' => false,
+    ]);
+
+    processCatalogRow(catalogImportRun(['detail_columns' => $run->detail_columns]), catalogRow([6 => 'yes']));
+
+    expect($manual->fresh()->is_main)->toBeTrue()
+        ->and($default->fresh()->is_main)->toBeFalse()
+        ->and(ProductImage::query()->where('source_type', 'default')->count())->toBe(1);
+});
+
+test('missing default image is logged once per detail type and import continues', function () {
+    $run = catalogImportRun([
+        'detail_columns' => [
+            6 => [
+                'index' => 6,
+                'group' => null,
+                'parent_title' => null,
+                'title' => 'Неизвестная деталь',
+                'detail_title' => 'Неизвестная деталь',
+                'full_detail_title' => 'Неизвестная деталь',
+                'category_title' => 'Неизвестная деталь',
+            ],
+        ],
+    ]);
+
+    Queue::fake();
+    $processor = app(ImportRowProcessor::class);
+    $processor->process($run, catalogRow([3 => 'I', 6 => '1']), $run->detail_columns, 3);
+    $processor->process($run, catalogRow([3 => 'II', 6 => '1.0']), $run->detail_columns, 4);
+
+    expect(Product::query()->count())->toBe(2)
+        ->and(ProductImage::query()->count())->toBe(0)
+        ->and(ImportLog::query()->where('message', 'Дефолтное изображение детали не найдено')->count())->toBe(1);
 });
