@@ -171,26 +171,70 @@ class ImportRowProcessor
     ): VehicleGeneration {
         $make = $this->firstOrUpdateMake($makeTitle, $run);
         $model = $this->firstOrUpdateModel($make, $modelTitle, $run);
-        $generationNormKey = CatalogText::normKey(trim($generationTitle.' '.$years.' '.$body), 'generation', 120);
+        $generationTitlePlain = CatalogText::plain($generationTitle, 250);
+        $yearsPlain = $years !== null && $years !== '' ? CatalogText::plain($years, 250) : null;
+        $bodyPlain = $body !== null && $body !== '' ? CatalogText::plain($body, 250) : null;
+        $generationNormKey = CatalogText::normKey(trim($generationTitlePlain.' '.$yearsPlain.' '.$bodyPlain), 'generation', 120);
         $imageUrl = $this->vehicleImageUrl($sourceImageUrl, $run, $rowNumber);
 
-        /** @var VehicleGeneration $generation */
-        $generation = VehicleGeneration::query()->firstOrNew([
-            'vehicle_model_id' => $model->getKey(),
-            'norm_key' => $generationNormKey,
-        ]);
+        /** @var VehicleGeneration|null $generation */
+        $generation = VehicleGeneration::query()
+            ->where('vehicle_model_id', $model->getKey())
+            ->where(function ($query) use ($generationNormKey): void {
+                $query->where('norm_key', $generationNormKey)
+                    ->orWhere('slug', $generationNormKey);
+            })
+            ->first();
+
+        if (! $generation instanceof VehicleGeneration) {
+            $generation = VehicleGeneration::query()
+                ->where('vehicle_model_id', $model->getKey())
+                ->where('title', $generationTitlePlain)
+                ->where(function ($query) use ($yearsPlain): void {
+                    $yearsPlain === null
+                        ? $query->whereNull('years_label')
+                        : $query->where('years_label', $yearsPlain);
+                })
+                ->where(function ($query) use ($bodyPlain): void {
+                    $bodyPlain === null
+                        ? $query->whereNull('body')
+                        : $query->where('body', $bodyPlain);
+                })
+                ->first();
+        }
+
+        if (! $generation instanceof VehicleGeneration) {
+            $generation = new VehicleGeneration([
+                'vehicle_model_id' => $model->getKey(),
+            ]);
+        }
 
         $wasCreated = ! $generation->exists;
+        $previousImageSourceUrl = $generation->exists ? $generation->image_source_url : null;
+        $previousImagePath = $generation->exists ? $generation->image : null;
+        $hasManualVehicleImage = $imageUrl !== null
+            && $previousImageSourceUrl === null
+            && is_string($previousImagePath)
+            && $previousImagePath !== '';
+        $shouldQueueImage = false;
+
         $generationAttributes = [
-            'title' => CatalogText::plain($generationTitle, 250),
+            'title' => $generationTitlePlain,
             'slug' => $generationNormKey,
-            'years_label' => $years !== null && $years !== '' ? CatalogText::plain($years, 250) : null,
-            'body' => $body !== null && $body !== '' ? CatalogText::plain($body, 250) : null,
+            'norm_key' => $generationNormKey,
+            'years_label' => $yearsPlain,
+            'body' => $bodyPlain,
             'is_active' => true,
         ];
 
         if ($imageUrl !== null) {
-            $generationAttributes['image_source_url'] = $imageUrl;
+            if ($hasManualVehicleImage) {
+                $this->warnManualVehicleImageProtected($generation, $imageUrl, $run, $rowNumber);
+                $imageUrl = null;
+            } else {
+                $generationAttributes['image_source_url'] = $imageUrl;
+                $shouldQueueImage = $this->shouldQueueVehicleImage($generation, $imageUrl, $run, $previousImageSourceUrl, $previousImagePath);
+            }
         }
 
         $generation->fill($generationAttributes);
@@ -205,7 +249,7 @@ class ImportRowProcessor
             }
         }
 
-        if ($imageUrl !== null && $this->shouldQueueVehicleImage($generation, $imageUrl, $run)) {
+        if ($imageUrl !== null && $shouldQueueImage) {
             if ($run !== null) {
                 $this->statusService->imageQueued($run);
             }
@@ -332,6 +376,9 @@ class ImportRowProcessor
     /** @var array<string, bool> */
     private array $queuedVehicleImages = [];
 
+    /** @var array<string, bool> */
+    private array $manualVehicleImageWarnings = [];
+
     private function vehicleImageUrl(?string $value, ?ImportRun $run, ?int $rowNumber): ?string
     {
         $value = $this->cell($value);
@@ -361,21 +408,50 @@ class ImportRowProcessor
         return null;
     }
 
-    private function shouldQueueVehicleImage(VehicleGeneration $generation, string $url, ?ImportRun $run): bool
-    {
-        $key = ($run?->getKey() ?? 0).':'.$generation->getKey().':'.sha1($url);
+    private function shouldQueueVehicleImage(
+        VehicleGeneration $generation,
+        string $url,
+        ?ImportRun $run,
+        ?string $previousImageSourceUrl = null,
+        ?string $previousImagePath = null,
+    ): bool {
+        $key = ($run?->getKey() ?? 0).':'.($generation->getKey() ?: 'new').':'.sha1($url);
 
         if (isset($this->queuedVehicleImages[$key])) {
             return false;
         }
 
-        if ($generation->image_source_url === $url && is_string($generation->image) && $generation->image !== '' && Storage::disk('public')->exists($generation->image)) {
+        $path = $previousImagePath ?? $generation->image;
+
+        if ($previousImageSourceUrl === $url && is_string($path) && $path !== '' && Storage::disk('public')->exists($path)) {
             return false;
         }
 
         $this->queuedVehicleImages[$key] = true;
 
         return true;
+    }
+
+    private function warnManualVehicleImageProtected(VehicleGeneration $generation, string $url, ?ImportRun $run, ?int $rowNumber): void
+    {
+        if ($run === null) {
+            return;
+        }
+
+        $key = $run->getKey().':'.($generation->getKey() ?: sha1($url)).':manual-vehicle-image';
+
+        if (isset($this->manualVehicleImageWarnings[$key])) {
+            return;
+        }
+
+        $this->manualVehicleImageWarnings[$key] = true;
+
+        $this->logger->warning($run, 'Ручное фото поколения авто не перезаписано импортом', [
+            'row' => $rowNumber,
+            'column' => 'A',
+            'vehicle_generation_id' => $generation->getKey(),
+            'url' => $url,
+        ]);
     }
 
     private function columnName(int $zeroBasedIndex): string

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\ImportLog;
 use App\Models\ImportRun;
+use App\Models\ProductImage;
 use Generator;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -74,13 +75,30 @@ class ImportRunReportExporter
         yield ['created_products', $run->created_products];
         yield ['updated_products', $run->updated_products];
         yield ['archived_products', $run->archived_products];
+        yield ['unchanged_products', 'not_counted'];
         yield ['archive_skipped', $run->archive_skipped ? 'yes' : 'no'];
         yield ['archive_skip_reason', $run->archive_skip_reason];
         yield ['queued_images', $run->queued_images];
+        yield ['queued_url_images', $run->queued_images];
         yield ['processed_images', $run->processed_images];
         yield ['failed_images', $run->failed_images];
+        yield ['default_product_images_attached', $this->productImagesForRun($run, ProductImage::SOURCE_DEFAULT)];
+        yield ['import_product_images_linked', $this->productImagesForRun($run, ProductImage::SOURCE_IMPORT)];
+        yield ['manual_product_images_preserved', $this->productImagesForRun($run, ProductImage::SOURCE_MANUAL)];
         yield ['warnings_count', $run->warnings_count];
         yield ['errors_count', $run->errors_count];
         yield ['last_error', $run->last_error];
+    }
+
+    private function productImagesForRun(ImportRun $run, string $sourceType): int
+    {
+        return ProductImage::query()
+            ->where('source_type', $sourceType)
+            ->whereHas('product', function ($query) use ($run): void {
+                $query
+                    ->where('last_import_run_id', (string) $run->getKey())
+                    ->where('import_source', $run->type ?: 'catalog');
+            })
+            ->count();
     }
 }

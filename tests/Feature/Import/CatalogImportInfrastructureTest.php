@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Queue;
 use App\Jobs\CatalogImportChunkJob;
 use App\Jobs\CatalogImportStartJob;
 use App\Models\Product;
+use App\Models\ProductImage;
 use App\Models\User;
 use App\Services\ImportRunReportExporter;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -30,6 +31,14 @@ uses(RefreshDatabase::class);
 function importCsvContent(): string
 {
     return "make,model,generation\nToyota,Camry,XV70\nLada,Vesta,NG\n";
+}
+
+function streamedImportResponseContent(StreamedResponse $response): string
+{
+    ob_start();
+    $response->sendContent();
+
+    return (string) ob_get_clean();
 }
 
 test('file upload creates import run', function () {
@@ -363,4 +372,41 @@ test('report includes archive skipped reason', function () {
     $response = app(ImportRunReportExporter::class)->summaryCsv($run);
 
     expect($response)->toBeInstanceOf(StreamedResponse::class);
+});
+
+
+test('CatalogImportPage tutorial explains default images detail titles repeated import and manual data protection', function () {
+    $this->actingAs(User::factory()->admin()->create());
+
+    $this->get('/admin/imports/catalog')
+        ->assertOk()
+        ->assertSee('Как работает импорт?', false);
+
+    $tutorial = view('filament.pages.catalog-import-help')->render();
+
+    expect($tutorial)->toContain('public/img/products_default')
+        ->and($tutorial)->toContain('Арка + Внутренняя универсальная')
+        ->and($tutorial)->toContain('Повторный импорт обновляет товары')
+        ->and($tutorial)->toContain('ручные товары')
+        ->and($tutorial)->toContain('галереей');
+});
+
+test('Report csv includes default import and manual image summary metrics', function () {
+    $run = ImportRun::factory()->create(['type' => 'catalog']);
+    $product = Product::factory()->create([
+        'import_source' => 'catalog',
+        'last_import_run_id' => (string) $run->getKey(),
+    ]);
+
+    ProductImage::factory()->forProduct($product)->create(['source_type' => ProductImage::SOURCE_DEFAULT, 'is_default' => true]);
+    ProductImage::factory()->forProduct($product)->create(['source_type' => ProductImage::SOURCE_IMPORT, 'source_url' => 'https://example.test/part.jpg']);
+    ProductImage::factory()->forProduct($product)->create(['source_type' => ProductImage::SOURCE_MANUAL]);
+
+    $content = streamedImportResponseContent(app(ImportRunReportExporter::class)->summaryCsv($run));
+
+    expect($content)->toContain('default_product_images_attached')
+        ->and($content)->toContain('import_product_images_linked')
+        ->and($content)->toContain('manual_product_images_preserved')
+        ->and($content)->toContain('queued_url_images')
+        ->and($content)->toContain('unchanged_products');
 });
