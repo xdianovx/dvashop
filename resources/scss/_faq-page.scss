@@ -58,6 +58,10 @@
     gap: 8px;
 }
 
+.faq-page__list--hidden {
+    display: none;
+}
+
 .faq-page .faq__item {
     border-width: 1px;
     border-radius: 8px;

@@ -30,13 +30,19 @@ document.querySelectorAll('.part-tabs').forEach((group) => {
     });
 });
 
-// FAQ page category tabs — single active pill.
+// FAQ page category tabs — switch the active pill and its question panel.
 document.querySelectorAll('[data-faq-tabs]').forEach((group) => {
     const tabs = group.querySelectorAll('[data-faq-tab]');
+    const panels = document.querySelectorAll('[data-faq-panel]');
+
     tabs.forEach((tab) => {
         tab.addEventListener('click', () => {
             tabs.forEach((t) => t.classList.remove('faq-page__tab--active'));
             tab.classList.add('faq-page__tab--active');
+
+            panels.forEach((panel) => {
+                panel.classList.toggle('faq-page__list--hidden', panel.dataset.faqPanel !== tab.dataset.faqTab);
+            });
         });
     });
 });
