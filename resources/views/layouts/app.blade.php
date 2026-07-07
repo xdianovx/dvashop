@@ -16,6 +16,7 @@
     </main>
 
     <x-footer />
+    <x-mobile-nav />
 </body>
 
 </html>
