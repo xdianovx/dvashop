@@ -3,7 +3,9 @@
 namespace Database\Factories;
 
 use App\Enums\ProductStatus;
+use App\Enums\ProductType;
 use App\Enums\StockStatus;
+use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -22,6 +24,8 @@ class ProductFactory extends Factory
 
         return [
             'product_category_id' => ProductCategory::factory(),
+            'product_type' => ProductType::AutoPart,
+            'part_type_id' => null,
             'title' => $title,
             'slug' => Str::slug($title),
             'sku' => fake()->unique()->optional()->bothify('SKU-#####'),
@@ -44,6 +48,22 @@ class ProductFactory extends Factory
     public function forCategory(ProductCategory $category): static
     {
         return $this->state(fn (): array => ['product_category_id' => $category->getKey()]);
+    }
+
+    public function forPartType(PartType $partType): static
+    {
+        return $this->state(fn (): array => [
+            'product_type' => ProductType::AutoPart,
+            'part_type_id' => $partType->getKey(),
+        ]);
+    }
+
+    public function generic(): static
+    {
+        return $this->state(fn (): array => [
+            'product_type' => ProductType::Generic,
+            'part_type_id' => null,
+        ]);
     }
 
     public function draft(): static
