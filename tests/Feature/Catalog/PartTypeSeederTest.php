@@ -17,31 +17,34 @@ test('part type seeder creates the complete tree with category assignments', fun
     $this->seed(PartTypeSeeder::class);
 
     $expected = [
-        'porog' => ['Порог', 0],
-        'arka' => ['Арка', 0],
-        'arka/zadniaia' => ['Арка / Задняя', 1],
-        'arka/peredniaia' => ['Арка / Передняя', 1],
-        'arka/vnutrenniaia' => ['Арка / Внутренняя', 1],
-        'arka/vnutrenniaia-universalnaia' => ['Арка / Внутренняя универсальная', 1],
-        'arka/karman-zadniaia' => ['Арка / Карман задняя', 1],
-        'penka' => ['Пенка', 0],
-        'penka/zadnei-dveri' => ['Пенка / Задней двери', 1],
-        'penka/perednei-dveri' => ['Пенка / Передней двери', 1],
-        'penka/bagazhnika' => ['Пенка / Багажника', 1],
-        'lonzheron' => ['Лонжерон', 0],
-        'remkomplekt-pola' => ['Ремкомплект пола', 0],
-        'tortsevaia-zaglushka' => ['Торцевая заглушка', 0],
-        'usilitel' => ['Усилитель', 0],
-        'usilitel/soedinitel-porogov' => ['Усилитель / соединитель порогов', 1],
+        'porog' => ['Порог', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/porogi'],
+        'arka' => ['Арка', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
+        'arka/zadniaia' => ['Арка / Задняя', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
+        'arka/peredniaia' => ['Арка / Передняя', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
+        'arka/vnutrenniaia' => ['Арка / Внутренняя', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
+        'arka/vnutrenniaia-universalnaia' => ['Арка / Внутренняя универсальная', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
+        'arka/karman-zadniaia' => ['Арка / Карман задняя', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
+        'penka' => ['Пенка', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/pennye-vstavki'],
+        'penka/zadnei-dveri' => ['Пенка / Задней двери', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/pennye-vstavki'],
+        'penka/perednei-dveri' => ['Пенка / Передней двери', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/pennye-vstavki'],
+        'penka/bagazhnika' => ['Пенка / Багажника', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/pennye-vstavki'],
+        'lonzheron' => ['Лонжерон', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/lonzherony'],
+        'remkomplekt-pola' => ['Ремкомплект пола', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/remkomplekty-pola'],
+        'tortsevaia-zaglushka' => ['Торцевая заглушка', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/zaglushki'],
+        'usilitel' => ['Усилитель', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/usiliteli'],
+        'usilitel/soedinitel-porogov' => ['Усилитель / соединитель порогов', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/usiliteli'],
     ];
 
-    foreach ($expected as $fullSlug => [$fullTitle, $depth]) {
-        $partType = PartType::query()->where('full_slug', $fullSlug)->first();
+    $partTypes = PartType::query()->with('productCategory')->get()->keyBy('full_slug');
+
+    foreach ($expected as $fullSlug => [$fullTitle, $depth, $categoryPath]) {
+        $partType = $partTypes->get($fullSlug);
 
         expect($partType)->not->toBeNull()
             ->and($partType->full_title)->toBe($fullTitle)
             ->and($partType->depth)->toBe($depth)
-            ->and($partType->product_category_id)->not->toBeNull();
+            ->and($partType->productCategory)->not->toBeNull()
+            ->and($partType->productCategory->full_slug)->toBe($categoryPath);
     }
 
     expect(PartType::query()->whereNull('parent_id')->count())->toBe(7)

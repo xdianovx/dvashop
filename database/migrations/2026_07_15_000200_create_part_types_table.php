@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('part_types', function (Blueprint $table): void {
             $table->id();
-            $table->foreignId('parent_id')->nullable()->constrained('part_types')->nullOnDelete();
+            $table->foreignId('parent_id')->nullable()->constrained('part_types')->restrictOnDelete();
             $table->string('title');
             $table->string('slug')->index();
             $table->string('full_slug')->unique();

@@ -136,13 +136,53 @@ test('soft deleting a part type keeps its product assigned and intact', function
         ->and($product->fresh()->part_type_id)->toBe($partType->id);
 });
 
-test('force deleting a part type nulls the product foreign key', function () {
+test('soft deleting a parent preserves its descendants and denormalized paths', function () {
+    $root = PartType::factory()->create(['title' => 'Арка']);
+    $child = PartType::factory()->childOf($root)->create(['title' => 'Задняя']);
+    $grandchild = PartType::factory()->childOf($child)->create(['title' => 'Внутренняя']);
+    $childPath = $child->only(['parent_id', 'full_slug', 'full_title', 'depth']);
+    $grandchildPath = $grandchild->only(['parent_id', 'full_slug', 'full_title', 'depth']);
+
+    $root->delete();
+
+    $freshChild = $child->fresh();
+    $freshGrandchild = $grandchild->fresh();
+
+    expect(PartType::withTrashed()->findOrFail($root->id)->trashed())->toBeTrue()
+        ->and($freshChild)->not->toBeNull()
+        ->and($freshChild->only(['parent_id', 'full_slug', 'full_title', 'depth']))->toBe($childPath)
+        ->and($freshChild->parent->is($root))->toBeTrue()
+        ->and($freshChild->parent->trashed())->toBeTrue()
+        ->and($freshGrandchild)->not->toBeNull()
+        ->and($freshGrandchild->only(['parent_id', 'full_slug', 'full_title', 'depth']))->toBe($grandchildPath)
+        ->and($freshGrandchild->parent->is($freshChild))->toBeTrue();
+});
+
+test('force deleting a parent with children is restricted without changing the tree', function () {
+    $root = PartType::factory()->create(['title' => 'Арка']);
+    $child = PartType::factory()->childOf($root)->create(['title' => 'Задняя']);
+    $grandchild = PartType::factory()->childOf($child)->create(['title' => 'Внутренняя']);
+    $childPath = $child->only(['parent_id', 'full_slug', 'full_title', 'depth']);
+    $grandchildPath = $grandchild->only(['parent_id', 'full_slug', 'full_title', 'depth']);
+
+    expect(fn () => $root->forceDelete())->toThrow(QueryException::class);
+
+    expect(PartType::query()->find($root->id))->not->toBeNull()
+        ->and($child->fresh())->not->toBeNull()
+        ->and($child->fresh()->only(['parent_id', 'full_slug', 'full_title', 'depth']))->toBe($childPath)
+        ->and($grandchild->fresh())->not->toBeNull()
+        ->and($grandchild->fresh()->only(['parent_id', 'full_slug', 'full_title', 'depth']))->toBe($grandchildPath);
+});
+
+test('force deleting a leaf nulls the product foreign key without deleting the product', function () {
     $partType = PartType::factory()->create(['title' => 'Порог']);
     $product = Product::factory()->forPartType($partType)->create();
 
     $partType->forceDelete();
 
-    expect($product->fresh()->part_type_id)->toBeNull();
+    expect(PartType::withTrashed()->find($partType->id))->toBeNull()
+        ->and(Product::query()->find($product->id))->not->toBeNull()
+        ->and($product->fresh()->part_type_id)->toBeNull();
 });
 
 test('full slug is unique', function () {
