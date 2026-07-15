@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ProductType;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductFitment;
@@ -10,6 +11,40 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
+
+test('product type enum has human readable labels', function () {
+    expect(ProductType::AutoPart->label())->toBe('Автодеталь')
+        ->and(ProductType::Generic->label())->toBe('Обычный товар');
+});
+
+test('product stores and casts both product types', function (ProductType $type, bool $isAutoPart, bool $isGeneric) {
+    $product = Product::factory()->create(['product_type' => $type]);
+    $freshProduct = $product->fresh();
+
+    expect($freshProduct->product_type)->toBe($type)
+        ->and($freshProduct->isAutoPart())->toBe($isAutoPart)
+        ->and($freshProduct->isGeneric())->toBe($isGeneric);
+})->with([
+    'auto part' => [ProductType::AutoPart, true, false],
+    'generic product' => [ProductType::Generic, false, true],
+]);
+
+test('database defaults product type to auto part without changing existing fields', function () {
+    $product = Product::query()->create([
+        'title' => 'Герметик кузовной 310 мл',
+        'slug' => 'germetik-kuzovnoi-310-ml',
+        'sku' => 'SEALANT-310',
+        'price' => 890,
+    ])->fresh();
+
+    expect($product)
+        ->product_type->toBe(ProductType::AutoPart)
+        ->title->toBe('Герметик кузовной 310 мл')
+        ->slug->toBe('germetik-kuzovnoi-310-ml')
+        ->sku->toBe('SEALANT-310')
+        ->price->toBe('890.00')
+        ->and($product->isAutoPart())->toBeTrue();
+});
 
 test('product can be created with category and base fields', function () {
     $category = ProductCategory::factory()->create(['title' => 'Пороги', 'slug' => 'porogi']);

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ProductStatus;
+use App\Enums\ProductType;
 use App\Enums\StockStatus;
 use App\Services\Media\MediaUrlService;
 use App\Support\CatalogText;
@@ -20,6 +21,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
     'product_category_id',
+    'product_type',
+    'part_type_id',
     'title',
     'slug',
     'sku',
@@ -45,6 +48,21 @@ class Product extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(ProductCategory::class, 'product_category_id');
+    }
+
+    public function partType(): BelongsTo
+    {
+        return $this->belongsTo(PartType::class);
+    }
+
+    public function isAutoPart(): bool
+    {
+        return $this->product_type === ProductType::AutoPart;
+    }
+
+    public function isGeneric(): bool
+    {
+        return $this->product_type === ProductType::Generic;
     }
 
     public function variants(): HasMany
@@ -169,6 +187,7 @@ class Product extends Model
     protected function casts(): array
     {
         return [
+            'product_type' => ProductType::class,
             'status' => ProductStatus::class,
             'stock_status' => StockStatus::class,
             'price' => 'decimal:2',
