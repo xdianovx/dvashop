@@ -36,12 +36,25 @@ class PartTypeCategoryResolver
     public function resolve(PartType|string $partType): PartTypeCategoryResolution
     {
         $partTypePath = trim($partType instanceof PartType ? $partType->full_slug : $partType, '/');
-        $categoryPath = self::CATEGORY_BY_PART_TYPE[$partTypePath] ?? self::FALLBACK_CATEGORY;
 
         return new PartTypeCategoryResolution(
-            category: $this->category($categoryPath),
-            usedFallback: ! array_key_exists($partTypePath, self::CATEGORY_BY_PART_TYPE),
+            category: $this->category($this->categoryPathFor($partTypePath)),
+            usedFallback: $this->usesFallback($partTypePath),
         );
+    }
+
+    public function categoryPathFor(PartType|string $partType): string
+    {
+        $partTypePath = trim($partType instanceof PartType ? $partType->full_slug : $partType, '/');
+
+        return self::CATEGORY_BY_PART_TYPE[$partTypePath] ?? self::FALLBACK_CATEGORY;
+    }
+
+    public function usesFallback(PartType|string $partType): bool
+    {
+        $partTypePath = trim($partType instanceof PartType ? $partType->full_slug : $partType, '/');
+
+        return ! array_key_exists($partTypePath, self::CATEGORY_BY_PART_TYPE);
     }
 
     public function resetLocalCache(): void

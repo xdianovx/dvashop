@@ -46,12 +46,12 @@ class ProductCategoryResource extends Resource
 
     public static function getModelLabel(): string
     {
-        return 'категория товаров';
+        return 'категория магазина';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return 'Категории товаров';
+        return 'Категории магазина';
     }
 
     public static function form(Schema $schema): Schema
