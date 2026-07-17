@@ -60,6 +60,34 @@ class PartTypeTreeService
         });
     }
 
+    /** @return array<int, int> */
+    public function descendantIds(PartType|int $partType): array
+    {
+        $rootId = $partType instanceof PartType ? (int) $partType->getKey() : $partType;
+        $childrenByParent = PartType::withTrashed()
+            ->get(['id', 'parent_id'])
+            ->groupBy(fn (PartType $candidate): int => (int) ($candidate->parent_id ?? 0));
+        $descendants = [];
+        $frontier = [$rootId];
+
+        while ($frontier !== []) {
+            $parentId = array_shift($frontier);
+
+            foreach ($childrenByParent->get($parentId, collect()) as $child) {
+                $childId = (int) $child->getKey();
+
+                if (in_array($childId, $descendants, true)) {
+                    continue;
+                }
+
+                $descendants[] = $childId;
+                $frontier[] = $childId;
+            }
+        }
+
+        return $descendants;
+    }
+
     public function slugForTitle(string $title): string
     {
         $source = strtr(mb_strtolower(CatalogText::plain($title, 255)), [

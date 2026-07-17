@@ -4,46 +4,28 @@ namespace Database\Seeders;
 
 use App\Exceptions\Catalog\CatalogCategoryStructureConflictException;
 use App\Models\ProductCategory;
+use App\Services\Catalog\ProductCategoryCatalogRegistry;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
 class ProductCatalogSeeder extends Seeder
 {
-    public function run(): void
+    public function run(ProductCategoryCatalogRegistry $registry): void
     {
-        DB::transaction(function (): void {
-            $bodyParts = $this->ensureCategory(
-                fullSlug: 'kuzovnye-detali',
-                title: 'Кузовные детали',
-                slug: 'kuzovnye-detali',
-                position: 10,
-            );
+        DB::transaction(function () use ($registry): void {
+            $categories = [];
 
-            $repairParts = $this->ensureCategory(
-                fullSlug: 'kuzovnye-detali/remontnye-elementy-kuzova',
-                title: 'Ремонтные элементы кузова',
-                slug: 'remontnye-elementy-kuzova',
-                position: 10,
-                parent: $bodyParts,
-            );
+            foreach ($registry->definitions() as $definition) {
+                $parent = $definition['parent_full_slug'] !== null
+                    ? ($categories[$definition['parent_full_slug']] ?? null)
+                    : null;
 
-            $leafCategories = [
-                ['Пороги', 'porogi', 10],
-                ['Арки', 'arki', 20],
-                ['Лонжероны', 'lonzherony', 30],
-                ['Ремкомплекты пола', 'remkomplekty-pola', 40],
-                ['Заглушки', 'zaglushki', 50],
-                ['Усилители', 'usiliteli', 60],
-                ['Пенные вставки', 'pennye-vstavki', 70],
-            ];
-
-            foreach ($leafCategories as [$title, $slug, $position]) {
-                $this->ensureCategory(
-                    fullSlug: $repairParts->full_slug.'/'.$slug,
-                    title: $title,
-                    slug: $slug,
-                    position: $position,
-                    parent: $repairParts,
+                $categories[$definition['full_slug']] = $this->ensureCategory(
+                    fullSlug: $definition['full_slug'],
+                    title: $definition['title'],
+                    slug: $definition['slug'],
+                    position: $definition['position'],
+                    parent: $parent,
                 );
             }
         });
@@ -67,6 +49,10 @@ class ProductCatalogSeeder extends Seeder
 
             if ($category->trashed()) {
                 $category->restoreQuietly();
+            }
+
+            if (! $category->is_active) {
+                $category->forceFill(['is_active' => true])->saveQuietly();
             }
 
             return $category;

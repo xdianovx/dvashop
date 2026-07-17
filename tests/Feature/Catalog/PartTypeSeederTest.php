@@ -92,6 +92,23 @@ test('part type seeder is idempotent and restores a soft deleted type', function
         ->and(PartType::query()->whereKey($partTypeId)->exists())->toBeTrue();
 });
 
+test('part type seeder preserves manual image and seo metadata', function () {
+    $this->seed(PartTypeSeeder::class);
+    $partType = PartType::query()->where('full_slug', 'porog')->firstOrFail();
+    $partType->forceFill([
+        'default_image_key' => 'manual-threshold-image',
+        'meta_title' => 'Ручной meta title',
+        'meta_description' => 'Ручное meta description',
+    ])->saveQuietly();
+
+    $this->seed(PartTypeSeeder::class);
+    $partType->refresh();
+
+    expect($partType->default_image_key)->toBe('manual-threshold-image')
+        ->and($partType->meta_title)->toBe('Ручной meta title')
+        ->and($partType->meta_description)->toBe('Ручное meta description');
+});
+
 test('part type seeder does not create technical product categories or mutate products', function () {
     $category = ProductCategory::factory()->create(['title' => 'Автохимия']);
     $product = Product::factory()->forCategory($category)->generic()->create()->fresh();
