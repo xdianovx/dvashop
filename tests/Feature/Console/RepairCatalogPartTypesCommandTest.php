@@ -78,6 +78,22 @@ test('repair command apply updates products and prints actual counters', functio
         ->and($legacy->fresh()->is_active)->toBeFalse();
 });
 
+test('repair command reports technical categories kept active for manual review', function () {
+    $root = command_legacy_category('Порог', 'legacy-porog');
+    $suspect = command_legacy_category('Декоративная накладка', 'legacy-decorative-trim', $root);
+    $product = Product::factory()->forCategory($suspect)->generic()->create()->fresh();
+
+    $this->artisan('catalog:repair-part-types --apply')
+        ->expectsOutputToContain('Технические категории оставлены активными')
+        ->expectsOutputToContain('Категория «Порог» оставлена активной')
+        ->assertExitCode(0);
+
+    expect($root->fresh()->is_active)->toBeTrue()
+        ->and($suspect->fresh()->is_active)->toBeTrue()
+        ->and($product->fresh()->product_category_id)->toBe($suspect->id)
+        ->and($product->fresh()->part_type_id)->toBeNull();
+});
+
 test('repair command returns one for blockers and rolls back every planned change', function () {
     $root = command_legacy_category('Кузовные детали', 'kuzovnye-detali');
     $legacy = command_legacy_category('Пороги', 'porogi', $root);

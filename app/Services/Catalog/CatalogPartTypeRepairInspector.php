@@ -6,6 +6,7 @@ use App\Models\PartType;
 use App\Models\ProductCategory;
 use App\Support\CatalogText;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -167,7 +168,6 @@ final class CatalogPartTypeRepairInspector
 
             if (isset($canonicalPaths[$category->full_slug])
                 || isset($legacyStorePaths[$category->full_slug])
-                || $this->legacyMap->isUnderKnownTechnicalRoot($fullTitle)
                 || ! $this->legacyMap->looksSuspicious($fullTitle)) {
                 continue;
             }
@@ -189,6 +189,14 @@ final class CatalogPartTypeRepairInspector
             );
         }
 
+        $this->applyLegacyDeactivationRules(
+            $technicalCategories,
+            $suspects,
+            $categoriesById,
+            $childrenByParent,
+            $productCounts,
+            $warnings,
+        );
         $this->inspectUnknownPartTypeStructure($unknownChildren, $lock, $blockers);
 
         return new CatalogPartTypeRepairPlan(
@@ -422,6 +430,113 @@ final class CatalogPartTypeRepairInspector
     }
 
     /**
+     * @param array<int, array<string, mixed>> $technicalCategories
+     * @param array<int, array<string, mixed>> $suspects
+     * @param EloquentCollection<int, ProductCategory> $categoriesById
+     * @param EloquentCollection<int, EloquentCollection<int, ProductCategory>> $childrenByParent
+     * @param Collection<int|string, object> $productCounts
+     * @param array<int, CatalogPartTypeRepairIssue> $warnings
+     */
+    private function applyLegacyDeactivationRules(
+        array &$technicalCategories,
+        array $suspects,
+        EloquentCollection $categoriesById,
+        EloquentCollection $childrenByParent,
+        Collection $productCounts,
+        array &$warnings,
+    ): void {
+        $technicalIds = array_fill_keys(array_column($technicalCategories, 'category_id'), true);
+        $suspectIds = array_fill_keys(array_column($suspects, 'category_id'), true);
+
+        foreach ($technicalCategories as &$entry) {
+            $descendantIds = $this->descendantIds((int) $entry['category_id'], $childrenByParent);
+            $unresolvedIds = array_values(array_filter(
+                $descendantIds,
+                static fn (int $categoryId): bool => ! isset($technicalIds[$categoryId]),
+            ));
+            $suspectDescendantIds = array_values(array_filter(
+                $unresolvedIds,
+                static fn (int $categoryId): bool => isset($suspectIds[$categoryId]),
+            ));
+            $unrecognizedDescendantIds = array_values(array_diff($unresolvedIds, $suspectDescendantIds));
+            $activeDescendantIds = [];
+            $remainingDescendantProducts = 0;
+
+            foreach ($unresolvedIds as $categoryId) {
+                $descendant = $categoriesById->get($categoryId);
+
+                if ($descendant instanceof ProductCategory && ! $descendant->trashed() && $descendant->is_active) {
+                    $activeDescendantIds[] = $categoryId;
+                }
+
+                $remainingDescendantProducts += (int) ($productCounts->get($categoryId)->total_count ?? 0);
+            }
+
+            $entry['can_deactivate'] = $unresolvedIds === [];
+            $entry['descendant_ids'] = $descendantIds;
+            $entry['unresolved_descendant_ids'] = $unresolvedIds;
+            $entry['suspect_descendant_ids'] = $suspectDescendantIds;
+            $entry['unrecognized_descendant_ids'] = $unrecognizedDescendantIds;
+            $entry['active_unresolved_descendant_ids'] = $activeDescendantIds;
+            $entry['unresolved_descendant_products'] = $remainingDescendantProducts;
+
+            if ($entry['can_deactivate']) {
+                continue;
+            }
+
+            $entry['action'] = $entry['products_count'] > 0
+                ? 'migrate_products_keep_active'
+                : 'keep_active';
+
+            $warnings[] = new CatalogPartTypeRepairIssue(
+                code: 'legacy_category_kept_active',
+                message: sprintf(
+                    'Категория «%s» оставлена активной: в ветке есть подозрительные или нераспознанные дочерние '.
+                    'категории (%d), связанных товаров — %d.',
+                    $entry['category_path'],
+                    count($unresolvedIds),
+                    $remainingDescendantProducts,
+                ),
+                context: [
+                    'category_id' => $entry['category_id'],
+                    'suspect_descendant_ids' => $suspectDescendantIds,
+                    'unrecognized_descendant_ids' => $unrecognizedDescendantIds,
+                    'active_descendant_ids' => $activeDescendantIds,
+                    'remaining_descendant_products' => $remainingDescendantProducts,
+                ],
+            );
+        }
+        unset($entry);
+    }
+
+    /**
+     * @param EloquentCollection<int, EloquentCollection<int, ProductCategory>> $childrenByParent
+     * @return array<int, int>
+     */
+    private function descendantIds(int $categoryId, EloquentCollection $childrenByParent): array
+    {
+        $descendants = [];
+        $pending = [$categoryId];
+
+        while ($pending !== []) {
+            $parentId = array_pop($pending);
+
+            foreach ($childrenByParent->get($parentId, new EloquentCollection) as $child) {
+                $childId = (int) $child->getKey();
+
+                if (isset($descendants[$childId])) {
+                    continue;
+                }
+
+                $descendants[$childId] = $childId;
+                $pending[] = $childId;
+            }
+        }
+
+        return array_values($descendants);
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $legacyStoreCategories
      * @param array<int, array<string, mixed>> $technicalCategories
      * @param array<int, array<string, mixed>> $unknownChildren
@@ -452,7 +567,11 @@ final class CatalogPartTypeRepairInspector
             + array_sum(array_column($pendingMerges, 'manual_products'));
         $counters['technical_categories_deactivated'] = count(array_filter(
             $technicalCategories,
-            static fn (array $entry): bool => $entry['is_active'],
+            static fn (array $entry): bool => $entry['is_active'] && $entry['can_deactivate'],
+        ));
+        $counters['technical_categories_kept_active'] = count(array_filter(
+            $technicalCategories,
+            static fn (array $entry): bool => ! $entry['is_trashed'] && ! $entry['can_deactivate'],
         ));
         $counters['fallback_used'] = count($unknownChildren);
 

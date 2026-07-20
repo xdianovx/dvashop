@@ -31,6 +31,7 @@ final readonly class CatalogPartTypeRepairResult
             'manual_products_updated' => 0,
             'products_already_correct' => 0,
             'technical_categories_deactivated' => 0,
+            'technical_categories_kept_active' => 0,
             'fallback_used' => 0,
         ];
     }

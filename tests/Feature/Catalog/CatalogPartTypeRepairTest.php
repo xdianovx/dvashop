@@ -324,7 +324,7 @@ test('unknown child under approved grouping root creates one fallback part type 
     ],
 ]);
 
-test('unknown child under non grouping technical root is reported as a suspect and never changed', function (
+test('unknown child under non grouping technical root is reported as a suspect and keeps its root active', function (
     string $rootTitle,
     string $rootSlug,
     string $childTitle,
@@ -334,23 +334,33 @@ test('unknown child under non grouping technical root is reported as a suspect a
     $root = legacy_category($rootTitle, $rootSlug);
     $child = legacy_category($childTitle, $childSlug, $root);
     $product = Product::factory()->forCategory($child)->generic()->create()->fresh();
+    $rootBefore = $root->getAttributes();
     $categoryBefore = $child->getAttributes();
     $productBefore = $product->getAttributes();
 
     $plan = repair_service()->inspect();
+    $rootPlan = collect($plan->technicalCategories)->firstWhere('category_id', $root->id);
 
     expect(collect($plan->suspects)->pluck('category_id'))->toContain($child->id)
         ->and(collect($plan->technicalCategories)->pluck('category_id'))->not->toContain($child->id)
-        ->and(collect($plan->unknownChildren)->pluck('category_id'))->not->toContain($child->id);
+        ->and(collect($plan->unknownChildren)->pluck('category_id'))->not->toContain($child->id)
+        ->and($rootPlan['can_deactivate'])->toBeFalse()
+        ->and($rootPlan['suspect_descendant_ids'])->toContain($child->id)
+        ->and(collect($plan->warnings)->pluck('code'))->toContain('legacy_category_kept_active');
 
     $result = repair_service()->apply($plan);
 
     expect($result->counter('fallback_used'))->toBe(0)
+        ->and($result->counter('technical_categories_deactivated'))->toBe(0)
+        ->and($result->counter('technical_categories_kept_active'))->toBe(1)
         ->and(PartType::withTrashed()->where('full_slug', $forbiddenPartTypePath)->exists())->toBeFalse()
         ->and($product->fresh()->getAttributes())->toBe($productBefore)
         ->and($product->fresh()->product_type)->toBe(ProductType::Generic)
         ->and($product->fresh()->part_type_id)->toBeNull()
         ->and($product->fresh()->product_category_id)->toBe($child->id)
+        ->and($root->fresh()->getAttributes())->toBe($rootBefore)
+        ->and($root->fresh()->is_active)->toBeTrue()
+        ->and($root->fresh()->deleted_at)->toBeNull()
         ->and($child->fresh()->getAttributes())->toBe($categoryBefore)
         ->and($child->fresh()->is_active)->toBeTrue()
         ->and($child->fresh()->deleted_at)->toBeNull();
@@ -384,6 +394,201 @@ test('unknown child under non grouping technical root is reported as a suspect a
         'tortsevaia-zaglushka/universalnaia',
     ],
 ]);
+
+test('previously deactivated legacy root is reactivated when an unresolved descendant remains', function () {
+    $root = legacy_category('Порог', 'legacy-porog');
+    $root->forceFill(['is_active' => false])->saveQuietly();
+    $suspect = legacy_category('Декоративная накладка', 'legacy-decorative-trim', $root);
+    $product = Product::factory()->forCategory($suspect)->generic()->create()->fresh();
+    $productBefore = $product->getAttributes();
+
+    $first = repair_service()->apply(repair_service()->inspect());
+    $rootAfterFirst = $root->fresh()->getAttributes();
+    $second = repair_service()->apply(repair_service()->inspect());
+
+    expect($root->fresh()->is_active)->toBeTrue()
+        ->and($suspect->fresh()->is_active)->toBeTrue()
+        ->and($product->fresh()->getAttributes())->toBe($productBefore)
+        ->and($first->counter('technical_categories_kept_active'))->toBe(1)
+        ->and(collect($first->warnings)->where('code', 'legacy_category_kept_active'))->toHaveCount(1)
+        ->and($root->fresh()->getAttributes())->toBe($rootAfterFirst)
+        ->and($second->counter('technical_categories_kept_active'))->toBe(1)
+        ->and($second->counter('technical_categories_deactivated'))->toBe(0)
+        ->and($second->counter('fallback_used'))->toBe(0)
+        ->and(collect($second->warnings)->where('code', 'legacy_category_kept_active'))->toHaveCount(1);
+});
+
+test('deep unresolved descendant keeps the whole legacy branch active without changing its product', function () {
+    $root = legacy_category('Порог', 'legacy-porog');
+    $intermediate = legacy_category('Декоративные элементы', 'legacy-decorative-elements', $root);
+    $leaf = legacy_category('Накладка', 'legacy-trim', $intermediate);
+    $product = Product::factory()->forCategory($leaf)->generic()->create()->fresh();
+    $before = [
+        'root' => $root->getAttributes(),
+        'intermediate' => $intermediate->getAttributes(),
+        'leaf' => $leaf->getAttributes(),
+        'product' => $product->getAttributes(),
+    ];
+
+    $plan = repair_service()->inspect();
+    $rootPlan = collect($plan->technicalCategories)->firstWhere('category_id', $root->id);
+    $result = repair_service()->apply($plan);
+
+    expect(collect($plan->suspects)->pluck('category_id'))->toContain($intermediate->id, $leaf->id)
+        ->and($rootPlan['can_deactivate'])->toBeFalse()
+        ->and($rootPlan['unresolved_descendant_ids'])->toContain($intermediate->id, $leaf->id)
+        ->and($rootPlan['unresolved_descendant_products'])->toBe(1)
+        ->and($result->counter('technical_categories_kept_active'))->toBe(1)
+        ->and($root->fresh()->getAttributes())->toBe($before['root'])
+        ->and($intermediate->fresh()->getAttributes())->toBe($before['intermediate'])
+        ->and($leaf->fresh()->getAttributes())->toBe($before['leaf'])
+        ->and($leaf->fresh()->parent_id)->toBe($intermediate->id)
+        ->and($intermediate->fresh()->parent_id)->toBe($root->id)
+        ->and($product->fresh()->getAttributes())->toBe($before['product']);
+});
+
+test('mixed legacy branch migrates known child but keeps suspect child and root active idempotently', function () {
+    $root = legacy_category('Арка', 'legacy-arka');
+    $known = legacy_category('Задняя', 'legacy-rear', $root);
+    $suspect = legacy_category('Декоративный молдинг', 'legacy-decorative-moulding', $root);
+    $knownProduct = Product::factory()->forCategory($known)->generic()->create();
+    $suspectProduct = Product::factory()->forCategory($suspect)->generic()->create()->fresh();
+    $suspectProductBefore = $suspectProduct->getAttributes();
+
+    $plan = repair_service()->inspect();
+    $rootPlan = collect($plan->technicalCategories)->firstWhere('category_id', $root->id);
+    $knownPlan = collect($plan->technicalCategories)->firstWhere('category_id', $known->id);
+    $first = repair_service()->apply($plan);
+    $countsAfterFirst = [
+        ProductCategory::withTrashed()->count(),
+        PartType::withTrashed()->count(),
+        Product::withTrashed()->count(),
+    ];
+    $rootAfterFirst = $root->fresh()->getAttributes();
+    $suspectAfterFirst = $suspect->fresh()->getAttributes();
+    $second = repair_service()->apply(repair_service()->inspect());
+
+    expect(collect($plan->suspects)->pluck('category_id'))->toContain($suspect->id)
+        ->and(collect($plan->unknownChildren)->pluck('category_id'))->not->toContain($suspect->id)
+        ->and($rootPlan['can_deactivate'])->toBeFalse()
+        ->and($knownPlan['can_deactivate'])->toBeTrue()
+        ->and(collect($plan->warnings)->pluck('code'))->toContain('legacy_category_kept_active')
+        ->and($knownProduct->fresh()->partType->full_slug)->toBe('arka/zadniaia')
+        ->and($known->fresh()->is_active)->toBeFalse()
+        ->and($suspectProduct->fresh()->getAttributes())->toBe($suspectProductBefore)
+        ->and($suspect->fresh()->is_active)->toBeTrue()
+        ->and($root->fresh()->is_active)->toBeTrue()
+        ->and($first->counter('technical_categories_deactivated'))->toBe(1)
+        ->and($first->counter('technical_categories_kept_active'))->toBe(1)
+        ->and($first->counter('fallback_used'))->toBe(0)
+        ->and([
+            ProductCategory::withTrashed()->count(),
+            PartType::withTrashed()->count(),
+            Product::withTrashed()->count(),
+        ])->toBe($countsAfterFirst)
+        ->and($root->fresh()->getAttributes())->toBe($rootAfterFirst)
+        ->and($suspect->fresh()->getAttributes())->toBe($suspectAfterFirst)
+        ->and($second->counter('part_types_created'))->toBe(0)
+        ->and($second->counter('imported_products_updated'))->toBe(0)
+        ->and($second->counter('manual_products_updated'))->toBe(0)
+        ->and($second->counter('technical_categories_deactivated'))->toBe(0)
+        ->and($second->counter('technical_categories_kept_active'))->toBe(1)
+        ->and($second->counter('fallback_used'))->toBe(0);
+});
+
+test('fully recognized legacy branch is completely deactivated after all products are migrated', function () {
+    $root = legacy_category('Арка', 'legacy-arka');
+    $rear = legacy_category('Задняя', 'legacy-rear', $root);
+    $inner = legacy_category('Внутренняя', 'legacy-inner', $root);
+    $rearProduct = Product::factory()->forCategory($rear)->generic()->create();
+    $innerProduct = Product::factory()->forCategory($inner)->generic()->create();
+
+    $plan = repair_service()->inspect();
+    $result = repair_service()->apply($plan);
+
+    expect(collect($plan->suspects))->toBeEmpty()
+        ->and(collect($plan->technicalCategories)->firstWhere('category_id', $root->id)['can_deactivate'])->toBeTrue()
+        ->and($rearProduct->fresh()->partType->full_slug)->toBe('arka/zadniaia')
+        ->and($innerProduct->fresh()->partType->full_slug)->toBe('arka/vnutrenniaia')
+        ->and($root->fresh()->is_active)->toBeFalse()
+        ->and($rear->fresh()->is_active)->toBeFalse()
+        ->and($inner->fresh()->is_active)->toBeFalse()
+        ->and($root->fresh()->deleted_at)->toBeNull()
+        ->and($rear->fresh()->deleted_at)->toBeNull()
+        ->and($inner->fresh()->deleted_at)->toBeNull()
+        ->and($result->counter('technical_categories_deactivated'))->toBe(3)
+        ->and($result->counter('technical_categories_kept_active'))->toBe(0);
+});
+
+test('legacy root stays active when a product remains directly attached after the grouped update', function () {
+    if (DB::getDriverName() !== 'sqlite') {
+        $this->markTestSkipped('The deterministic late-row trigger is only required for the SQLite test database.');
+    }
+
+    $unrelated = legacy_category('Прочее', 'other');
+    $lateProduct = Product::factory()->forCategory($unrelated)->generic()->create();
+    $root = legacy_category('Порог', 'legacy-porog');
+    $sourceProduct = Product::factory()->forCategory($root)->generic()->create();
+
+    DB::statement(sprintf(
+        'CREATE TRIGGER keep_product_on_legacy_root '
+        .'AFTER UPDATE OF product_category_id ON products '
+        .'WHEN OLD.product_category_id = %d '
+        .'BEGIN UPDATE products SET product_category_id = %d WHERE id = %d; END',
+        $root->id,
+        $root->id,
+        $lateProduct->id,
+    ));
+
+    try {
+        $result = repair_service()->apply(repair_service()->inspect());
+    } finally {
+        DB::statement('DROP TRIGGER IF EXISTS keep_product_on_legacy_root');
+    }
+
+    expect($sourceProduct->fresh()->product_category_id)->not->toBe($root->id)
+        ->and($lateProduct->fresh()->product_category_id)->toBe($root->id)
+        ->and($lateProduct->fresh()->part_type_id)->toBeNull()
+        ->and($root->fresh()->is_active)->toBeTrue()
+        ->and($result->counter('technical_categories_deactivated'))->toBe(0)
+        ->and($result->counter('technical_categories_kept_active'))->toBe(1)
+        ->and(collect($result->warnings)->pluck('code'))->toContain('legacy_category_kept_active_remaining_products');
+});
+
+test('legacy ancestor stays active when a recognized child still has a direct product', function () {
+    $unrelated = legacy_category('Прочее', 'other');
+    $lateProduct = Product::factory()->forCategory($unrelated)->generic()->create();
+    $root = legacy_category('Арка', 'legacy-arka');
+    $child = legacy_category('Задняя', 'legacy-rear', $root);
+    $sourceProduct = Product::factory()->forCategory($child)->generic()->create();
+
+    DB::statement(sprintf(
+        'CREATE TRIGGER keep_product_on_legacy_child '
+        .'AFTER UPDATE OF product_category_id ON products '
+        .'WHEN OLD.product_category_id = %d '
+        .'BEGIN UPDATE products SET product_category_id = %d WHERE id = %d; END',
+        $child->id,
+        $child->id,
+        $lateProduct->id,
+    ));
+
+    try {
+        $result = repair_service()->apply(repair_service()->inspect());
+    } finally {
+        DB::statement('DROP TRIGGER IF EXISTS keep_product_on_legacy_child');
+    }
+
+    expect($sourceProduct->fresh()->product_category_id)->not->toBe($child->id)
+        ->and($lateProduct->fresh()->product_category_id)->toBe($child->id)
+        ->and($child->fresh()->is_active)->toBeTrue()
+        ->and($root->fresh()->is_active)->toBeTrue()
+        ->and($result->counter('technical_categories_deactivated'))->toBe(0)
+        ->and($result->counter('technical_categories_kept_active'))->toBe(2)
+        ->and(collect($result->warnings)->pluck('code'))->toContain(
+            'legacy_category_kept_active_remaining_products',
+            'legacy_category_kept_active_active_descendant',
+        );
+});
 
 test('suspicious categories including an unknown technical root are reported and never changed', function () {
     $suspect = legacy_category('Арки декоративные аксессуары', 'decorative-arches');
