@@ -26,14 +26,10 @@ final class LegacyTechnicalCategoryMap
         'усилитель / соединитель порогов' => 'usilitel/soedinitel-porogov',
     ];
 
-    /** @var array<int, string> */
+    /** @var array<int, string> Grouping roots that allow automatic unknown child creation. */
     private const TECHNICAL_ROOTS = [
-        'порог',
         'арка',
         'пенка',
-        'лонжерон',
-        'ремкомплект пола',
-        'торцевая заглушка',
         'усилитель',
     ];
 

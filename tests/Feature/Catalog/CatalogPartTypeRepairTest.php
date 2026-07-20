@@ -150,12 +150,16 @@ test('repair maps known technical categories to exact part types and store categ
     $penka = legacy_category('Пенка', 'legacy-penka');
     $penkaRear = legacy_category('Задней двери', 'legacy-rear', $penka);
     $lonzheron = legacy_category('Лонжерон', 'legacy-lonzheron');
+    $floorRepairKit = legacy_category('Ремкомплект пола', 'legacy-floor-repair-kit');
+    $endCap = legacy_category('Торцевая заглушка', 'legacy-end-cap');
 
     $products = [
         'porog' => Product::factory()->forCategory($porog)->generic()->create(),
         'arka/vnutrenniaia-universalnaia' => Product::factory()->forCategory($arkaInner)->generic()->create(),
         'penka/zadnei-dveri' => Product::factory()->forCategory($penkaRear)->generic()->create(),
         'lonzheron' => Product::factory()->forCategory($lonzheron)->generic()->create(),
+        'remkomplekt-pola' => Product::factory()->forCategory($floorRepairKit)->generic()->create(),
+        'tortsevaia-zaglushka' => Product::factory()->forCategory($endCap)->generic()->create(),
     ];
 
     repair_service()->apply(repair_service()->inspect());
@@ -165,6 +169,8 @@ test('repair maps known technical categories to exact part types and store categ
         'arka/vnutrenniaia-universalnaia' => 'kuzovnye-detali/remontnye-elementy-kuzova/arki',
         'penka/zadnei-dveri' => 'kuzovnye-detali/remontnye-elementy-kuzova/pennye-vstavki',
         'lonzheron' => 'kuzovnye-detali/remontnye-elementy-kuzova/lonzherony',
+        'remkomplekt-pola' => 'kuzovnye-detali/remontnye-elementy-kuzova/remkomplekty-pola',
+        'tortsevaia-zaglushka' => 'kuzovnye-detali/remontnye-elementy-kuzova/zaglushki',
     ];
 
     foreach ($products as $partTypePath => $product) {
@@ -175,7 +181,7 @@ test('repair maps known technical categories to exact part types and store categ
             ->and($product->category->full_slug)->toBe($expectedCategories[$partTypePath]);
     }
 
-    foreach ([$porog, $arka, $arkaInner, $penka, $penkaRear, $lonzheron] as $legacyCategory) {
+    foreach ([$porog, $arka, $arkaInner, $penka, $penkaRear, $lonzheron, $floorRepairKit, $endCap] as $legacyCategory) {
         $stored = ProductCategory::withTrashed()->findOrFail($legacyCategory->id);
         expect($stored->is_active)->toBeFalse()
             ->and($stored->deleted_at)->toBeNull();
@@ -253,9 +259,16 @@ test('imported product keeps import metadata and related records', function () {
         ->and($image->fresh())->not->toBeNull();
 });
 
-test('unknown child under known root creates one fallback part type and is idempotent', function () {
-    $arka = legacy_category('Арка', 'legacy-arka');
-    $unknown = legacy_category('Передняя универсальная', 'legacy-front-universal', $arka);
+test('unknown child under approved grouping root creates one fallback part type and is idempotent', function (
+    string $rootTitle,
+    string $rootSlug,
+    string $childTitle,
+    string $childSlug,
+    string $expectedRootPartTypePath,
+    string $expectedPartTypePath,
+) {
+    $root = legacy_category($rootTitle, $rootSlug);
+    $unknown = legacy_category($childTitle, $childSlug, $root);
     $product = Product::factory()->forCategory($unknown)->generic()->create();
 
     $firstPlan = repair_service()->inspect();
@@ -268,20 +281,109 @@ test('unknown child under known root creates one fallback part type and is idemp
     $partTypeId = $product->fresh()->part_type_id;
     $second = repair_service()->apply(repair_service()->inspect());
 
-    expect($firstPlan->unknownChildren)->toHaveCount(1)
+    expect(collect($firstPlan->technicalCategories)->pluck('category_id'))->toContain($unknown->id)
+        ->and(collect($firstPlan->unknownChildren)->pluck('category_id'))->toContain($unknown->id)
+        ->and(collect($firstPlan->suspects)->pluck('category_id'))->not->toContain($unknown->id)
         ->and(collect($firstPlan->warnings)->pluck('code'))->toContain('unknown_child_fallback')
         ->and($first->counter('fallback_used'))->toBe(1)
-        ->and($product->fresh()->partType->full_slug)->toBe('arka/peredniaia-universalnaia')
-        ->and(PartType::withTrashed()->where('full_slug', 'arka')->count())->toBe(1)
-        ->and(PartType::withTrashed()->where('full_slug', 'arka/peredniaia-universalnaia')->count())->toBe(1)
+        ->and($product->fresh()->partType->full_slug)->toBe($expectedPartTypePath)
+        ->and(PartType::withTrashed()->where('full_slug', $expectedRootPartTypePath)->count())->toBe(1)
+        ->and(PartType::withTrashed()->where('full_slug', $expectedPartTypePath)->count())->toBe(1)
         ->and($product->fresh()->partType->default_image_key)->toBeNull()
         ->and($product->fresh()->category->full_slug)->toBe('kuzovnye-detali/remontnye-elementy-kuzova')
         ->and($product->fresh()->part_type_id)->toBe($partTypeId)
+        ->and($unknown->fresh()->is_active)->toBeFalse()
         ->and([ProductCategory::withTrashed()->count(), PartType::withTrashed()->count(), Product::withTrashed()->count()])->toBe($countsAfterFirst)
         ->and($second->counter('part_types_created'))->toBe(0)
         ->and($second->counter('imported_products_updated'))->toBe(0)
         ->and($second->counter('manual_products_updated'))->toBe(0);
-});
+})->with([
+    'arch child' => [
+        'Арка',
+        'legacy-arka',
+        'Передняя универсальная',
+        'legacy-front-universal',
+        'arka',
+        'arka/peredniaia-universalnaia',
+    ],
+    'foam child' => [
+        'Пенка',
+        'legacy-penka',
+        'Средней двери',
+        'legacy-middle-door',
+        'penka',
+        'penka/srednei-dveri',
+    ],
+    'reinforcement child' => [
+        'Усилитель',
+        'legacy-usilitel',
+        'Внутренний',
+        'legacy-inner',
+        'usilitel',
+        'usilitel/vnutrennii',
+    ],
+]);
+
+test('unknown child under non grouping technical root is reported as a suspect and never changed', function (
+    string $rootTitle,
+    string $rootSlug,
+    string $childTitle,
+    string $childSlug,
+    string $forbiddenPartTypePath,
+) {
+    $root = legacy_category($rootTitle, $rootSlug);
+    $child = legacy_category($childTitle, $childSlug, $root);
+    $product = Product::factory()->forCategory($child)->generic()->create()->fresh();
+    $categoryBefore = $child->getAttributes();
+    $productBefore = $product->getAttributes();
+
+    $plan = repair_service()->inspect();
+
+    expect(collect($plan->suspects)->pluck('category_id'))->toContain($child->id)
+        ->and(collect($plan->technicalCategories)->pluck('category_id'))->not->toContain($child->id)
+        ->and(collect($plan->unknownChildren)->pluck('category_id'))->not->toContain($child->id);
+
+    $result = repair_service()->apply($plan);
+
+    expect($result->counter('fallback_used'))->toBe(0)
+        ->and(PartType::withTrashed()->where('full_slug', $forbiddenPartTypePath)->exists())->toBeFalse()
+        ->and($product->fresh()->getAttributes())->toBe($productBefore)
+        ->and($product->fresh()->product_type)->toBe(ProductType::Generic)
+        ->and($product->fresh()->part_type_id)->toBeNull()
+        ->and($product->fresh()->product_category_id)->toBe($child->id)
+        ->and($child->fresh()->getAttributes())->toBe($categoryBefore)
+        ->and($child->fresh()->is_active)->toBeTrue()
+        ->and($child->fresh()->deleted_at)->toBeNull();
+})->with([
+    'threshold child' => [
+        'Порог',
+        'legacy-porog',
+        'Декоративная накладка',
+        'legacy-decorative-trim',
+        'porog/dekorativnaia-nakladka',
+    ],
+    'longeron child' => [
+        'Лонжерон',
+        'legacy-lonzheron',
+        'Аксессуар',
+        'legacy-accessory',
+        'lonzheron/aksessuar',
+    ],
+    'floor repair kit child' => [
+        'Ремкомплект пола',
+        'legacy-floor-repair-kit',
+        'Инструмент',
+        'legacy-tool',
+        'remkomplekt-pola/instrument',
+    ],
+    'end cap child' => [
+        'Торцевая заглушка',
+        'legacy-end-cap',
+        'Универсальная',
+        'legacy-universal',
+        'tortsevaia-zaglushka/universalnaia',
+    ],
+]);
 
 test('suspicious categories including an unknown technical root are reported and never changed', function () {
     $suspect = legacy_category('Арки декоративные аксессуары', 'decorative-arches');
