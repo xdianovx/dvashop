@@ -46,7 +46,7 @@ class RepairCatalogPartTypes extends Command
             $this->newLine();
             $this->components->info('Применение repair');
             $result = $service->apply($plan);
-            $this->renderResult($result);
+            $this->renderResult($result, $plan);
             $this->components->info('Repair успешно применён.');
 
             return self::SUCCESS;
@@ -82,6 +82,7 @@ class RepairCatalogPartTypes extends Command
                 ['Ручные товары обновлены', $plan->preview('manual_products_updated')],
                 ['Товары уже были корректны', $plan->preview('products_already_correct')],
                 ['Технические категории деактивированы', $plan->preview('technical_categories_deactivated')],
+                ['Технические категории оставлены активными', $plan->preview('technical_categories_kept_active')],
                 ['Fallback category использован', $plan->preview('fallback_used')],
                 ['Warnings', count($plan->warnings)],
                 ['Blockers', count($plan->blockers)],
@@ -121,6 +122,8 @@ class RepairCatalogPartTypes extends Command
                     match ($entry['action']) {
                         'deactivate' => 'Деактивировать',
                         'already_deactivated' => 'Уже деактивирована',
+                        'keep_active' => 'Оставить активной',
+                        'migrate_products_keep_active' => 'Перенести товары, оставить активной',
                         default => 'Перенести товары и деактивировать',
                     },
                 ], $plan->technicalCategories),
@@ -152,7 +155,7 @@ class RepairCatalogPartTypes extends Command
         }
     }
 
-    private function renderResult(CatalogPartTypeRepairResult $result): void
+    private function renderResult(CatalogPartTypeRepairResult $result, CatalogPartTypeRepairPlan $plan): void
     {
         $this->newLine();
         $this->table(
@@ -167,10 +170,25 @@ class RepairCatalogPartTypes extends Command
                 ['Ручные товары обновлены', $result->counter('manual_products_updated')],
                 ['Товары уже были корректны', $result->counter('products_already_correct')],
                 ['Технические категории деактивированы', $result->counter('technical_categories_deactivated')],
+                ['Технические категории оставлены активными', $result->counter('technical_categories_kept_active')],
                 ['Fallback category использован', $result->counter('fallback_used')],
                 ['Warnings', count($result->warnings)],
                 ['Blockers', 0],
             ],
         );
+
+        $plannedWarnings = [];
+
+        foreach ($plan->warnings as $warning) {
+            $plannedWarnings[$warning->code.'|'.$warning->message] = true;
+        }
+
+        foreach ($result->warnings as $warning) {
+            if (isset($plannedWarnings[$warning->code.'|'.$warning->message])) {
+                continue;
+            }
+
+            $this->warn('[WARNING] '.$warning->message);
+        }
     }
 }

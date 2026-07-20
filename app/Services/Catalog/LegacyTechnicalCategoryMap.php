@@ -34,6 +34,15 @@ final class LegacyTechnicalCategoryMap
     ];
 
     /** @var array<int, string> */
+    private const MANUAL_REVIEW_CHILD_WORDS = [
+        'декоратив',
+        'молдинг',
+        'накладк',
+        'аксессуар',
+        'инструмент',
+    ];
+
+    /** @var array<int, string> */
     private const SUSPICIOUS_WORDS = [
         'кузов',
         'порог',
@@ -68,9 +77,21 @@ final class LegacyTechnicalCategoryMap
         $normalized = $this->normalizePath($categoryPath);
         $segments = explode(' / ', $normalized);
 
-        return count($segments) > 1
-            && in_array($segments[0], self::TECHNICAL_ROOTS, true)
-            && ! array_key_exists($normalized, self::PART_TYPE_BY_PATH);
+        if (count($segments) <= 1
+            || ! in_array($segments[0], self::TECHNICAL_ROOTS, true)
+            || array_key_exists($normalized, self::PART_TYPE_BY_PATH)) {
+            return false;
+        }
+
+        $childPath = implode(' / ', array_slice($segments, 1));
+
+        foreach (self::MANUAL_REVIEW_CHILD_WORDS as $word) {
+            if (str_contains($childPath, $word)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function isUnderKnownTechnicalRoot(string $categoryPath): bool

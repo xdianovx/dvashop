@@ -34,6 +34,7 @@ final class CatalogPartTypeRepairApplier
             }
 
             $counters = CatalogPartTypeRepairResult::emptyCounters();
+            $warnings = $freshPlan->warnings;
             $this->repairStoreStructure($freshPlan, $counters);
             $this->resolver->resetLocalCache();
 
@@ -69,11 +70,53 @@ final class CatalogPartTypeRepairApplier
                 $this->repairProductsForTechnicalCategory($entry, $partType, $category, $counters);
             }
 
-            foreach ($freshPlan->technicalCategories as $entry) {
+            $deactivationEntries = $freshPlan->technicalCategories;
+            usort(
+                $deactivationEntries,
+                static fn (array $left, array $right): int => count($left['descendant_ids'])
+                    <=> count($right['descendant_ids']),
+            );
+            $keptActiveCategoryIds = [];
+
+            foreach ($deactivationEntries as $entry) {
                 $legacyCategory = ProductCategory::withTrashed()->lockForUpdate()->find($entry['category_id']);
 
                 if (! $legacyCategory instanceof ProductCategory) {
                     throw new RuntimeException("Legacy-категория #{$entry['category_id']} исчезла во время repair.");
+                }
+
+                if (! $entry['can_deactivate']) {
+                    if ($this->keepLegacyCategoryActive($legacyCategory, $counters)) {
+                        $keptActiveCategoryIds[$entry['category_id']] = true;
+                    }
+
+                    continue;
+                }
+
+                $activeDescendantIds = array_values(array_filter(
+                    $entry['descendant_ids'],
+                    static fn (int $categoryId): bool => isset($keptActiveCategoryIds[$categoryId]),
+                ));
+
+                if ($activeDescendantIds !== []) {
+                    if ($this->keepLegacyCategoryActive($legacyCategory, $counters)) {
+                        $keptActiveCategoryIds[$entry['category_id']] = true;
+                    }
+
+                    $warnings[] = new CatalogPartTypeRepairIssue(
+                        code: 'legacy_category_kept_active_active_descendant',
+                        message: sprintf(
+                            'Категория «%s» оставлена активной: после переноса в ветке остались активные технические потомки (%d).',
+                            $entry['category_path'],
+                            count($activeDescendantIds),
+                        ),
+                        context: [
+                            'category_id' => $entry['category_id'],
+                            'active_descendant_ids' => $activeDescendantIds,
+                        ],
+                    );
+
+                    continue;
                 }
 
                 $remainingProducts = Product::withTrashed()
@@ -81,9 +124,24 @@ final class CatalogPartTypeRepairApplier
                     ->count();
 
                 if ($remainingProducts > 0) {
-                    throw new RuntimeException(
-                        "Legacy-категория #{$legacyCategory->getKey()} всё ещё связана с {$remainingProducts} товарами.",
+                    if ($this->keepLegacyCategoryActive($legacyCategory, $counters)) {
+                        $keptActiveCategoryIds[$entry['category_id']] = true;
+                    }
+
+                    $warnings[] = new CatalogPartTypeRepairIssue(
+                        code: 'legacy_category_kept_active_remaining_products',
+                        message: sprintf(
+                            'Категория «%s» оставлена активной: после переноса с ней всё ещё связано товаров — %d.',
+                            $entry['category_path'],
+                            $remainingProducts,
+                        ),
+                        context: [
+                            'category_id' => $entry['category_id'],
+                            'remaining_products' => $remainingProducts,
+                        ],
                     );
+
+                    continue;
                 }
 
                 if ($legacyCategory->is_active) {
@@ -92,8 +150,24 @@ final class CatalogPartTypeRepairApplier
                 }
             }
 
-            return new CatalogPartTypeRepairResult($counters, $freshPlan->warnings);
+            return new CatalogPartTypeRepairResult($counters, $warnings);
         });
+    }
+
+    /** @param array<string, int> $counters */
+    private function keepLegacyCategoryActive(ProductCategory $category, array &$counters): bool
+    {
+        if ($category->trashed()) {
+            return false;
+        }
+
+        if (! $category->is_active) {
+            $category->forceFill(['is_active' => true])->saveQuietly();
+        }
+
+        $counters['technical_categories_kept_active']++;
+
+        return true;
     }
 
     private function repairStoreStructure(CatalogPartTypeRepairPlan $plan, array &$counters): void
