@@ -47,6 +47,7 @@ final class LegacyTechnicalCategoryMap
         'кузов',
         'порог',
         'арка',
+        'арки',
         'пенка',
         'лонжерон',
         'ремкомплект',

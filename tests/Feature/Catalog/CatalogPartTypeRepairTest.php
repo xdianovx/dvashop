@@ -11,6 +11,7 @@ use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Services\Catalog\CatalogPartTypeRepairService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
@@ -32,6 +33,42 @@ function legacy_category(string $title, string $slug, ?ProductCategory $parent =
 function repair_service(): CatalogPartTypeRepairService
 {
     return app(CatalogPartTypeRepairService::class);
+}
+
+function keep_product_in_current_category_on_update(string $triggerName, Product $product): void
+{
+    $productId = (int) $product->getKey();
+    $categoryId = (int) $product->product_category_id;
+
+    if (DB::getDriverName() === 'sqlite') {
+        DB::unprepared(sprintf(
+            'CREATE TRIGGER %s '
+            .'AFTER UPDATE OF product_category_id ON products '
+            .'WHEN OLD.id = %d AND OLD.product_category_id = %d '
+            .'BEGIN UPDATE products SET product_category_id = OLD.product_category_id WHERE id = NEW.id; END',
+            $triggerName,
+            $productId,
+            $categoryId,
+        ));
+
+        return;
+    }
+
+    if (DB::getDriverName() === 'mysql') {
+        DB::unprepared(sprintf(
+            'CREATE TRIGGER %s BEFORE UPDATE ON products FOR EACH ROW '
+            .'SET NEW.product_category_id = IF('
+            .'OLD.id = %d AND OLD.product_category_id = %d, '
+            .'OLD.product_category_id, NEW.product_category_id)',
+            $triggerName,
+            $productId,
+            $categoryId,
+        ));
+
+        return;
+    }
+
+    throw new RuntimeException('Unsupported database driver for deterministic category retention test.');
 }
 
 test('dry run recognizes hierarchical and flat technical categories without mutating database', function () {
@@ -217,7 +254,7 @@ test('manual product keeps all business fields variants fitments and images', fu
         'stock_status', 'position', 'is_featured', 'meta_title', 'meta_description', 'import_key',
         'import_source', 'last_import_run_id', 'created_at',
     ];
-    $before = $product->only($protectedFields);
+    $before = Arr::only($product->getRawOriginal(), $protectedFields);
     $variantBefore = $variant->getAttributes();
     $fitmentBefore = $fitment->getAttributes();
     $imageBefore = $image->getAttributes();
@@ -226,7 +263,7 @@ test('manual product keeps all business fields variants fitments and images', fu
     $product->refresh();
 
     expect($result->counter('manual_products_updated'))->toBe(1)
-        ->and($product->only($protectedFields))->toBe($before)
+        ->and(Arr::only($product->getRawOriginal(), $protectedFields))->toBe($before)
         ->and($product->product_type)->toBe(ProductType::AutoPart)
         ->and($product->part_type_id)->not->toBeNull()
         ->and($product->product_category_id)->not->toBe($legacy->id)
@@ -334,8 +371,8 @@ test('unknown child under non grouping technical root is reported as a suspect a
     $root = legacy_category($rootTitle, $rootSlug);
     $child = legacy_category($childTitle, $childSlug, $root);
     $product = Product::factory()->forCategory($child)->generic()->create()->fresh();
-    $rootBefore = $root->getAttributes();
-    $categoryBefore = $child->getAttributes();
+    $rootBefore = $root->fresh()->getRawOriginal();
+    $categoryBefore = $child->fresh()->getRawOriginal();
     $productBefore = $product->getAttributes();
 
     $plan = repair_service()->inspect();
@@ -358,10 +395,10 @@ test('unknown child under non grouping technical root is reported as a suspect a
         ->and($product->fresh()->product_type)->toBe(ProductType::Generic)
         ->and($product->fresh()->part_type_id)->toBeNull()
         ->and($product->fresh()->product_category_id)->toBe($child->id)
-        ->and($root->fresh()->getAttributes())->toBe($rootBefore)
+        ->and($root->fresh()->getRawOriginal())->toBe($rootBefore)
         ->and($root->fresh()->is_active)->toBeTrue()
         ->and($root->fresh()->deleted_at)->toBeNull()
-        ->and($child->fresh()->getAttributes())->toBe($categoryBefore)
+        ->and($child->fresh()->getRawOriginal())->toBe($categoryBefore)
         ->and($child->fresh()->is_active)->toBeTrue()
         ->and($child->fresh()->deleted_at)->toBeNull();
 })->with([
@@ -424,9 +461,9 @@ test('deep unresolved descendant keeps the whole legacy branch active without ch
     $leaf = legacy_category('Накладка', 'legacy-trim', $intermediate);
     $product = Product::factory()->forCategory($leaf)->generic()->create()->fresh();
     $before = [
-        'root' => $root->getAttributes(),
-        'intermediate' => $intermediate->getAttributes(),
-        'leaf' => $leaf->getAttributes(),
+        'root' => $root->fresh()->getRawOriginal(),
+        'intermediate' => $intermediate->fresh()->getRawOriginal(),
+        'leaf' => $leaf->fresh()->getRawOriginal(),
         'product' => $product->getAttributes(),
     ];
 
@@ -439,9 +476,9 @@ test('deep unresolved descendant keeps the whole legacy branch active without ch
         ->and($rootPlan['unresolved_descendant_ids'])->toContain($intermediate->id, $leaf->id)
         ->and($rootPlan['unresolved_descendant_products'])->toBe(1)
         ->and($result->counter('technical_categories_kept_active'))->toBe(1)
-        ->and($root->fresh()->getAttributes())->toBe($before['root'])
-        ->and($intermediate->fresh()->getAttributes())->toBe($before['intermediate'])
-        ->and($leaf->fresh()->getAttributes())->toBe($before['leaf'])
+        ->and($root->fresh()->getRawOriginal())->toBe($before['root'])
+        ->and($intermediate->fresh()->getRawOriginal())->toBe($before['intermediate'])
+        ->and($leaf->fresh()->getRawOriginal())->toBe($before['leaf'])
         ->and($leaf->fresh()->parent_id)->toBe($intermediate->id)
         ->and($intermediate->fresh()->parent_id)->toBe($root->id)
         ->and($product->fresh()->getAttributes())->toBe($before['product']);
@@ -521,24 +558,11 @@ test('fully recognized legacy branch is completely deactivated after all product
 });
 
 test('legacy root stays active when a product remains directly attached after the grouped update', function () {
-    if (DB::getDriverName() !== 'sqlite') {
-        $this->markTestSkipped('The deterministic late-row trigger is only required for the SQLite test database.');
-    }
-
-    $unrelated = legacy_category('Прочее', 'other');
-    $lateProduct = Product::factory()->forCategory($unrelated)->generic()->create();
     $root = legacy_category('Порог', 'legacy-porog');
     $sourceProduct = Product::factory()->forCategory($root)->generic()->create();
+    $retainedProduct = Product::factory()->forCategory($root)->generic()->create();
 
-    DB::statement(sprintf(
-        'CREATE TRIGGER keep_product_on_legacy_root '
-        .'AFTER UPDATE OF product_category_id ON products '
-        .'WHEN OLD.product_category_id = %d '
-        .'BEGIN UPDATE products SET product_category_id = %d WHERE id = %d; END',
-        $root->id,
-        $root->id,
-        $lateProduct->id,
-    ));
+    keep_product_in_current_category_on_update('keep_product_on_legacy_root', $retainedProduct);
 
     try {
         $result = repair_service()->apply(repair_service()->inspect());
@@ -547,8 +571,8 @@ test('legacy root stays active when a product remains directly attached after th
     }
 
     expect($sourceProduct->fresh()->product_category_id)->not->toBe($root->id)
-        ->and($lateProduct->fresh()->product_category_id)->toBe($root->id)
-        ->and($lateProduct->fresh()->part_type_id)->toBeNull()
+        ->and($retainedProduct->fresh())->not->toBeNull()
+        ->and($retainedProduct->fresh()->product_category_id)->toBe($root->id)
         ->and($root->fresh()->is_active)->toBeTrue()
         ->and($result->counter('technical_categories_deactivated'))->toBe(0)
         ->and($result->counter('technical_categories_kept_active'))->toBe(1)
@@ -556,21 +580,12 @@ test('legacy root stays active when a product remains directly attached after th
 });
 
 test('legacy ancestor stays active when a recognized child still has a direct product', function () {
-    $unrelated = legacy_category('Прочее', 'other');
-    $lateProduct = Product::factory()->forCategory($unrelated)->generic()->create();
     $root = legacy_category('Арка', 'legacy-arka');
     $child = legacy_category('Задняя', 'legacy-rear', $root);
     $sourceProduct = Product::factory()->forCategory($child)->generic()->create();
+    $retainedProduct = Product::factory()->forCategory($child)->generic()->create();
 
-    DB::statement(sprintf(
-        'CREATE TRIGGER keep_product_on_legacy_child '
-        .'AFTER UPDATE OF product_category_id ON products '
-        .'WHEN OLD.product_category_id = %d '
-        .'BEGIN UPDATE products SET product_category_id = %d WHERE id = %d; END',
-        $child->id,
-        $child->id,
-        $lateProduct->id,
-    ));
+    keep_product_in_current_category_on_update('keep_product_on_legacy_child', $retainedProduct);
 
     try {
         $result = repair_service()->apply(repair_service()->inspect());
@@ -579,7 +594,8 @@ test('legacy ancestor stays active when a recognized child still has a direct pr
     }
 
     expect($sourceProduct->fresh()->product_category_id)->not->toBe($child->id)
-        ->and($lateProduct->fresh()->product_category_id)->toBe($child->id)
+        ->and($retainedProduct->fresh())->not->toBeNull()
+        ->and($retainedProduct->fresh()->product_category_id)->toBe($child->id)
         ->and($child->fresh()->is_active)->toBeTrue()
         ->and($root->fresh()->is_active)->toBeTrue()
         ->and($result->counter('technical_categories_deactivated'))->toBe(0)
@@ -594,16 +610,16 @@ test('suspicious categories including an unknown technical root are reported and
     $suspect = legacy_category('Арки декоративные аксессуары', 'decorative-arches');
     $unknownRoot = legacy_category('Новая кузовная штука', 'new-body-thing');
     $product = Product::factory()->forCategory($suspect)->generic()->create()->fresh();
-    $categoryBefore = $suspect->getAttributes();
-    $unknownRootBefore = $unknownRoot->getAttributes();
+    $categoryBefore = $suspect->fresh()->getRawOriginal();
+    $unknownRootBefore = $unknownRoot->fresh()->getRawOriginal();
     $productBefore = $product->getAttributes();
 
     $plan = repair_service()->inspect();
     repair_service()->apply($plan);
 
     expect(collect($plan->suspects)->pluck('category_id'))->toContain($suspect->id, $unknownRoot->id)
-        ->and($suspect->fresh()->getAttributes())->toBe($categoryBefore)
-        ->and($unknownRoot->fresh()->getAttributes())->toBe($unknownRootBefore)
+        ->and($suspect->fresh()->getRawOriginal())->toBe($categoryBefore)
+        ->and($unknownRoot->fresh()->getRawOriginal())->toBe($unknownRootBefore)
         ->and($product->fresh()->getAttributes())->toBe($productBefore)
         ->and(PartType::query()->where('full_title', 'Арки декоративные аксессуары')->exists())->toBeFalse();
 });
