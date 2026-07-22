@@ -62,6 +62,27 @@ test('product can be created with category and base fields', function () {
         ->and($product->category->is($category))->toBeTrue();
 });
 
+test('product factory generates unique slugs and non-null skus without faker unique cache', function () {
+    $category = ProductCategory::factory()->create();
+
+    Product::factory()
+        ->count(500)
+        ->forCategory($category)
+        ->create();
+
+    $productsCount = Product::query()->count();
+    $distinctSlugsCount = Product::query()->distinct()->count('slug');
+    $skuCount = Product::query()->whereNotNull('sku')->count();
+    $distinctSkuCount = Product::query()
+        ->whereNotNull('sku')
+        ->distinct()
+        ->count('sku');
+
+    expect($productsCount)->toBe(500)
+        ->and($distinctSlugsCount)->toBe(500)
+        ->and($distinctSkuCount)->toBe($skuCount);
+});
+
 test('product slug and import key are unique', function () {
     Product::factory()->create(['slug' => 'unique-product', 'import_key' => 'import-1']);
 

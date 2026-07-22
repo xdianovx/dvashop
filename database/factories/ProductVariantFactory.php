@@ -6,6 +6,7 @@ use App\Enums\StockStatus;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Str;
 
 /**
  * @extends Factory<ProductVariant>
@@ -18,7 +19,9 @@ class ProductVariantFactory extends Factory
     {
         return [
             'product_id' => Product::factory(),
-            'sku' => fake()->unique()->optional()->bothify('VAR-#####'),
+            'sku' => fake()->boolean(70)
+                ? 'VAR-'.strtoupper((string) Str::ulid())
+                : null,
             'title' => fake()->optional()->randomElement(['Стандарт', 'Комплект левый/правый', 'Усиленная версия']),
             'options' => null,
             'price' => fake()->randomFloat(2, 1000, 50000),
