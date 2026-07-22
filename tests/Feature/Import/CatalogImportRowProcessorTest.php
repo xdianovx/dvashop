@@ -312,9 +312,17 @@ test('vehicle photo from column a is stored on generation and queued for downloa
     processCatalogRow($run, catalogRow([0 => $url]));
 
     $generation = VehicleGeneration::query()->firstOrFail();
+    $product = Product::query()->firstOrFail();
 
     expect($generation->image_source_url)->toBe($url)
-        ->and(ProductImage::query()->count())->toBe(0);
+        ->and(ProductImage::query()
+            ->where('product_id', $product->getKey())
+            ->where('source_type', ProductImage::SOURCE_IMPORT)
+            ->count())->toBe(0)
+        ->and(ProductImage::query()
+            ->where('product_id', $product->getKey())
+            ->where('source_type', ProductImage::SOURCE_DEFAULT)
+            ->count())->toBe(1);
 
     Queue::assertPushed(DownloadVehicleGenerationImageJob::class, fn (DownloadVehicleGenerationImageJob $job): bool => $job->vehicleGenerationId === $generation->getKey()
         && $job->url === $url
@@ -501,7 +509,16 @@ test('fake http image download saves product image file', function () {
 
     Storage::disk('public')->assertExists($image->path);
 
-    expect(ProductImage::query()->count())->toBe(1)
+    expect(ProductImage::query()
+        ->where('product_id', $product->getKey())
+        ->where('source_type', ProductImage::SOURCE_DEFAULT)
+        ->count())->toBe(1)
+        ->and(ProductImage::query()
+            ->where('product_id', $product->getKey())
+            ->where('source_type', ProductImage::SOURCE_IMPORT)
+            ->count())->toBe(1)
+        ->and(ProductImage::query()->where('product_id', $product->getKey())->count())->toBe(2)
+        ->and($image->source_type)->toBe(ProductImage::SOURCE_IMPORT)
         ->and($image->path)->toStartWith('uploads/products/'.$product->getKey().'/')
         ->and($image->path)->toEndWith('.webp')
         ->and($image->mime)->toBe('image/webp')
