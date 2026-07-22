@@ -35,40 +35,23 @@ function repair_service(): CatalogPartTypeRepairService
     return app(CatalogPartTypeRepairService::class);
 }
 
-function keep_product_in_current_category_on_update(string $triggerName, Product $product): void
+function keep_product_in_current_category_after_grouped_update(Product $product): void
 {
     $productId = (int) $product->getKey();
     $categoryId = (int) $product->product_category_id;
+    $restored = false;
 
-    if (DB::getDriverName() === 'sqlite') {
-        DB::unprepared(sprintf(
-            'CREATE TRIGGER %s '
-            .'AFTER UPDATE OF product_category_id ON products '
-            .'WHEN OLD.id = %d AND OLD.product_category_id = %d '
-            .'BEGIN UPDATE products SET product_category_id = OLD.product_category_id WHERE id = NEW.id; END',
-            $triggerName,
-            $productId,
-            $categoryId,
-        ));
+    DB::listen(function ($query) use ($productId, $categoryId, &$restored): void {
+        if ($restored || preg_match('/^update\\s+[`"]?products[`"]?\\s+/i', trim($query->sql)) !== 1) {
+            return;
+        }
 
-        return;
-    }
+        $restored = true;
 
-    if (DB::getDriverName() === 'mysql') {
-        DB::unprepared(sprintf(
-            'CREATE TRIGGER %s BEFORE UPDATE ON products FOR EACH ROW '
-            .'SET NEW.product_category_id = IF('
-            .'OLD.id = %d AND OLD.product_category_id = %d, '
-            .'OLD.product_category_id, NEW.product_category_id)',
-            $triggerName,
-            $productId,
-            $categoryId,
-        ));
-
-        return;
-    }
-
-    throw new RuntimeException('Unsupported database driver for deterministic category retention test.');
+        DB::table('products')
+            ->where('id', $productId)
+            ->update(['product_category_id' => $categoryId]);
+    });
 }
 
 test('dry run recognizes hierarchical and flat technical categories without mutating database', function () {
@@ -255,9 +238,9 @@ test('manual product keeps all business fields variants fitments and images', fu
         'import_source', 'last_import_run_id', 'created_at',
     ];
     $before = Arr::only($product->getRawOriginal(), $protectedFields);
-    $variantBefore = $variant->getAttributes();
-    $fitmentBefore = $fitment->getAttributes();
-    $imageBefore = $image->getAttributes();
+    $variantBefore = $variant->fresh()->getRawOriginal();
+    $fitmentBefore = $fitment->fresh()->getRawOriginal();
+    $imageBefore = $image->fresh()->getRawOriginal();
 
     $result = repair_service()->apply(repair_service()->inspect());
     $product->refresh();
@@ -267,9 +250,9 @@ test('manual product keeps all business fields variants fitments and images', fu
         ->and($product->product_type)->toBe(ProductType::AutoPart)
         ->and($product->part_type_id)->not->toBeNull()
         ->and($product->product_category_id)->not->toBe($legacy->id)
-        ->and($variant->fresh()->getAttributes())->toBe($variantBefore)
-        ->and($fitment->fresh()->getAttributes())->toBe($fitmentBefore)
-        ->and($image->fresh()->getAttributes())->toBe($imageBefore);
+        ->and($variant->fresh()->getRawOriginal())->toBe($variantBefore)
+        ->and($fitment->fresh()->getRawOriginal())->toBe($fitmentBefore)
+        ->and($image->fresh()->getRawOriginal())->toBe($imageBefore);
 });
 
 test('imported product keeps import metadata and related records', function () {
@@ -562,13 +545,9 @@ test('legacy root stays active when a product remains directly attached after th
     $sourceProduct = Product::factory()->forCategory($root)->generic()->create();
     $retainedProduct = Product::factory()->forCategory($root)->generic()->create();
 
-    keep_product_in_current_category_on_update('keep_product_on_legacy_root', $retainedProduct);
+    keep_product_in_current_category_after_grouped_update($retainedProduct);
 
-    try {
-        $result = repair_service()->apply(repair_service()->inspect());
-    } finally {
-        DB::statement('DROP TRIGGER IF EXISTS keep_product_on_legacy_root');
-    }
+    $result = repair_service()->apply(repair_service()->inspect());
 
     expect($sourceProduct->fresh()->product_category_id)->not->toBe($root->id)
         ->and($retainedProduct->fresh())->not->toBeNull()
@@ -585,13 +564,9 @@ test('legacy ancestor stays active when a recognized child still has a direct pr
     $sourceProduct = Product::factory()->forCategory($child)->generic()->create();
     $retainedProduct = Product::factory()->forCategory($child)->generic()->create();
 
-    keep_product_in_current_category_on_update('keep_product_on_legacy_child', $retainedProduct);
+    keep_product_in_current_category_after_grouped_update($retainedProduct);
 
-    try {
-        $result = repair_service()->apply(repair_service()->inspect());
-    } finally {
-        DB::statement('DROP TRIGGER IF EXISTS keep_product_on_legacy_child');
-    }
+    $result = repair_service()->apply(repair_service()->inspect());
 
     expect($sourceProduct->fresh()->product_category_id)->not->toBe($child->id)
         ->and($retainedProduct->fresh())->not->toBeNull()
