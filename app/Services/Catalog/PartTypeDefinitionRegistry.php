@@ -30,7 +30,7 @@ final class PartTypeDefinitionRegistry
                 'children' => [
                     ['title' => 'Задней двери', 'position' => 10, 'default_image_key' => 'penka-zadnei-dveri'],
                     ['title' => 'Передней двери', 'position' => 20, 'default_image_key' => 'penka-perednei-dveri'],
-                    ['title' => 'Багажника', 'position' => 30, 'default_image_key' => 'penka-bagazhnika'],
+                    ['title' => 'Багажника', 'position' => 30, 'default_image_key' => 'penka-bagaznika'],
                 ],
             ],
             ['title' => 'Лонжерон', 'position' => 40, 'default_image_key' => 'lonzeron'],
