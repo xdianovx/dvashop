@@ -36,13 +36,9 @@ class ProductGalleryService
 
     public function ensureDefaultImage(Product $product, bool $makeMain = false): ?ProductImage
     {
-        $product->loadMissing(['category', 'defaultVariant']);
+        $product->loadMissing(['partType', 'category', 'defaultVariant']);
 
-        if (! $product->category) {
-            return null;
-        }
-
-        $default = $this->defaultImages->forCategory($product->category);
+        $default = $this->defaultImages->forProduct($product);
 
         if ($default === null) {
             return null;
@@ -93,7 +89,7 @@ class ProductGalleryService
         $image = $this->ensureDefaultImage($product, true);
 
         if (! $image instanceof ProductImage) {
-            throw new RuntimeException('Для категории товара не найдено дефолтное изображение.');
+            throw new RuntimeException('Для товара не найдено дефолтное изображение.');
         }
 
         return $this->makeMain($image);
@@ -101,10 +97,10 @@ class ProductGalleryService
 
     public function resetToDefault(Product $product): ProductImage
     {
-        $product->loadMissing('category');
+        $product->loadMissing(['partType', 'category']);
 
-        if (! $product->category || $this->defaultImages->forCategory($product->category) === null) {
-            throw new RuntimeException('Для категории товара не найдено дефолтное изображение. Галерея не изменена.');
+        if ($this->defaultImages->forProduct($product) === null) {
+            throw new RuntimeException('Для товара не найдено дефолтное изображение. Галерея не изменена.');
         }
 
         $product->images()

@@ -2,8 +2,11 @@
 
 namespace App\Services\Import;
 
+use App\Enums\ImportLogLevel;
 use App\Jobs\DownloadVehicleGenerationImageJob;
+use App\Models\ImportLog;
 use App\Models\ImportRun;
+use App\Models\PartType;
 use App\Models\ProductCategory;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
@@ -12,47 +15,68 @@ use App\Services\ImportLogger;
 use App\Services\ImportRunStats;
 use App\Services\ImportStatusService;
 use App\Support\CatalogText;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class ImportRowProcessor
 {
     public const DETAIL_START_COLUMN = 6;
 
+    /** @var array<int, PartType> */
+    private array $partTypeCache = [];
+
     /** @var array<int, ProductCategory> */
-    private array $categoryCache = [];
+    private array $storeCategoryCache = [];
+
+    /** @var array<string, bool> */
+    private array $resolutionWarnings = [];
 
     public function __construct(
         private readonly ImportLogger $logger,
         private readonly ImportProductFactory $products,
+        private readonly ImportPartTypeResolver $partTypes,
         private readonly ImportRunStats $stats,
         private readonly ImportStatusService $statusService,
     ) {}
 
     /**
      * @param array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, category_id?:int, category_full_slug?:string, category_full_path?:string}> $detailColumns
-     * @return array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, category_id:int, category_full_slug:string, category_full_path:string}>
+     * @return array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, part_type_id:int, part_type_full_slug:string, part_type_full_title:string, product_category_id:int, product_category_full_slug:string, product_category_full_path:string, part_type_used_fallback:bool}>
      */
     public function prepareDetailColumns(ImportRun $run, array $detailColumns): array
     {
-        $prepared = [];
+        return DB::transaction(function () use ($run, $detailColumns): array {
+            $prepared = [];
 
-        foreach ($detailColumns as $columnIndex => $detailHeader) {
-            $category = $this->productCategory($detailHeader, $run, true);
-            if (! $category instanceof ProductCategory) {
-                continue;
+            foreach ($detailColumns as $columnIndex => $detailHeader) {
+                $resolution = $this->partTypes->resolve($run, $detailHeader, (int) $columnIndex);
+
+                unset(
+                    $detailHeader['category_id'],
+                    $detailHeader['category_full_slug'],
+                    $detailHeader['category_full_path'],
+                );
+
+                $detailHeader['part_type_id'] = $resolution->partType->getKey();
+                $detailHeader['part_type_full_slug'] = $resolution->partType->full_slug;
+                $detailHeader['part_type_full_title'] = $resolution->partType->full_title;
+                $detailHeader['product_category_id'] = $resolution->productCategory->getKey();
+                $detailHeader['product_category_full_slug'] = $resolution->productCategory->full_slug;
+                $detailHeader['product_category_full_path'] = $resolution->productCategory->full_title;
+                $detailHeader['part_type_used_fallback'] = $resolution->usedFallback;
+                $prepared[(int) $columnIndex] = $detailHeader;
+
+                $this->partTypeCache[(int) $resolution->partType->getKey()] = $resolution->partType;
+                $this->storeCategoryCache[(int) $resolution->productCategory->getKey()] = $resolution->productCategory;
             }
-            $detailHeader['category_id'] = $category->getKey();
-            $detailHeader['category_full_slug'] = $category->full_slug;
-            $detailHeader['category_full_path'] = $category->full_title;
-            $prepared[(int) $columnIndex] = $detailHeader;
-        }
 
-        return $prepared;
+            return $prepared;
+        });
     }
 
     /**
      * @param array<int, mixed> $row
-     * @param array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, category_id?:int, category_full_slug?:string, category_full_path?:string}> $detailColumns
+     * @param array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, part_type_id?:int, product_category_id?:int, part_type_used_fallback?:bool, category_id?:int}> $detailColumns
      */
     public function process(ImportRun $run, array $row, array $detailColumns, int $rowNumber): void
     {
@@ -84,11 +108,12 @@ class ImportRowProcessor
                 continue;
             }
 
-            $category = $this->productCategory($detailHeader, $run, false, $rowNumber, (int) $columnIndex);
-
-            if (! $category instanceof ProductCategory) {
-                continue;
-            }
+            $resolution = $this->detailResolution(
+                run: $run,
+                detailHeader: $detailHeader,
+                rowNumber: $rowNumber,
+                columnIndex: (int) $columnIndex,
+            );
 
             if (! $availableCell['is_standard']) {
                 $this->logger->warning($run, 'Нестандартное значение товарной ячейки принято как наличие товара', [
@@ -96,14 +121,16 @@ class ImportRowProcessor
                     'column' => $this->columnName((int) $columnIndex),
                     'column_index' => (int) $columnIndex,
                     'value' => $cellValue,
-                    'category' => $category->full_slug,
+                    'part_type' => $resolution->partType->full_slug,
+                    'store_category' => $resolution->productCategory->full_slug,
                 ]);
             }
 
             $this->products->createOrUpdateFromCell(
                 run: $run,
                 generation: $generation,
-                category: $category,
+                partType: $resolution->partType,
+                storeCategory: $resolution->productCategory,
                 detailHeader: $detailHeader,
                 cellValue: $cellValue,
                 imageUrl: $availableCell['image_url'],
@@ -112,51 +139,99 @@ class ImportRowProcessor
     }
 
     /**
-     * @param array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, category_id?:int, category_full_slug?:string, category_full_path?:string} $detailHeader
+     * @param array{parent_title?:string|null,group?:string|null,detail_title?:string|null,title?:string|null,full_detail_title?:string|null,category_title?:string|null,part_type_id?:int,product_category_id?:int,part_type_used_fallback?:bool,category_id?:int} $detailHeader
      */
-    public function productCategory(array $detailHeader, ?ImportRun $run = null, bool $createIfMissing = true, ?int $rowNumber = null, ?int $columnIndex = null): ?ProductCategory
+    private function detailResolution(
+        ImportRun $run,
+        array $detailHeader,
+        int $rowNumber,
+        int $columnIndex,
+    ): ImportPartTypeResolution {
+        $partTypeId = (int) ($detailHeader['part_type_id'] ?? 0);
+        $storeCategoryId = (int) ($detailHeader['product_category_id'] ?? 0);
+
+        if ($partTypeId > 0 && $storeCategoryId > 0) {
+            $partType = $this->partTypeCache[$partTypeId] ?? PartType::query()->find($partTypeId);
+            $storeCategory = $this->storeCategoryCache[$storeCategoryId] ?? ProductCategory::query()->find($storeCategoryId);
+
+            if ($partType instanceof PartType && $storeCategory instanceof ProductCategory) {
+                $this->partTypeCache[$partTypeId] = $partType;
+                $this->storeCategoryCache[$storeCategoryId] = $storeCategory;
+
+                return new ImportPartTypeResolution(
+                    partType: $partType,
+                    productCategory: $storeCategory,
+                    usedFallback: (bool) ($detailHeader['part_type_used_fallback'] ?? false),
+                    wasCreated: false,
+                    wasRestored: false,
+                );
+            }
+
+            $this->warnResolutionOnce(
+                run: $run,
+                key: 'reresolve:'.$columnIndex,
+                message: 'Подготовленные данные типа детали устарели, выполнено повторное разрешение',
+                context: [
+                    'row' => $rowNumber,
+                    'column' => $this->columnName($columnIndex),
+                    'column_index' => $columnIndex,
+                    'part_type_id' => $partTypeId,
+                    'product_category_id' => $storeCategoryId,
+                ],
+            );
+        } elseif (! empty($detailHeader['category_id'])) {
+            $this->warnResolutionOnce(
+                run: $run,
+                key: 'legacy-detail-columns',
+                message: 'Устаревший формат detail_columns разрешён через PartType; category_id проигнорирован',
+                context: [
+                    'row' => $rowNumber,
+                    'column' => $this->columnName($columnIndex),
+                    'column_index' => $columnIndex,
+                    'legacy_category_id' => (int) $detailHeader['category_id'],
+                ],
+            );
+        } elseif ($partTypeId > 0 || $storeCategoryId > 0) {
+            $this->warnResolutionOnce(
+                run: $run,
+                key: 'incomplete-detail-columns:'.$columnIndex,
+                message: 'Неполные данные типа детали в detail_columns разрешены повторно',
+                context: [
+                    'row' => $rowNumber,
+                    'column' => $this->columnName($columnIndex),
+                    'column_index' => $columnIndex,
+                    'part_type_id' => $partTypeId ?: null,
+                    'product_category_id' => $storeCategoryId ?: null,
+                ],
+            );
+        }
+
+        $resolution = $this->partTypes->resolve($run, $detailHeader, $columnIndex);
+        $this->partTypeCache[(int) $resolution->partType->getKey()] = $resolution->partType;
+        $this->storeCategoryCache[(int) $resolution->productCategory->getKey()] = $resolution->productCategory;
+
+        return $resolution;
+    }
+
+    private function warnResolutionOnce(ImportRun $run, string $key, string $message, array $context): void
     {
-        if (! empty($detailHeader['category_id'])) {
-            $categoryId = (int) $detailHeader['category_id'];
+        $cacheKey = $run->getKey().':'.$key;
 
-            if (isset($this->categoryCache[$categoryId])) {
-                return $this->categoryCache[$categoryId];
-            }
-
-            $category = ProductCategory::query()->find($categoryId);
-
-            if ($category instanceof ProductCategory) {
-                return $this->categoryCache[$categoryId] = $category;
-            }
-
-            if (! $createIfMissing) {
-                if ($run !== null) {
-                    $this->logger->warning($run, 'Категория товара из detail_columns не найдена, ячейка пропущена', [
-                        'row' => $rowNumber,
-                        'column' => $columnIndex === null ? null : $this->columnName($columnIndex),
-                        'column_index' => $columnIndex,
-                        'category_id' => $categoryId,
-                    ]);
-                }
-
-                return null;
-            }
+        if (isset($this->resolutionWarnings[$cacheKey])) {
+            return;
         }
 
-        $groupTitle = $this->cell($detailHeader['parent_title'] ?? $detailHeader['group'] ?? null);
-        $categoryTitle = $this->cell($detailHeader['category_title'] ?? $detailHeader['detail_title'] ?? $detailHeader['title'] ?? null);
+        $alreadyLogged = ImportLog::query()
+            ->where('import_run_id', $run->getKey())
+            ->where('level', ImportLogLevel::Warning->value)
+            ->where('message', $message)
+            ->exists();
 
-        if ($categoryTitle === '' && $groupTitle !== '') {
-            $categoryTitle = $groupTitle;
+        $this->resolutionWarnings[$cacheKey] = true;
+
+        if (! $alreadyLogged) {
+            $this->logger->warning($run, $message, $context);
         }
-
-        if ($groupTitle === '' || $groupTitle === $categoryTitle) {
-            return $this->firstOrRestoreCategory(null, $categoryTitle, $run);
-        }
-
-        $parent = $this->firstOrRestoreCategory(null, $groupTitle, $run);
-
-        return $this->firstOrRestoreCategory($parent, $categoryTitle, $run);
     }
 
     public function vehicleGeneration(
@@ -309,42 +384,6 @@ class ImportRowProcessor
         }
 
         return $model->refresh();
-    }
-
-    private function firstOrRestoreCategory(?ProductCategory $parent, string $title, ?ImportRun $run = null): ProductCategory
-    {
-        $slug = CatalogText::slug($title, 'category', 80);
-
-        /** @var ProductCategory $category */
-        $category = ProductCategory::withTrashed()->firstOrNew([
-            'parent_id' => $parent?->getKey(),
-            'slug' => $slug,
-        ]);
-
-        $wasCreated = ! $category->exists;
-        $wasTrashed = $category->exists && $category->trashed();
-
-        $category->fill([
-            'title' => CatalogText::plain($title, 250),
-            'is_active' => true,
-        ]);
-        $wasChanged = $category->isDirty();
-
-        if ($category->trashed()) {
-            $category->restore();
-        }
-
-        $category->save();
-
-        if ($run !== null) {
-            if ($wasCreated) {
-                $this->stats->increment($run, 'created_categories');
-            } elseif ($wasChanged || $wasTrashed) {
-                $this->stats->increment($run, 'updated_categories');
-            }
-        }
-
-        return $category->refresh();
     }
 
     /** @return array{image_url:string|null, is_standard:bool}|null */

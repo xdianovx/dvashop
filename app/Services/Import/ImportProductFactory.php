@@ -5,10 +5,12 @@ namespace App\Services\Import;
 use App\Enums\ImportLogLevel;
 use App\Enums\ImportRunStatus;
 use App\Enums\ProductStatus;
+use App\Enums\ProductType;
 use App\Enums\StockStatus;
 use App\Jobs\DownloadProductImageJob;
 use App\Models\ImportLog;
 use App\Models\ImportRun;
+use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductFitment;
@@ -18,7 +20,6 @@ use App\Models\VehicleGeneration;
 use App\Services\ImportLogger;
 use App\Services\ImportRunStats;
 use App\Services\ImportStatusService;
-use App\Services\Media\DefaultProductImageService;
 use App\Services\Media\ProductGalleryService;
 use App\Support\CatalogText;
 use Illuminate\Support\Facades\Storage;
@@ -29,7 +30,6 @@ class ImportProductFactory
     public function __construct(
         private readonly ImportRunStats $stats,
         private readonly ImportStatusService $statusService,
-        private readonly DefaultProductImageService $defaultImages,
         private readonly ProductGalleryService $gallery,
         private readonly ImportLogger $logger,
     ) {}
@@ -46,23 +46,26 @@ class ImportProductFactory
     public function createOrUpdateFromCell(
         ImportRun $run,
         VehicleGeneration $generation,
-        ProductCategory $category,
+        PartType $partType,
+        ProductCategory $storeCategory,
         array $detailHeader,
         string $cellValue,
         ?string $imageUrl = null,
     ): Product {
         $vehicle = $generation->loadMissing('model.make');
         $source = $this->sourceFor($run);
-        $productTitle = $this->productTitle($category, $vehicle, $detailHeader);
-        $importKey = $this->importKey($vehicle, $category, $source);
-        $slug = $this->stableSlug($vehicle, $category, $source, $productTitle);
+        $productTitle = $this->productTitle($partType, $vehicle);
+        $importKey = $this->importKey($vehicle, $partType, $source);
+        $slug = $this->stableSlug($vehicle, $partType, $source, $productTitle);
 
         /** @var Product $product */
         $product = Product::query()->firstOrNew(['import_key' => $importKey]);
         $wasCreated = ! $product->exists;
 
         $productAttributes = [
-            'product_category_id' => $category->getKey(),
+            'product_type' => ProductType::AutoPart,
+            'part_type_id' => $partType->getKey(),
+            'product_category_id' => $storeCategory->getKey(),
             'title' => $productTitle,
             'slug' => $slug,
             'status' => ProductStatus::Active,
@@ -97,11 +100,13 @@ class ImportProductFactory
                 'stock_status' => StockStatus::InStock,
                 'is_active' => true,
             ])->save();
-        } elseif ($variant->title === null || $variant->title === '') {
-            $variant->forceFill(['title' => 'Основной'])->save();
         }
 
-        ProductFitment::query()->updateOrCreate(
+        $product->setRelation('partType', $partType);
+        $product->setRelation('category', $storeCategory);
+        $product->setRelation('defaultVariant', $variant);
+
+        ProductFitment::query()->firstOrCreate(
             [
                 'product_id' => $product->getKey(),
                 'vehicle_generation_id' => $generation->getKey(),
@@ -122,8 +127,8 @@ class ImportProductFactory
                 DownloadProductImageJob::dispatch($product->getKey(), $imageUrl, $run->getKey())->onQueue('imports-images');
             }
         } elseif ($this->isPositiveAvailabilityCell($cellValue)) {
-            $this->warnImportImageUrlDisappearedOnce($product, $run, $category);
-            $this->attachDefaultImage($product, $category, $run);
+            $this->warnImportImageUrlDisappearedOnce($product, $run, $partType, $storeCategory);
+            $this->attachDefaultImage($product, $partType, $run);
         }
 
         return $product->refresh();
@@ -151,15 +156,12 @@ class ImportProductFactory
         return $archived;
     }
 
-    /**
-     * @param array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string}|null $detailHeader
-     */
-    public function productTitle(ProductCategory $category, VehicleGeneration $generation, ?array $detailHeader = null): string
+    public function productTitle(PartType $partType, VehicleGeneration $generation): string
     {
         $generation->loadMissing('model.make');
 
         $title = trim(implode(' ', array_filter([
-            $this->detailTitleForProduct($category, $detailHeader),
+            $this->partTypeTitleForProduct($partType),
             'для',
             $generation->model?->make?->title,
             $generation->model?->title,
@@ -171,7 +173,7 @@ class ImportProductFactory
         return CatalogText::plain($title, 250);
     }
 
-    public function importKey(VehicleGeneration $generation, ProductCategory $category, string $source = 'catalog'): string
+    public function importKey(VehicleGeneration $generation, PartType $partType, string $source = 'catalog'): string
     {
         $generation->loadMissing('model.make');
 
@@ -180,52 +182,46 @@ class ImportProductFactory
             $generation->model?->make?->norm_key,
             $generation->model?->norm_key,
             $generation->norm_key,
-            ...$this->categoryImportKeySegments($category),
+            ...$this->partTypeImportKeySegments($partType),
         ], ':', 240, 'catalog');
     }
 
     /** @return array<int, string> */
-    private function categoryImportKeySegments(ProductCategory $category): array
+    private function partTypeImportKeySegments(PartType $partType): array
     {
-        $path = CatalogText::plain($category->full_slug ?: $category->slug ?: $category->title, 250);
+        $path = CatalogText::plain($partType->full_slug ?: $partType->slug ?: $partType->title, 250);
         $segments = array_values(array_filter(array_map(
             static fn (string $segment): string => trim($segment),
             explode('/', $path),
         ), static fn (string $segment): bool => $segment !== ''));
 
-        return $segments !== [] ? $segments : [$category->title];
+        return $segments !== [] ? $segments : [$partType->title];
     }
 
-    public function stableSlug(VehicleGeneration $generation, ProductCategory $category, string $source = 'catalog', ?string $productTitle = null): string
+    public function stableSlug(VehicleGeneration $generation, PartType $partType, string $source = 'catalog', ?string $productTitle = null): string
     {
         $normalizedSource = CatalogText::normKey($source, 'catalog', 60) ?: 'catalog';
-        $titleSlug = CatalogText::slug($productTitle ?: $this->productTitle($category, $generation), 'product', 120);
-        $identity = Str::after($this->importKey($generation, $category, $source), $normalizedSource.':');
+        $titleSlug = CatalogText::slug($productTitle ?: $this->productTitle($partType, $generation), 'product', 120);
+        $identity = Str::after($this->importKey($generation, $partType, $source), $normalizedSource.':');
         $base = $normalizedSource === 'catalog' ? $titleSlug : $normalizedSource.'-'.$titleSlug;
 
         return CatalogText::limitStable($base.'-'.substr(sha1($identity), 0, 8), 150);
     }
 
-
-    /**
-     * @param array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string}|null $detailHeader
-     */
-    private function detailTitleForProduct(ProductCategory $category, ?array $detailHeader = null): string
+    private function partTypeTitleForProduct(PartType $partType): string
     {
-        $fullDetailTitle = CatalogText::plain($detailHeader['full_detail_title'] ?? null, 250);
+        $segments = array_values(array_filter(array_map(
+            static fn (string $segment): string => CatalogText::plain($segment, 250),
+            preg_split('#\s*/\s*#u', (string) ($partType->full_title ?: $partType->title)) ?: [],
+        ), static fn (string $segment): bool => $segment !== ''));
 
-        if ($fullDetailTitle !== '') {
-            return $fullDetailTitle;
-        }
+        $title = implode(' ', array_map(
+            fn (string $segment, int $index): string => $index === 0 ? $segment : $this->lowerFirst($segment),
+            $segments,
+            array_keys($segments),
+        ));
 
-        $parentTitle = CatalogText::plain($detailHeader['parent_title'] ?? $detailHeader['group'] ?? null, 250);
-        $detailTitle = CatalogText::plain($detailHeader['detail_title'] ?? $detailHeader['category_title'] ?? $detailHeader['title'] ?? null, 250);
-
-        if ($parentTitle !== '' && $detailTitle !== '' && $parentTitle !== $detailTitle) {
-            return CatalogText::plain($parentTitle.' '.$this->lowerFirst($detailTitle), 250);
-        }
-
-        return CatalogText::plain($detailTitle !== '' ? $detailTitle : $category->title, 250);
+        return CatalogText::plain($title !== '' ? $title : $partType->title, 250);
     }
 
     private function lowerFirst(string $value): string
@@ -245,17 +241,16 @@ class ImportProductFactory
     }
 
 
-
-    private function attachDefaultImage(Product $product, ProductCategory $category, ImportRun $run): void
+    private function attachDefaultImage(Product $product, PartType $partType, ImportRun $run): void
     {
-        $image = $this->gallery->ensureDefaultImage($product->refresh());
+        $image = $this->gallery->ensureDefaultImage($product);
 
         if (! $image instanceof ProductImage) {
-            $this->warnMissingDefaultImageOnce($run, $category);
+            $this->warnMissingDefaultImageOnce($run, $partType);
         }
     }
 
-    private function warnImportImageUrlDisappearedOnce(Product $product, ImportRun $run, ProductCategory $category): void
+    private function warnImportImageUrlDisappearedOnce(Product $product, ImportRun $run, PartType $partType, ProductCategory $storeCategory): void
     {
         if (! $product->images()
             ->where('source_type', ProductImage::SOURCE_IMPORT)
@@ -275,7 +270,8 @@ class ImportProductFactory
         $this->logger->warning($run, 'URL изображения товара исчез из файла импорта, существующие изображения сохранены', [
             'product_id' => $product->getKey(),
             'import_key' => $product->import_key,
-            'category' => $category->full_title,
+            'part_type' => $partType->full_title,
+            'store_category' => $storeCategory->full_title,
         ]);
     }
 
@@ -315,10 +311,10 @@ class ImportProductFactory
             ->exists();
     }
 
-    private function warnMissingDefaultImageOnce(ImportRun $run, ProductCategory $category): void
+    private function warnMissingDefaultImageOnce(ImportRun $run, PartType $partType): void
     {
-        $categoryKey = $category->full_slug ?: $category->slug ?: (string) $category->getKey();
-        $key = $run->getKey().':'.$categoryKey;
+        $partTypeKey = $partType->full_slug ?: $partType->slug ?: (string) $partType->getKey();
+        $key = $run->getKey().':'.$partTypeKey;
 
         if (isset($this->missingDefaultImageWarnings[$key])) {
             return;
@@ -328,7 +324,7 @@ class ImportProductFactory
             ->where('import_run_id', $run->getKey())
             ->where('level', ImportLogLevel::Warning->value)
             ->where('message', 'Дефолтное изображение детали не найдено')
-            ->where('context->category_full_slug', $categoryKey)
+            ->where('context->part_type_full_slug', $partTypeKey)
             ->exists();
 
         if ($alreadyLogged) {
@@ -340,9 +336,10 @@ class ImportProductFactory
         $this->missingDefaultImageWarnings[$key] = true;
 
         $this->logger->warning($run, 'Дефолтное изображение детали не найдено', [
-            'category_id' => $category->getKey(),
-            'category' => $category->full_title,
-            'category_full_slug' => $categoryKey,
+            'part_type_id' => $partType->getKey(),
+            'part_type' => $partType->full_title,
+            'part_type_full_slug' => $partTypeKey,
+            'default_image_key' => $partType->default_image_key,
         ]);
     }
 

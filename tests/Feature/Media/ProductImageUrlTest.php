@@ -1,8 +1,10 @@
 <?php
 
+use App\Enums\ProductType;
 use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\VehicleGenerations\VehicleGenerationResource;
 use App\Filament\Resources\VehicleMakes\VehicleMakeResource;
+use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductImage;
@@ -46,6 +48,22 @@ test('Product without image returns placeholder image url', function () {
 test('Product without uploaded image can use default product image by category', function () {
     $category = ProductCategory::factory()->create(['title' => 'Порог', 'slug' => 'porog']);
     $product = Product::factory()->forCategory($category)->create();
+
+    expect($product->main_image_url)
+        ->not->toBe('')
+        ->toContain('img/products_default/porog.png');
+});
+
+test('auto part without uploaded image uses PartType default image instead of store category', function () {
+    $category = ProductCategory::factory()->create(['title' => 'Арки', 'slug' => 'arki']);
+    $partType = PartType::factory()->create([
+        'title' => 'Порог',
+        'default_image_key' => 'porog',
+    ]);
+    $product = Product::factory()->forCategory($category)->create([
+        'product_type' => ProductType::AutoPart,
+        'part_type_id' => $partType->getKey(),
+    ]);
 
     expect($product->main_image_url)
         ->not->toBe('')

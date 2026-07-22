@@ -1,6 +1,8 @@
 <?php
 
+use App\Enums\ProductType;
 use App\Filament\Resources\Products\ProductResource;
+use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductImage;
@@ -32,9 +34,26 @@ function galleryTestCategory(string $title = 'Порог'): ProductCategory
     ])->refresh();
 }
 
-function galleryTestProduct(?ProductCategory $category = null): Product
+function galleryTestPartType(string $title = 'Порог', ?string $defaultImageKey = 'porog'): PartType
 {
-    return Product::factory()->forCategory($category ?: galleryTestCategory())->create();
+    return PartType::factory()->create([
+        'title' => $title,
+        'default_image_key' => $defaultImageKey,
+    ])->refresh();
+}
+
+function galleryTestProduct(?ProductCategory $category = null, ?PartType $partType = null): Product
+{
+    $state = [];
+
+    if ($partType instanceof PartType) {
+        $state = [
+            'product_type' => ProductType::AutoPart,
+            'part_type_id' => $partType->getKey(),
+        ];
+    }
+
+    return Product::factory()->forCategory($category ?: galleryTestCategory())->create($state);
 }
 
 function putManualGallerySource(Product $product, string $name = 'source.jpg'): string
@@ -117,7 +136,7 @@ test('import image source type remains import and can be selected as main', func
 });
 
 test('default image can become main without deleting manual and import images', function () {
-    $product = galleryTestProduct(galleryTestCategory('Порог'));
+    $product = galleryTestProduct(galleryTestCategory('Арки'), galleryTestPartType());
     $manual = ProductImage::factory()->forProduct($product)->main()->create([
         'source_type' => ProductImage::SOURCE_MANUAL,
         'is_visible' => true,
@@ -142,7 +161,7 @@ test('default image can become main without deleting manual and import images', 
 });
 
 test('reset gallery to default deletes manual and import files but keeps public default file', function () {
-    $product = galleryTestProduct(galleryTestCategory('Порог'));
+    $product = galleryTestProduct(galleryTestCategory('Арки'), galleryTestPartType());
     $manualPath = 'uploads/products/'.$product->getKey().'/manual.webp';
     $importPath = 'uploads/products/'.$product->getKey().'/import.webp';
     Storage::disk('public')->put($manualPath, test_image_binary('webp'));
@@ -165,7 +184,7 @@ test('reset gallery to default deletes manual and import files but keeps public 
         'checksum' => str_repeat('8', 64),
     ]);
 
-    $defaultPath = app(DefaultProductImageService::class)->forCategory($product->category)['absolute_path'];
+    $defaultPath = app(DefaultProductImageService::class)->forPartType($product->partType)['absolute_path'];
     $default = app(ProductGalleryService::class)->resetToDefault($product);
 
     expect(Storage::disk('public')->exists($manualPath))->toBeFalse()
@@ -178,7 +197,10 @@ test('reset gallery to default deletes manual and import files but keeps public 
 });
 
 test('reset gallery to default does not delete anything when default image is missing', function () {
-    $product = galleryTestProduct(ProductCategory::factory()->create(['title' => 'Неизвестная деталь', 'slug' => 'unknown-detail']));
+    $product = galleryTestProduct(
+        ProductCategory::factory()->create(['title' => 'Арки', 'slug' => 'arki']),
+        galleryTestPartType('Неизвестная деталь', null),
+    );
     $path = 'uploads/products/'.$product->getKey().'/manual.webp';
     Storage::disk('public')->put($path, test_image_binary('webp'));
 
@@ -239,7 +261,7 @@ test('ProductResource image filters work at query level', function () {
     $without = galleryTestProduct();
     $manual = galleryTestProduct();
     $import = galleryTestProduct();
-    $default = galleryTestProduct(galleryTestCategory('Порог'));
+    $default = galleryTestProduct(galleryTestCategory('Арки'), galleryTestPartType());
 
     ProductImage::factory()->forProduct($manual)->create([
         'source_type' => ProductImage::SOURCE_MANUAL,
