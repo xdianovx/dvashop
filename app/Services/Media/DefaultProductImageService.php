@@ -2,6 +2,8 @@
 
 namespace App\Services\Media;
 
+use App\Models\PartType;
+use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Support\CatalogText;
 
@@ -29,6 +31,43 @@ class DefaultProductImageService
         'torcevaia-zagluska' => 'torcevaia-zagluska',
         'usilitel-soedinitel-porogov' => 'usilitel-soedinitel-porogov',
     ];
+
+    /**
+     * @return array{key:string,path:string,url:string,absolute_path:string}|null
+     */
+    public function forPartType(PartType $partType): ?array
+    {
+        $key = $this->keyForPartType($partType);
+
+        return $key === null ? null : $this->findByKey($key);
+    }
+
+    public function keyForPartType(PartType $partType): ?string
+    {
+        $key = trim((string) $partType->default_image_key);
+
+        return $key !== '' ? $key : null;
+    }
+
+    /**
+     * @return array{key:string,path:string,url:string,absolute_path:string}|null
+     */
+    public function forProduct(Product $product): ?array
+    {
+        if ($product->part_type_id !== null) {
+            $product->loadMissing('partType');
+
+            return $product->partType instanceof PartType
+                ? $this->forPartType($product->partType)
+                : null;
+        }
+
+        $product->loadMissing('category');
+
+        return $product->category instanceof ProductCategory
+            ? $this->forCategory($product->category)
+            : null;
+    }
 
     /**
      * @return array{key:string,path:string,url:string,absolute_path:string}|null

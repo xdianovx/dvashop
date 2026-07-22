@@ -76,13 +76,12 @@ class MediaUrlService
 
     public function productDefaultImageUrl(Product | ProductCategory | null $source): ?string
     {
-        $category = $source instanceof Product ? $this->resolveProductCategory($source) : $source;
-
-        if (! $category instanceof ProductCategory) {
-            return null;
-        }
-
-        $default = app(DefaultProductImageService::class)->forCategory($category);
+        $defaultImages = app(DefaultProductImageService::class);
+        $default = match (true) {
+            $source instanceof Product => $defaultImages->forProduct($source),
+            $source instanceof ProductCategory => $defaultImages->forCategory($source),
+            default => null,
+        };
 
         return is_array($default) ? $default['url'] : null;
     }
@@ -111,12 +110,4 @@ class MediaUrlService
 
         return $visibleImages->first() instanceof ProductImage ? $visibleImages->first() : null;
     }
-
-    private function resolveProductCategory(Product $product): ?ProductCategory
-    {
-        $category = $product->relationLoaded('category') ? $product->getRelation('category') : $product->category()->first();
-
-        return $category instanceof ProductCategory ? $category : null;
-    }
-
 }

@@ -4,29 +4,36 @@ use App\Enums\ImportLogLevel;
 use App\Enums\ImportRunStatus;
 use App\Enums\UserRole;
 use App\Filament\Pages\CatalogImportPage;
-use App\Jobs\DownloadProductImageJob;
-use Livewire\Livewire;
-use Illuminate\Support\Facades\Queue;
 use App\Jobs\CatalogImportChunkJob;
 use App\Jobs\CatalogImportStartJob;
+use App\Jobs\DownloadProductImageJob;
+use App\Models\ImportLog;
+use App\Models\ImportRun;
+use App\Models\PartType;
 use App\Models\Product;
+use App\Models\ProductCategory;
 use App\Models\ProductImage;
 use App\Models\User;
+use App\Services\ImportLogger;
 use App\Services\ImportRunReportExporter;
+use App\Services\ImportStatusService;
+use App\Services\SpreadsheetReader;
+use Database\Seeders\ProductCatalogSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
+use Livewire\Livewire;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\HttpException;
-use Illuminate\Support\Facades\Http;
-use App\Models\ImportLog;
-use App\Models\ImportRun;
-use App\Services\ImportLogger;
-use App\Services\ImportStatusService;
-use App\Services\SpreadsheetReader;
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 
 uses(RefreshDatabase::class);
+
+beforeEach(function (): void {
+    $this->seed(ProductCatalogSeeder::class);
+});
 
 function importCsvContent(): string
 {
@@ -307,8 +314,8 @@ test('start job initializes detail columns only once and keeps progress on repea
     Queue::fake();
 
     Storage::disk('local')->put('imports/catalog/catalog.csv', implode("\n", [
-        ',,,,,,Кузовные детали',
-        'Фото,Марка,Модель,Поколение,Годы,Кузов,Пороги',
+        ',,,,,,',
+        'Фото,Марка,Модель,Поколение,Годы,Кузов,Порог',
         ',Toyota,Camry,XV70,2017-2023,седан,1',
     ]));
 
@@ -328,7 +335,50 @@ test('start job initializes detail columns only once and keeps progress on repea
     $job->handle(app(SpreadsheetReader::class), app(ImportStatusService::class), app(ImportLogger::class), app(\App\Services\Import\ImportRowProcessor::class));
 
     expect($run->fresh()->detail_columns)->toBe($firstDetailColumns)
-        ->and($run->fresh()->processed_rows)->toBe(1);
+        ->and($firstDetailColumns[6]['part_type_full_slug'])->toBe('porog')
+        ->and($firstDetailColumns[6]['product_category_full_slug'])->toBe('kuzovnye-detali/remontnye-elementy-kuzova/porogi')
+        ->and($run->fresh()->processed_rows)->toBe(1)
+        ->and($run->fresh()->created_categories)->toBe(0);
+});
+
+test('start job fails atomically when required canonical store category is missing', function () {
+    Storage::fake('local');
+    Queue::fake();
+
+    ProductCategory::query()
+        ->where('full_slug', 'kuzovnye-detali/remontnye-elementy-kuzova/arki')
+        ->firstOrFail()
+        ->delete();
+
+    Storage::disk('local')->put('imports/catalog/missing-category.csv', implode("\n", [
+        ',,,,,,Арка',
+        'Фото,Марка,Модель,Поколение,Годы,Кузов,Задняя',
+        ',Toyota,Camry,XV70,2017-2023,седан,1',
+    ]));
+
+    $run = ImportRun::factory()->create([
+        'status' => ImportRunStatus::Ready,
+        'stored_path' => 'imports/catalog/missing-category.csv',
+        'detail_columns' => null,
+    ]);
+
+    (new CatalogImportStartJob($run->getKey()))->handle(
+        app(SpreadsheetReader::class),
+        app(ImportStatusService::class),
+        app(ImportLogger::class),
+        app(\App\Services\Import\ImportRowProcessor::class),
+    );
+
+    $run->refresh();
+
+    expect($run->status)->toBe(ImportRunStatus::Failed)
+        ->and($run->last_error)->toContain('Обязательная магазинная категория')
+        ->and($run->last_error)->toContain('kuzovnye-detali/remontnye-elementy-kuzova/arki')
+        ->and($run->detail_columns)->toBeNull()
+        ->and($run->initialized_at)->toBeNull()
+        ->and(PartType::query()->count())->toBe(0)
+        ->and(Product::query()->count())->toBe(0)
+        ->and(ProductCategory::query()->where('title', 'Арка')->exists())->toBeFalse();
 });
 
 test('done failed and canceled imports are not restarted', function (ImportRunStatus $status) {

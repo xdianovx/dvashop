@@ -1,5 +1,8 @@
 <?php
 
+use App\Enums\ProductType;
+use App\Models\PartType;
+use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductImage;
 use App\Services\Media\DefaultProductImageService;
@@ -16,7 +19,24 @@ function defaultImageTestCategory(string $title, ?ProductCategory $parent = null
     ])->refresh();
 }
 
-test('DefaultProductImageService resolves default images by category path', function (string $parentTitle, string $title, string $expectedKey) {
+function defaultImageTestPartType(string $rootTitle, ?string $childTitle, ?string $key): PartType
+{
+    $root = PartType::factory()->create([
+        'title' => $rootTitle,
+        'default_image_key' => $childTitle === null ? $key : null,
+    ]);
+
+    if ($childTitle === null) {
+        return $root->refresh();
+    }
+
+    return PartType::factory()->childOf($root)->create([
+        'title' => $childTitle,
+        'default_image_key' => $key,
+    ])->refresh();
+}
+
+test('DefaultProductImageService keeps legacy category fallback for products without PartType', function (string $parentTitle, string $title, string $expectedKey) {
     $parent = $parentTitle === '' ? null : defaultImageTestCategory($parentTitle);
     $category = defaultImageTestCategory($title, $parent);
 
@@ -57,4 +77,35 @@ test('default ProductImage reference does not delete physical default file', fun
     $image->delete();
 
     expect(is_file($default['absolute_path']))->toBeTrue();
+});
+
+test('DefaultProductImageService resolves default images from PartType keys', function (string $root, ?string $child, string $expectedKey) {
+    $partType = defaultImageTestPartType($root, $child, $expectedKey);
+    $default = app(DefaultProductImageService::class)->forPartType($partType);
+
+    expect($default)->not->toBeNull()
+        ->and($default['key'])->toBe($expectedKey)
+        ->and($default['path'])->toStartWith('img/products_default/'.$expectedKey.'.');
+})->with([
+    'arka vnutrenniaia universalnaia' => ['Арка', 'Внутренняя универсальная', 'arka-vnutrenniaia-universalnaia'],
+    'penka bagazhnika' => ['Пенка', 'Багажника', 'penka-bagaznika'],
+]);
+
+test('auto part uses PartType key and does not infer a detail variant from store category', function () {
+    $storeCategory = defaultImageTestCategory('Арки');
+    $withoutKey = defaultImageTestPartType('Арка', 'Новая неизвестная', null);
+    $withKey = defaultImageTestPartType('Пенка', 'Багажника', 'penka-bagaznika');
+
+    $unknown = Product::factory()->forCategory($storeCategory)->create([
+        'product_type' => ProductType::AutoPart,
+        'part_type_id' => $withoutKey->getKey(),
+    ]);
+    $known = Product::factory()->forCategory($storeCategory)->create([
+        'product_type' => ProductType::AutoPart,
+        'part_type_id' => $withKey->getKey(),
+    ]);
+
+    expect(app(DefaultProductImageService::class)->forCategory($storeCategory))->toBeNull()
+        ->and(app(DefaultProductImageService::class)->forProduct($unknown))->toBeNull()
+        ->and(app(DefaultProductImageService::class)->forProduct($known)['key'])->toBe('penka-bagaznika');
 });

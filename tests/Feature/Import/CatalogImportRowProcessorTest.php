@@ -3,12 +3,14 @@
 use App\Enums\ImportLogLevel;
 use App\Enums\ImportRunStatus;
 use App\Enums\ProductStatus;
+use App\Enums\ProductType;
 use App\Enums\StockStatus;
 use App\Jobs\CatalogImportChunkJob;
 use App\Jobs\DownloadProductImageJob;
 use App\Jobs\DownloadVehicleGenerationImageJob;
 use App\Models\ImportLog;
 use App\Models\ImportRun;
+use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductFitment;
@@ -22,13 +24,19 @@ use App\Services\Import\ImportProductFactory;
 use App\Services\Import\ImportRowProcessor;
 use App\Services\Media\DefaultProductImageService;
 use App\Services\SpreadsheetReader;
+use App\Support\CatalogText;
+use Database\Seeders\ProductCatalogSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 
 uses(RefreshDatabase::class);
+
+beforeEach(function (): void {
+    $this->seed(ProductCatalogSeeder::class);
+});
 
 function catalogImportRun(array $state = []): ImportRun
 {
@@ -39,9 +47,12 @@ function catalogImportRun(array $state = []): ImportRun
         'detail_columns' => [
             6 => [
                 'index' => 6,
-                'group' => 'Кузовные детали',
-                'title' => 'Пороги',
-                'category_title' => 'Пороги',
+                'group' => null,
+                'parent_title' => null,
+                'title' => 'Порог',
+                'detail_title' => 'Порог',
+                'full_detail_title' => 'Порог',
+                'category_title' => 'Порог',
             ],
         ],
     ], $state));
@@ -257,21 +268,23 @@ test('xlsx merged detail headers use real merge ranges and reset group after ran
 
     $run = catalogImportRun(['detail_columns' => $headers]);
     Queue::fake();
+    $prepared = app(ImportRowProcessor::class)->prepareDetailColumns($run, $headers);
 
     app(ImportRowProcessor::class)->process(
         run: $run,
         row: app(SpreadsheetReader::class)->readChunk($path, 0, 1, 2)[0],
-        detailColumns: $headers,
+        detailColumns: $prepared,
         rowNumber: 3,
     );
 
-    $penka = ProductCategory::query()->where('title', 'Пенка')->firstOrFail();
-
-    expect(ProductCategory::query()->where('title', 'Задней двери')->firstOrFail()->parent_id)->toBe($penka->getKey())
-        ->and(ProductCategory::query()->where('title', 'Лонжерон')->firstOrFail()->parent_id)->toBeNull()
-        ->and(ProductCategory::query()->where('title', 'Торцевая заглушка')->firstOrFail()->parent_id)->toBeNull()
-        ->and(ProductCategory::query()->where('title', 'Ремкомплект пола')->firstOrFail()->parent_id)->toBeNull()
-        ->and(ProductCategory::query()->where('title', 'Усилитель / соединитель порогов')->firstOrFail()->parent_id)->toBeNull();
+    expect($prepared[6]['part_type_full_slug'])->toBe('porog')
+        ->and($prepared[7]['part_type_full_slug'])->toBe('arka/zadniaia')
+        ->and($prepared[10]['part_type_full_slug'])->toBe('arka/vnutrenniaia-universalnaia')
+        ->and($prepared[12]['part_type_full_slug'])->toBe('penka/zadnei-dveri')
+        ->and($prepared[15]['part_type_full_slug'])->toBe('lonzheron')
+        ->and($prepared[18]['part_type_full_slug'])->toBe('usilitel/soedinitel-porogov')
+        ->and(ProductCategory::query()->whereIn('title', ['Порог', 'Арка', 'Пенка', 'Лонжерон', 'Торцевая заглушка', 'Ремкомплект пола'])->exists())->toBeFalse()
+        ->and(ProductCategory::query()->count())->toBe(9);
 });
 
 test('row creates vehicle make model and generation', function () {
@@ -318,19 +331,18 @@ test('different bodies create different vehicle generations', function () {
         ->and(VehicleGeneration::query()->pluck('body')->sort()->values()->all())->toBe(['седан', 'универсал']);
 });
 
-test('row creates product category tree from detail columns', function () {
+test('row resolves part type and canonical store category without technical product categories', function () {
     $run = catalogImportRun();
 
     processCatalogRow($run, catalogRow());
 
-    $parent = ProductCategory::query()->whereNull('parent_id')->firstOrFail();
-    $child = ProductCategory::query()->whereNotNull('parent_id')->firstOrFail();
+    $product = Product::query()->with(['partType', 'category'])->firstOrFail();
 
-    expect($parent->title)->toBe('Кузовные детали')
-        ->and($parent->full_slug)->toBe($parent->slug)
-        ->and($child->title)->toBe('Пороги')
-        ->and($child->parent_id)->toBe($parent->getKey())
-        ->and($child->full_slug)->toBe($parent->slug.'/'.$child->slug);
+    expect($product->product_type)->toBe(ProductType::AutoPart)
+        ->and($product->partType->full_slug)->toBe('porog')
+        ->and($product->category->full_slug)->toBe('kuzovnye-detali/remontnye-elementy-kuzova/porogi')
+        ->and(ProductCategory::query()->where('title', 'Порог')->exists())->toBeFalse()
+        ->and(ProductCategory::query()->count())->toBe(9);
 });
 
 test('row creates product default variant and fitment', function () {
@@ -343,7 +355,7 @@ test('row creates product default variant and fitment', function () {
     $fitment = ProductFitment::query()->firstOrFail();
     $generation = VehicleGeneration::query()->firstOrFail();
 
-    expect($product->title)->toContain('Кузовные детали пороги')
+    expect($product->title)->toContain('Порог для')
         ->and($product->title)->toContain('Toyota Camry XV70')
         ->and($product->status)->toBe(ProductStatus::Active)
         ->and($product->import_key)->not->toBeNull()
@@ -371,7 +383,8 @@ test('non standard product cell value creates product and writes warning', funct
         ->and($log->context['row'])->toBe(3)
         ->and($log->context['column'])->toBe('G')
         ->and($log->context['value'])->toBe('maver')
-        ->and($log->context['category'])->toContain('porogi');
+        ->and($log->context['part_type'])->toBe('porog')
+        ->and($log->context['store_category'])->toContain('/porogi');
 });
 
 test('negative product cell values do not create products', function (string $value) {
@@ -394,7 +407,7 @@ test('repeated import updates existing product without duplicates', function () 
     expect(VehicleMake::query()->count())->toBe(1)
         ->and(VehicleModel::query()->count())->toBe(1)
         ->and(VehicleGeneration::query()->count())->toBe(1)
-        ->and(ProductCategory::query()->count())->toBe(2)
+        ->and(ProductCategory::query()->count())->toBe(9)
         ->and(Product::query()->count())->toBe(1)
         ->and(ProductVariant::query()->count())->toBe(1)
         ->and(ProductFitment::query()->count())->toBe(1)
@@ -446,8 +459,8 @@ test('catalog chunk archives missing products after successful import', function
     ]);
 
     Storage::disk('local')->put('imports/catalog/catalog.csv', implode("\n", [
-        ',,,,,,Кузовные детали',
-        'Фото,Марка,Модель,Поколение,Годы,Кузов,Пороги',
+        ',,,,,,',
+        'Фото,Марка,Модель,Поколение,Годы,Кузов,Порог',
         ',Toyota,Camry,XV70,2017-2023,седан,1',
     ]));
 
@@ -579,13 +592,13 @@ test('excel text normalization removes line breaks and duplicate spaces from cat
     expect($headers[12]['category_title'])->toBe('Задней двери')
         ->and($headers[13]['category_title'])->toBe('Передней двери')
         ->and($headers[15]['category_title'])->toBe('Усилитель / соединитель порогов')
-        ->and(ProductCategory::query()->where('title', "Задней\nдвери")->exists())->toBeFalse()
-        ->and(ProductCategory::query()->where('title', 'Задней двери')->exists())->toBeTrue()
+        ->and(PartType::query()->where('title', "Задней\nдвери")->exists())->toBeFalse()
+        ->and(PartType::query()->where('full_slug', 'penka/zadnei-dveri')->exists())->toBeTrue()
         ->and(Product::query()->where('title', 'like', "%\n%")->exists())->toBeFalse()
         ->and(Product::query()->where('title', 'like', "%  %")->exists())->toBeFalse()
         ->and(Product::query()->where('title', 'like', 'Пенка задней двери для%')->exists())->toBeTrue()
         ->and(Product::query()->where('title', 'like', 'Пенка передней двери для%')->exists())->toBeTrue()
-        ->and(Product::query()->where('title', 'like', 'Усилитель / соединитель порогов для%')->exists())->toBeTrue();
+        ->and(Product::query()->where('title', 'like', 'Усилитель соединитель порогов для%')->exists())->toBeTrue();
 });
 
 test('chunk skips auto archive when row errors were logged', function () {
@@ -600,8 +613,8 @@ test('chunk skips auto archive when row errors were logged', function () {
     ]);
 
     Storage::disk('local')->put('imports/catalog/catalog.csv', implode("\n", [
-        ',,,,,,Кузовные детали',
-        'Фото,Марка,Модель,Поколение,Годы,Кузов,Пороги',
+        ',,,,,,',
+        'Фото,Марка,Модель,Поколение,Годы,Кузов,Порог',
         ',Toyota,Camry,XV70,2017-2023,седан,1',
     ]));
 
@@ -630,18 +643,39 @@ test('chunk skips auto archive when row errors were logged', function () {
         ->and(ImportLog::query()->where('message', 'like', '%Автоархивация пропущена%')->exists())->toBeTrue();
 });
 
-test('missing prepared category id skips only current product cell and writes warning', function () {
+test('legacy detail columns ignore technical category id and resolve part types from text', function () {
+    $legacy = ProductCategory::factory()->create([
+        'title' => 'Порог',
+        'slug' => 'porog',
+        'full_slug' => 'porog',
+        'is_active' => false,
+    ]);
     $run = catalogImportRun([
         'detail_columns' => [
-            6 => ['index' => 6, 'group' => null, 'title' => 'Порог', 'category_title' => 'Порог', 'category_id' => 999999],
-            7 => ['index' => 7, 'group' => null, 'title' => 'Арка', 'category_title' => 'Арка'],
+            6 => [
+                'index' => 6,
+                'group' => null,
+                'parent_title' => null,
+                'title' => 'Порог',
+                'detail_title' => 'Порог',
+                'full_detail_title' => 'Порог',
+                'category_title' => 'Порог',
+                'category_id' => $legacy->getKey(),
+                'category_full_slug' => 'porog',
+                'category_full_path' => 'Порог',
+            ],
         ],
     ]);
 
-    app(ImportRowProcessor::class)->process($run, catalogRow([6 => '1', 7 => '1']), $run->detail_columns, 3);
+    $processor = app(ImportRowProcessor::class);
+    $processor->process($run, catalogRow([6 => '1']), $run->detail_columns, 3);
+    $processor->process($run, catalogRow([3 => 'XV71', 6 => '1']), $run->detail_columns, 4);
 
-    expect(Product::query()->count())->toBe(1)
-        ->and(ImportLog::query()->where('message', 'like', '%detail_columns не найдена%')->exists())->toBeTrue();
+    expect(Product::query()->count())->toBe(2)
+        ->and(Product::query()->where('product_category_id', $legacy->getKey())->exists())->toBeFalse()
+        ->and(Product::query()->whereHas('partType', fn ($query) => $query->where('full_slug', 'porog'))->count())->toBe(2)
+        ->and($legacy->fresh()->is_active)->toBeFalse()
+        ->and(ImportLog::query()->where('message', 'Устаревший формат detail_columns разрешён через PartType; category_id проигнорирован')->count())->toBe(1);
 });
 
 test('product image source url is not queued again when existing file is present', function () {
@@ -666,7 +700,8 @@ test('product image source url is not queued again when existing file is present
     app(ImportProductFactory::class)->createOrUpdateFromCell(
         run: $run,
         generation: VehicleGeneration::query()->firstOrFail(),
-        category: $category,
+        partType: $product->partType()->firstOrFail(),
+        storeCategory: $category,
         detailHeader: ['index' => 6, 'group' => null, 'title' => 'Порог', 'category_title' => 'Порог'],
         cellValue: 'https://example.test/part.jpg',
         imageUrl: 'https://example.test/part.jpg',
@@ -693,7 +728,8 @@ test('product image source url is queued again when existing record file is miss
     app(ImportProductFactory::class)->createOrUpdateFromCell(
         run: $run,
         generation: VehicleGeneration::query()->firstOrFail(),
-        category: ProductCategory::query()->firstOrFail(),
+        partType: $product->partType()->firstOrFail(),
+        storeCategory: $product->category()->firstOrFail(),
         detailHeader: ['index' => 6, 'group' => null, 'title' => 'Порог', 'category_title' => 'Порог'],
         cellValue: 'https://example.test/part.jpg',
         imageUrl: 'https://example.test/part.jpg',
@@ -757,13 +793,12 @@ test('grouped detail title is used in product title while category remains neste
 
     processCatalogRow($run, catalogRow([6 => '', 10 => '1', 1 => 'Acura', 2 => 'TSX', 3 => '2', 4 => '2008 - 2014', 5 => 'Седан 4 дв.']));
 
-    $product = Product::query()->firstOrFail();
-    $parent = ProductCategory::query()->where('title', 'Арка')->firstOrFail();
-    $child = ProductCategory::query()->where('title', 'Внутренняя универсальная')->firstOrFail();
+    $product = Product::query()->with(['partType', 'category'])->firstOrFail();
 
     expect($product->title)->toBe('Арка внутренняя универсальная для Acura TSX 2 2008 - 2014 Седан 4 дв.')
-        ->and($child->parent_id)->toBe($parent->getKey())
-        ->and($child->full_title)->toBe('Арка / Внутренняя универсальная')
+        ->and($product->partType->full_title)->toBe('Арка / Внутренняя универсальная')
+        ->and($product->category->full_slug)->toBe('kuzovnye-detali/remontnye-elementy-kuzova/arki')
+        ->and(ProductCategory::query()->where('title', 'Арка')->exists())->toBeFalse()
         ->and($product->import_key)->toContain(':arka:')
         ->and($product->import_key)->toContain('vnutrenniaia-universalnaia')
         ->and($product->slug)->toStartWith('arka-vnutrenniaia-universalnaia-dlia-acura-tsx-2');
@@ -797,13 +832,12 @@ test('penka root and root-only detail titles are reflected in product titles', f
     processCatalogRow($run, catalogRow([6 => '', 12 => '1', 15 => '1']));
 
     $titles = Product::query()->pluck('title')->sort()->values()->all();
-    $penka = ProductCategory::query()->where('title', 'Пенка')->firstOrFail();
-    $rearDoor = ProductCategory::query()->where('title', 'Задней двери')->firstOrFail();
 
     expect($titles)->toContain('Лонжерон для Toyota Camry XV70 2017-2023 седан')
         ->and($titles)->toContain('Пенка задней двери для Toyota Camry XV70 2017-2023 седан')
-        ->and($rearDoor->parent_id)->toBe($penka->getKey())
-        ->and(ProductCategory::query()->where('title', 'Лонжерон')->firstOrFail()->parent_id)->toBeNull();
+        ->and(PartType::query()->where('full_slug', 'penka/zadnei-dveri')->exists())->toBeTrue()
+        ->and(PartType::query()->where('full_slug', 'lonzheron')->exists())->toBeTrue()
+        ->and(ProductCategory::query()->whereIn('title', ['Пенка', 'Задней двери', 'Лонжерон'])->exists())->toBeFalse();
 });
 
 test('repeated import with full detail title updates same product without duplicates', function () {
@@ -849,7 +883,6 @@ test('import inspect command outputs category tree and does not write to databas
         ->and(ImportRun::query()->count())->toBe(0)
         ->and(Product::query()->count())->toBe(0);
 });
-
 
 test('positive availability cell attaches default image for root detail', function () {
     $run = catalogImportRun([
@@ -1015,7 +1048,6 @@ test('missing default image is logged once per detail type and import continues'
         ->and(ImportLog::query()->where('message', 'Дефолтное изображение детали не найдено')->count())->toBe(1);
 });
 
-
 test('repeated import preserves manual product fields variants fitments and default images', function () {
     $firstRun = catalogImportRun([
         'detail_columns' => [
@@ -1043,14 +1075,21 @@ test('repeated import preserves manual product fields variants fitments and defa
         'is_default' => false,
     ]);
 
+    $legacyCategory = ProductCategory::factory()->create(['title' => 'Порог', 'slug' => 'legacy-porog']);
     $product->forceFill([
+        'product_type' => ProductType::Generic,
+        'part_type_id' => null,
+        'product_category_id' => $legacyCategory->getKey(),
         'price' => 12345.67,
+        'old_price' => 15000,
         'sku' => 'MANUAL-SKU',
         'description' => 'Ручное описание',
         'short_description' => 'Ручное краткое описание',
         'meta_title' => 'Ручной SEO title',
         'meta_description' => 'Ручной SEO description',
         'stock_status' => StockStatus::OutOfStock,
+        'position' => 77,
+        'is_featured' => true,
     ])->save();
 
     $variant->forceFill([
@@ -1060,25 +1099,50 @@ test('repeated import preserves manual product fields variants fitments and defa
         'stock_status' => StockStatus::OutOfStock,
     ])->save();
 
+    $primaryFitment = ProductFitment::query()->firstOrFail();
+    $primaryFitment->forceFill(['note' => 'Ручная заметка', 'is_primary' => false])->save();
+    $additionalFitment = ProductFitment::factory()->forProduct($product)->create([
+        'note' => 'Дополнительная применимость',
+        'is_primary' => false,
+    ]);
+    $importImage = ProductImage::factory()->forProduct($product)->create([
+        'source_type' => ProductImage::SOURCE_IMPORT,
+        'source_url' => 'https://example.test/existing-import.jpg',
+        'is_main' => false,
+        'is_visible' => true,
+    ]);
+
     $secondRun = catalogImportRun(['detail_columns' => $firstRun->detail_columns]);
     processCatalogRow($secondRun, catalogRow([6 => '1.0']));
 
     expect(Product::query()->count())->toBe(1)
         ->and(ProductVariant::query()->count())->toBe(1)
-        ->and(ProductFitment::query()->count())->toBe(1)
+        ->and(ProductFitment::query()->count())->toBe(2)
         ->and(ProductImage::query()->where('source_type', ProductImage::SOURCE_DEFAULT)->count())->toBe(1)
+        ->and(ProductImage::query()->where('source_type', ProductImage::SOURCE_IMPORT)->count())->toBe(1)
+        ->and($product->fresh()->product_type)->toBe(ProductType::AutoPart)
+        ->and($product->fresh()->partType->full_slug)->toBe('porog')
+        ->and($product->fresh()->category->full_slug)->toBe('kuzovnye-detali/remontnye-elementy-kuzova/porogi')
+        ->and($product->fresh()->last_import_run_id)->toBe((string) $secondRun->getKey())
         ->and($product->fresh()->price)->toEqual('12345.67')
+        ->and($product->fresh()->old_price)->toEqual('15000.00')
         ->and($product->fresh()->sku)->toBe('MANUAL-SKU')
         ->and($product->fresh()->description)->toBe('Ручное описание')
         ->and($product->fresh()->short_description)->toBe('Ручное краткое описание')
         ->and($product->fresh()->meta_title)->toBe('Ручной SEO title')
         ->and($product->fresh()->meta_description)->toBe('Ручной SEO description')
         ->and($product->fresh()->stock_status)->toBe(StockStatus::OutOfStock)
+        ->and($product->fresh()->position)->toBe(77)
+        ->and($product->fresh()->is_featured)->toBeTrue()
         ->and($variant->fresh()->sku)->toBe('MANUAL-VARIANT-SKU')
         ->and($variant->fresh()->price)->toEqual('7777.77')
         ->and($variant->fresh()->stock_quantity)->toBe(42)
         ->and($variant->fresh()->stock_status)->toBe(StockStatus::OutOfStock)
-        ->and($manual->fresh()->is_main)->toBeTrue();
+        ->and($primaryFitment->fresh()->note)->toBe('Ручная заметка')
+        ->and($primaryFitment->fresh()->is_primary)->toBeFalse()
+        ->and($additionalFitment->fresh()->note)->toBe('Дополнительная применимость')
+        ->and($manual->fresh()->is_main)->toBeTrue()
+        ->and($importImage->fresh()->source_url)->toBe('https://example.test/existing-import.jpg');
 });
 
 test('manual product and another import source are not archived by catalog import', function () {
@@ -1199,4 +1263,269 @@ test('vehicle generation image repeat import skips same url updates changed url 
     expect($manualGeneration->fresh()->image)->toBe('uploads/vehicles/generations/manual.webp')
         ->and($manualGeneration->fresh()->image_source_url)->toBeNull()
         ->and(ImportLog::query()->where('message', 'Ручное фото поколения авто не перезаписано импортом')->exists())->toBeTrue();
+});
+
+test('prepare detail columns stores PartType and canonical store category fields idempotently', function () {
+    $run = catalogImportRun([
+        'detail_columns' => [
+            10 => [
+                'index' => 10,
+                'group' => 'Арка',
+                'parent_title' => 'Арка',
+                'title' => 'Внутренняя универсальная',
+                'detail_title' => 'Внутренняя универсальная',
+                'full_detail_title' => 'Арка внутренняя универсальная',
+                'category_title' => 'Внутренняя универсальная',
+            ],
+        ],
+    ]);
+    $processor = app(ImportRowProcessor::class);
+
+    $first = $processor->prepareDetailColumns($run, $run->detail_columns);
+    $partTypeCount = PartType::query()->count();
+    $second = $processor->prepareDetailColumns($run, $run->detail_columns);
+
+    expect($first[10])->toMatchArray([
+        'part_type_full_slug' => 'arka/vnutrenniaia-universalnaia',
+        'part_type_full_title' => 'Арка / Внутренняя универсальная',
+        'product_category_full_slug' => 'kuzovnye-detali/remontnye-elementy-kuzova/arki',
+        'product_category_full_path' => 'Кузовные детали / Ремонтные элементы кузова / Арки',
+        'part_type_used_fallback' => false,
+    ])->and($first[10]['part_type_id'])->toBeInt()
+        ->and($first[10]['product_category_id'])->toBeInt()
+        ->and(array_key_exists('category_id', $first[10]))->toBeFalse()
+        ->and(array_key_exists('category_full_slug', $first[10]))->toBeFalse()
+        ->and(array_key_exists('category_full_path', $first[10]))->toBeFalse()
+        ->and($second[10]['part_type_id'])->toBe($first[10]['part_type_id'])
+        ->and($second[10]['product_category_id'])->toBe($first[10]['product_category_id'])
+        ->and(PartType::query()->count())->toBe($partTypeCount)
+        ->and(ProductCategory::query()->count())->toBe(9)
+        ->and($run->fresh()->created_categories)->toBe(0);
+});
+
+test('known Excel detail paths map to exact PartTypes and canonical store categories', function (
+    ?string $parentTitle,
+    string $detailTitle,
+    string $expectedPartType,
+    string $expectedStoreCategory,
+) {
+    $run = catalogImportRun([
+        'detail_columns' => [
+            6 => [
+                'index' => 6,
+                'group' => $parentTitle,
+                'parent_title' => $parentTitle,
+                'title' => $detailTitle,
+                'detail_title' => $detailTitle,
+                'full_detail_title' => $parentTitle === null
+                    ? $detailTitle
+                    : $parentTitle.' '.mb_strtolower(mb_substr($detailTitle, 0, 1)).mb_substr($detailTitle, 1),
+                'category_title' => $detailTitle,
+            ],
+        ],
+    ]);
+    $processor = app(ImportRowProcessor::class);
+    $prepared = $processor->prepareDetailColumns($run, $run->detail_columns);
+
+    $processor->process($run, catalogRow([6 => '1']), $prepared, 3);
+
+    $product = Product::query()->with(['partType', 'category'])->firstOrFail();
+
+    expect($prepared[6]['part_type_full_slug'])->toBe($expectedPartType)
+        ->and($prepared[6]['product_category_full_slug'])->toBe($expectedStoreCategory)
+        ->and($product->product_type)->toBe(ProductType::AutoPart)
+        ->and($product->partType->full_slug)->toBe($expectedPartType)
+        ->and($product->category->full_slug)->toBe($expectedStoreCategory)
+        ->and(ProductCategory::query()->where('full_slug', $expectedPartType)->exists())->toBeFalse();
+})->with([
+    'porog' => [null, 'Порог', 'porog', 'kuzovnye-detali/remontnye-elementy-kuzova/porogi'],
+    'arka zadniaia' => ['Арка', 'Задняя', 'arka/zadniaia', 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
+    'arka peredniaia' => ['Арка', 'Передняя', 'arka/peredniaia', 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
+    'arka vnutrenniaia' => ['Арка', 'Внутренняя', 'arka/vnutrenniaia', 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
+    'arka vnutrenniaia universalnaia' => ['Арка', 'Внутренняя универсальная', 'arka/vnutrenniaia-universalnaia', 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
+    'arka karman zadniaia' => ['Арка', 'Карман задняя', 'arka/karman-zadniaia', 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
+    'penka root only' => [null, 'Пенка', 'penka', 'kuzovnye-detali/remontnye-elementy-kuzova/pennye-vstavki'],
+    'penka zadnei dveri' => ['Пенка', 'Задней двери', 'penka/zadnei-dveri', 'kuzovnye-detali/remontnye-elementy-kuzova/pennye-vstavki'],
+    'penka perednei dveri' => ['Пенка', 'Передней двери', 'penka/perednei-dveri', 'kuzovnye-detali/remontnye-elementy-kuzova/pennye-vstavki'],
+    'penka bagazhnika' => ['Пенка', 'Багажника', 'penka/bagazhnika', 'kuzovnye-detali/remontnye-elementy-kuzova/pennye-vstavki'],
+    'lonzheron' => [null, 'Лонжерон', 'lonzheron', 'kuzovnye-detali/remontnye-elementy-kuzova/lonzherony'],
+    'floor repair kit' => [null, 'Ремкомплект пола', 'remkomplekt-pola', 'kuzovnye-detali/remontnye-elementy-kuzova/remkomplekty-pola'],
+    'end cap' => [null, 'Торцевая заглушка', 'tortsevaia-zaglushka', 'kuzovnye-detali/remontnye-elementy-kuzova/zaglushki'],
+    'reinforcement connector' => ['Усилитель', 'соединитель порогов', 'usilitel/soedinitel-porogov', 'kuzovnye-detali/remontnye-elementy-kuzova/usiliteli'],
+]);
+
+test('unknown child creates one PartType and logs fallback once for the import run', function () {
+    $run = catalogImportRun([
+        'detail_columns' => [
+            6 => [
+                'index' => 6,
+                'group' => 'Арка',
+                'parent_title' => 'Арка',
+                'title' => 'Передняя усиленная',
+                'detail_title' => 'Передняя усиленная',
+                'full_detail_title' => 'Арка передняя усиленная',
+                'category_title' => 'Передняя усиленная',
+            ],
+        ],
+    ]);
+    $processor = app(ImportRowProcessor::class);
+    $prepared = $processor->prepareDetailColumns($run, $run->detail_columns);
+
+    $processor->process($run, catalogRow([3 => 'XV70', 6 => '1']), $prepared, 3);
+    $processor->process($run, catalogRow([3 => 'XV71', 6 => '1']), $prepared, 4);
+
+    $partType = PartType::query()->where('full_slug', 'arka/peredniaia-usilennaia')->firstOrFail();
+    $rootPartType = PartType::query()->where('full_slug', 'arka')->firstOrFail();
+    $products = Product::query()->orderBy('id')->get();
+    $archesCategoryId = ProductCategory::query()
+        ->where('full_slug', 'kuzovnye-detali/remontnye-elementy-kuzova/arki')
+        ->value('id');
+
+    expect($prepared[6]['part_type_used_fallback'])->toBeTrue()
+        ->and($partType->default_image_key)->toBeNull()
+        ->and($rootPartType->product_category_id)->toBe($archesCategoryId)
+        ->and(PartType::query()->where('full_slug', 'arka')->count())->toBe(1)
+        ->and(PartType::query()->where('full_slug', 'arka/peredniaia-usilennaia')->count())->toBe(1)
+        ->and($products)->toHaveCount(2)
+        ->and($products->pluck('part_type_id')->unique()->values()->all())->toBe([$partType->getKey()])
+        ->and($products->pluck('product_category_id')->unique()->values()->all())->toBe([
+            ProductCategory::query()->where('full_slug', 'kuzovnye-detali/remontnye-elementy-kuzova')->value('id'),
+        ])->and($products->pluck('import_key')->unique())->toHaveCount(2)
+        ->and(ImportLog::query()->where('message', 'Для нового типа детали использована резервная категория магазина')->count())->toBe(1)
+        ->and(ProductCategory::query()->whereIn('title', ['Арка', 'Передняя усиленная'])->exists())->toBeFalse();
+});
+
+test('unknown root creates a fallback PartType without creating a technical ProductCategory', function () {
+    $run = catalogImportRun([
+        'detail_columns' => [
+            6 => [
+                'index' => 6,
+                'group' => null,
+                'parent_title' => null,
+                'title' => 'Новая кузовная деталь',
+                'detail_title' => 'Новая кузовная деталь',
+                'full_detail_title' => 'Новая кузовная деталь',
+                'category_title' => 'Новая кузовная деталь',
+            ],
+        ],
+    ]);
+
+    processCatalogRow($run, catalogRow([6 => '1']));
+
+    $partType = PartType::query()->where('title', 'Новая кузовная деталь')->firstOrFail();
+    $product = Product::query()->firstOrFail();
+
+    expect($partType->default_image_key)->toBeNull()
+        ->and($product->part_type_id)->toBe($partType->getKey())
+        ->and($product->category->full_slug)->toBe('kuzovnye-detali/remontnye-elementy-kuzova')
+        ->and(ProductCategory::query()->where('title', 'Новая кузовная деталь')->exists())->toBeFalse()
+        ->and(ImportLog::query()->where('message', 'Для нового типа детали использована резервная категория магазина')->count())->toBe(1);
+});
+
+test('PartType import identity stays compatible with the former technical category path', function () {
+    $run = catalogImportRun([
+        'detail_columns' => [
+            10 => [
+                'index' => 10,
+                'group' => 'Арка',
+                'parent_title' => 'Арка',
+                'title' => 'Внутренняя универсальная',
+                'detail_title' => 'Внутренняя универсальная',
+                'full_detail_title' => 'Арка внутренняя универсальная',
+                'category_title' => 'Внутренняя универсальная',
+            ],
+        ],
+    ]);
+    $processor = app(ImportRowProcessor::class);
+    $prepared = $processor->prepareDetailColumns($run, $run->detail_columns);
+    $partType = PartType::query()->findOrFail($prepared[10]['part_type_id']);
+    $generation = $processor->vehicleGeneration('Audi', 'A4', 'B5', '1994–2001', 'Универсал');
+    $factory = app(ImportProductFactory::class);
+    $oldImportKey = CatalogText::stableKey([
+        'catalog',
+        $generation->model->make->norm_key,
+        $generation->model->norm_key,
+        $generation->norm_key,
+        'arka',
+        'vnutrenniaia-universalnaia',
+    ], ':', 240, 'catalog');
+    $newImportKey = $factory->importKey($generation, $partType, 'catalog');
+    $stableTitle = $factory->productTitle($partType, $generation);
+    $stableSlug = $factory->stableSlug($generation, $partType, 'catalog', $stableTitle);
+    $legacyRoot = ProductCategory::factory()->create(['title' => 'Арка', 'slug' => 'arka']);
+    $legacyChild = ProductCategory::factory()->forParent($legacyRoot)->create([
+        'title' => 'Внутренняя универсальная',
+        'slug' => 'vnutrenniaia-universalnaia',
+    ]);
+    $existing = Product::factory()->forCategory($legacyChild)->create([
+        'product_type' => ProductType::Generic,
+        'part_type_id' => null,
+        'title' => $stableTitle,
+        'slug' => $stableSlug,
+        'import_key' => $oldImportKey,
+        'import_source' => 'catalog',
+        'last_import_run_id' => 'old-run',
+    ]);
+
+    $processor->process(
+        $run,
+        catalogRow([1 => 'Audi', 2 => 'A4', 3 => 'B5', 4 => '1994–2001', 5 => 'Универсал', 6 => '', 10 => '1']),
+        $prepared,
+        3,
+    );
+
+    $existing->refresh();
+    $archived = $factory->archiveMissingProducts($run->fresh());
+
+    expect($newImportKey)->toBe($oldImportKey)
+        ->and($archived)->toBe(0)
+        ->and(Product::query()->count())->toBe(1)
+        ->and($existing->getKey())->toBe(Product::query()->value('id'))
+        ->and($existing->import_key)->toBe($oldImportKey)
+        ->and($existing->slug)->toBe($stableSlug)
+        ->and($existing->part_type_id)->toBe($partType->getKey())
+        ->and($existing->product_category_id)->toBe($prepared[10]['product_category_id'])
+        ->and($existing->product_type)->toBe(ProductType::AutoPart)
+        ->and($existing->status)->toBe(ProductStatus::Active);
+});
+
+test('missing prepared ids are safely resolved again from header text', function () {
+    $run = catalogImportRun();
+    $processor = app(ImportRowProcessor::class);
+    $prepared = $processor->prepareDetailColumns($run, $run->detail_columns);
+    $prepared[6]['part_type_id'] = 999999;
+    $prepared[6]['product_category_id'] = 999999;
+
+    $processor->process($run, catalogRow([6 => '1']), $prepared, 3);
+
+    $product = Product::query()->with(['partType', 'category'])->firstOrFail();
+
+    expect($product->partType->full_slug)->toBe('porog')
+        ->and($product->category->full_slug)->toBe('kuzovnye-detali/remontnye-elementy-kuzova/porogi')
+        ->and(ImportLog::query()->where('message', 'Подготовленные данные типа детали устарели, выполнено повторное разрешение')->count())->toBe(1);
+});
+
+test('import resolver restores soft deleted PartType without replacing manual metadata', function () {
+    $partType = PartType::factory()->create([
+        'title' => 'Порог',
+        'default_image_key' => 'manual-porog-key',
+        'meta_title' => 'Ручной title',
+        'meta_description' => 'Ручное description',
+        'is_active' => false,
+    ]);
+    $partTypeId = $partType->getKey();
+    $partType->delete();
+    $run = catalogImportRun();
+
+    $prepared = app(ImportRowProcessor::class)->prepareDetailColumns($run, $run->detail_columns);
+    $restored = PartType::query()->findOrFail($partTypeId);
+
+    expect($prepared[6]['part_type_id'])->toBe($partTypeId)
+        ->and(PartType::withTrashed()->where('full_slug', 'porog')->count())->toBe(1)
+        ->and($restored->deleted_at)->toBeNull()
+        ->and($restored->is_active)->toBeTrue()
+        ->and($restored->default_image_key)->toBe('manual-porog-key')
+        ->and($restored->meta_title)->toBe('Ручной title')
+        ->and($restored->meta_description)->toBe('Ручное description')
+        ->and(ImportLog::query()->where('message', 'Восстановлен ранее удалённый тип детали')->count())->toBe(1);
 });
