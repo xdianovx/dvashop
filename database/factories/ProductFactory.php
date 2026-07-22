@@ -20,7 +20,8 @@ class ProductFactory extends Factory
 
     public function definition(): array
     {
-        $title = fake()->unique()->bothify('Порог кузовной ##??');
+        $token = strtolower((string) Str::ulid());
+        $title = 'Порог кузовной '.$token;
 
         return [
             'product_category_id' => ProductCategory::factory(),
@@ -28,7 +29,9 @@ class ProductFactory extends Factory
             'part_type_id' => null,
             'title' => $title,
             'slug' => Str::slug($title),
-            'sku' => fake()->unique()->optional()->bothify('SKU-#####'),
+            'sku' => fake()->boolean(70)
+                ? 'SKU-'.strtoupper((string) Str::ulid())
+                : null,
             'status' => ProductStatus::Active,
             'short_description' => fake()->optional()->sentence(),
             'description' => fake()->optional()->paragraph(),
