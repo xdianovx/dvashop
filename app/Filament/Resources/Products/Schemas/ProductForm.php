@@ -9,7 +9,11 @@ use App\Filament\Resources\Products\Actions\ProductGalleryActions;
 use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
+use App\Models\ProductCharacteristic;
 use App\Models\ProductImage;
+use App\Models\ProductOptionGroup;
+use App\Models\ProductOptionTemplate;
+use App\Models\ProductOptionValue;
 use App\Models\VehicleGeneration;
 use App\Services\Media\MediaUrlService;
 use Filament\Actions\Action;
@@ -41,6 +45,7 @@ final class ProductForm
                 ->tabs([
                     self::mainTab(),
                     self::priceAndStockTab(),
+                    self::characteristicsTab(),
                     self::galleryTab(),
                     self::fitmentsTab(),
                     self::seoTab(),
@@ -90,6 +95,55 @@ final class ProductForm
             ->all();
     }
 
+    /** @return array<int|string, string> */
+    public static function optionTemplateOptions(ProductType|string|null $productType): array
+    {
+        $scope = $productType instanceof ProductType ? $productType->value : (string) $productType;
+
+        return ProductOptionTemplate::query()
+            ->where('is_active', true)
+            ->whereIn('applies_to', array_filter([ProductOptionGroup::APPLIES_ALL, $scope]))
+            ->orderBy('position')
+            ->orderBy('title')
+            ->pluck('title', 'id')
+            ->all();
+    }
+
+    /** @return array<int|string, string> */
+    public static function optionGroupOptions(mixed $templateId = null): array
+    {
+        return ProductOptionGroup::query()
+            ->where('is_active', true)
+            ->when(filled($templateId), fn ($query) => $query->whereHas(
+                'templateItems',
+                fn ($items) => $items->where('product_option_template_id', $templateId),
+            ))
+            ->orderBy('position')
+            ->orderBy('title')
+            ->pluck('title', 'id')
+            ->all();
+    }
+
+    /** @return array<int|string, string> */
+    public static function optionValueOptions(mixed $groupId, mixed $templateId = null): array
+    {
+        if (blank($groupId)) {
+            return [];
+        }
+
+        return ProductOptionValue::query()
+            ->where('product_option_group_id', $groupId)
+            ->where('is_active', true)
+            ->when(filled($templateId), fn ($query) => $query->whereHas(
+                'templateItems',
+                fn ($items) => $items->where('product_option_template_id', $templateId),
+            ))
+            ->orderBy('position')
+            ->orderBy('title')
+            ->pluck('title', 'id')
+            ->all();
+    }
+
     private static function mainTab(): Tab
     {
         return Tab::make('Основное')
@@ -107,6 +161,7 @@ final class ProductForm
                     ->afterStateUpdated(function (ProductType|string|null $state, Set $set): void {
                         if (! self::isAutoPartState($state)) {
                             $set('part_type_id', null);
+                            $set('product_option_template_id', null);
                             $set('fitments', []);
                         }
                     }),
@@ -134,6 +189,18 @@ final class ProductForm
                     ->hidden(fn (Get $get): bool => ! self::isAutoPartState($get('product_type')))
                     ->dehydrated(fn (Get $get): bool => self::isAutoPartState($get('product_type')))
                     ->required(fn (Get $get): bool => self::isAutoPartState($get('product_type'))),
+                Select::make('product_option_template_id')
+                    ->label('Шаблон опций')
+                    ->searchable()
+                    ->preload()
+                    ->options(fn (Get $get): array => self::optionTemplateOptions($get('product_type')))
+                    ->live()
+                    ->default(fn (): mixed => ProductOptionTemplate::query()
+                        ->where('slug', 'default_auto_part')
+                        ->where('is_active', true)
+                        ->value('id'))
+                    ->nullable()
+                    ->helperText('Шаблон определяет доступные группы и значения опций для вариантов товара.'),
                 Select::make('status')
                     ->label('Статус')
                     ->options(ProductStatus::options())
@@ -232,18 +299,113 @@ final class ProductForm
                                 Toggle::make('is_active')
                                     ->label('Активен')
                                     ->default(true),
-                                KeyValue::make('options')
-                                    ->label('Опции')
-                                    ->keyLabel('Опция')
-                                    ->valueLabel('Значение')
+                                Repeater::make('variantOptionValues')
+                                    ->label('Выбранные опции')
+                                    ->relationship()
+                                    ->schema([
+                                        Select::make('product_option_group_id')
+                                            ->label('Группа')
+                                            ->options(fn (Get $get): array => self::optionGroupOptions(
+                                                $get('data.product_option_template_id', isAbsolute: true),
+                                            ))
+                                            ->searchable()
+                                            ->preload()
+                                            ->live()
+                                            ->required()
+                                            ->disableOptionsWhenSelectedInSiblingRepeaterItems()
+                                            ->afterStateUpdated(fn (Set $set): mixed => $set('product_option_value_id', null)),
+                                        Select::make('product_option_value_id')
+                                            ->label('Значение')
+                                            ->options(fn (Get $get): array => self::optionValueOptions(
+                                                $get('product_option_group_id'),
+                                                $get('data.product_option_template_id', isAbsolute: true),
+                                            ))
+                                            ->searchable()
+                                            ->preload()
+                                            ->required()
+                                            ->disabled(fn (Get $get): bool => blank($get('product_option_group_id'))),
+                                    ])
+                                    ->defaultItems(0)
+                                    ->columns(2)
+                                    ->reorderable(false)
+                                    ->addActionLabel('Добавить опцию')
+                                    ->helperText('Для каждой группы можно выбрать только одно значение.')
+                                    ->columnSpanFull(),
+                                Section::make('Совместимость со старыми данными')
+                                    ->description('JSON используется только как резервный snapshot, если нормализованные опции не выбраны.')
+                                    ->collapsible()
+                                    ->collapsed()
+                                    ->schema([
+                                        KeyValue::make('options')
+                                            ->label('Резервные опции JSON')
+                                            ->keyLabel('Код опции')
+                                            ->valueLabel('Значение'),
+                                    ])
                                     ->columnSpanFull(),
                             ])
                             ->defaultItems(0)
                             ->columns(4)
                             ->collapsible()
                             ->collapsed()
-                            ->itemLabel(fn (array $state): string => (string) (($state['title'] ?? null) ?: ($state['sku'] ?? null) ?: 'Вариант товара'))
+                            ->itemLabel(fn (array $state): string => self::variantItemLabel($state))
                             ->addActionLabel('Добавить вариант')
+                            ->columnSpanFull(),
+                    ]),
+            ]);
+    }
+
+    private static function characteristicsTab(): Tab
+    {
+        return Tab::make('Характеристики')
+            ->key('product-characteristics-tab', isInheritable: false)
+            ->schema([
+                Section::make('Характеристики товара')
+                    ->description('Пары «название — значение» для будущего блока характеристик на карточке товара.')
+                    ->schema([
+                        Repeater::make('characteristics')
+                            ->label('')
+                            ->relationship()
+                            ->schema([
+                                TextInput::make('name')
+                                    ->label('Название')
+                                    ->required()
+                                    ->maxLength(255),
+                                TextInput::make('value')
+                                    ->label('Значение')
+                                    ->required()
+                                    ->maxLength(255),
+                                TextInput::make('unit')
+                                    ->label('Ед. изм.')
+                                    ->maxLength(50),
+                                Select::make('source_type')
+                                    ->label('Источник')
+                                    ->options([
+                                        ProductCharacteristic::SOURCE_MANUAL => 'Ручное',
+                                        ProductCharacteristic::SOURCE_DEFAULT => 'По умолчанию',
+                                        ProductCharacteristic::SOURCE_IMPORT => 'Импорт',
+                                    ])
+                                    ->default(ProductCharacteristic::SOURCE_MANUAL)
+                                    ->disabled()
+                                    ->dehydrated(),
+                                Toggle::make('is_visible')
+                                    ->label('Показывать на сайте')
+                                    ->default(true),
+                                TextInput::make('position')
+                                    ->label('Порядок')
+                                    ->numeric()
+                                    ->default(0)
+                                    ->required(),
+                            ])
+                            ->defaultItems(0)
+                            ->columns(3)
+                            ->orderColumn('position')
+                            ->collapsible()
+                            ->itemLabel(fn (array $state): string => implode(' · ', array_filter([
+                                $state['name'] ?? null,
+                                $state['value'] ?? null,
+                                $state['unit'] ?? null,
+                            ])) ?: 'Характеристика')
+                            ->addActionLabel('Добавить характеристику')
                             ->columnSpanFull(),
                     ]),
             ]);
@@ -455,6 +617,36 @@ final class ProductForm
                     ])
                     ->columns(2),
             ]);
+    }
+
+    /** @param array<string, mixed> $state */
+    private static function variantItemLabel(array $state): string
+    {
+        $valueIds = collect($state['variantOptionValues'] ?? [])
+            ->pluck('product_option_value_id')
+            ->filter()
+            ->map(fn (mixed $id): int => (int) $id)
+            ->values();
+
+        if ($valueIds->isNotEmpty()) {
+            $summary = ProductOptionValue::query()
+                ->with('group')
+                ->whereKey($valueIds)
+                ->get()
+                ->sortBy(fn (ProductOptionValue $value): string => sprintf(
+                    '%010d:%010d',
+                    (int) $value->group?->position,
+                    (int) $value->position,
+                ))
+                ->map(fn (ProductOptionValue $value): string => ($value->group?->title ?? 'Опция').': '.$value->title)
+                ->implode('; ');
+
+            if ($summary !== '') {
+                return $summary;
+            }
+        }
+
+        return (string) (($state['title'] ?? null) ?: ($state['sku'] ?? null) ?: 'Вариант товара');
     }
 
     /** @param array<string, mixed> $arguments */

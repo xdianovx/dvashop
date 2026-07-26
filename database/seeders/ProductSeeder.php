@@ -9,6 +9,7 @@ use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductFitment;
+use App\Models\ProductOptionTemplate;
 use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
 use App\Services\Media\ProductGalleryService;
@@ -29,6 +30,7 @@ class ProductSeeder extends Seeder
                 ->firstOrFail();
 
         $generation = VehicleGeneration::query()->with('model.make')->orderBy('id')->first();
+        $optionTemplate = ProductOptionTemplate::query()->where('slug', 'default_auto_part')->first();
 
         $product = Product::query()->updateOrCreate(
             ['slug' => 'demo-porogi-toyota-camry'],
@@ -36,6 +38,7 @@ class ProductSeeder extends Seeder
                 'product_category_id' => $category->getKey(),
                 'product_type' => ProductType::AutoPart,
                 'part_type_id' => $partType->getKey(),
+                'product_option_template_id' => $optionTemplate?->getKey(),
                 'title' => 'Демо пороги Toyota Camry',
                 'sku' => 'DEMO-POROGI-CAMRY',
                 'status' => ProductStatus::Active,

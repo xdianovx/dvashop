@@ -6,6 +6,7 @@ use App\Models\ProductImage;
 use App\Services\Media\DefaultProductImageService;
 use Database\Seeders\PartTypeSeeder;
 use Database\Seeders\ProductCatalogSeeder;
+use Database\Seeders\ProductOptionSeeder;
 use Database\Seeders\ProductSeeder;
 use Database\Seeders\VehicleCatalogSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -16,6 +17,7 @@ test('product seeder creates a valid auto part demo product with a real default 
     $this->seed([
         ProductCatalogSeeder::class,
         PartTypeSeeder::class,
+        ProductOptionSeeder::class,
         VehicleCatalogSeeder::class,
         ProductSeeder::class,
     ]);
@@ -29,6 +31,7 @@ test('product seeder creates a valid auto part demo product with a real default 
     expect($product->product_type)->toBe(ProductType::AutoPart)
         ->and($product->partType?->full_slug)->toBe('porog')
         ->and($product->category?->full_slug)->toBe('kuzovnye-detali/remontnye-elementy-kuzova/porogi')
+        ->and($product->optionTemplate?->slug)->toBe('default_auto_part')
         ->and($product->images->contains('path', 'products/demo-porogi-camry.jpg'))->toBeFalse()
         ->and($defaultImage)->toBeInstanceOf(ProductImage::class)
         ->and($defaultImage?->is_default)->toBeTrue()

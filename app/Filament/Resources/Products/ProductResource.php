@@ -19,7 +19,7 @@ class ProductResource extends Resource
 {
     protected static ?string $model = Product::class;
 
-    protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-shopping-bag';
+    protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-shopping-bag';
 
     protected static ?string $recordTitleAttribute = 'title';
 
@@ -56,6 +56,7 @@ class ProductResource extends Resource
             ->with([
                 'category.parent.parent',
                 'partType',
+                'optionTemplate',
                 'defaultVariant',
                 'mainImage',
                 'images',

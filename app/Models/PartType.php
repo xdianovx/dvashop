@@ -56,6 +56,11 @@ class PartType extends Model
         return $this->hasMany(Product::class);
     }
 
+    public function optionTemplates(): HasMany
+    {
+        return $this->hasMany(ProductOptionTemplate::class);
+    }
+
     protected static function booted(): void
     {
         static::saving(function (self $partType): void {

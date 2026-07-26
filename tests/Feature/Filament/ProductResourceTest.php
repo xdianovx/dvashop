@@ -6,13 +6,19 @@ use App\Enums\StockStatus;
 use App\Filament\Resources\Products\Pages\CreateProduct;
 use App\Filament\Resources\Products\Pages\EditProduct;
 use App\Filament\Resources\Products\ProductResource;
+use App\Filament\Resources\Products\Schemas\ProductForm;
 use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
+use App\Models\ProductCharacteristic;
 use App\Models\ProductFitment;
 use App\Models\ProductImage;
+use App\Models\ProductOptionGroup;
+use App\Models\ProductOptionTemplate;
+use App\Models\ProductOptionValue;
 use App\Models\User;
 use App\Models\VehicleGeneration;
+use Database\Seeders\ProductOptionSeeder;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
@@ -55,6 +61,120 @@ function productResourcePartType(ProductCategory $category): PartType
         'default_image_key' => 'porog',
     ])->refresh();
 }
+
+test('ProductResource limits option selectors to the selected template', function () {
+    $this->seed(ProductOptionSeeder::class);
+
+    $template = ProductOptionTemplate::query()->where('slug', 'default_auto_part')->firstOrFail();
+    $profile = ProductOptionGroup::query()->where('slug', 'profile')->firstOrFail();
+    $full = ProductOptionValue::query()
+        ->whereBelongsTo($profile, 'group')
+        ->where('slug', 'full')
+        ->firstOrFail();
+    $outsideGroup = ProductOptionGroup::factory()->create();
+    $outsideValue = ProductOptionValue::factory()->forGroup($profile)->create();
+
+    expect(ProductForm::optionGroupOptions($template->getKey()))
+        ->toHaveKey($profile->getKey())
+        ->not->toHaveKey($outsideGroup->getKey())
+        ->and(ProductForm::optionValueOptions($profile->getKey(), $template->getKey()))
+        ->toHaveKey($full->getKey())
+        ->not->toHaveKey($outsideValue->getKey());
+});
+
+test('ProductResource saves option template normalized variant values and characteristics', function () {
+    $undoRepeaterFake = Repeater::fake();
+    $this->seed(ProductOptionSeeder::class);
+    $category = productResourceCategory();
+    $partType = productResourcePartType($category);
+    $template = ProductOptionTemplate::query()->where('slug', 'default_auto_part')->firstOrFail();
+    $profile = ProductOptionGroup::query()->where('slug', 'profile')->firstOrFail();
+    $full = ProductOptionValue::query()
+        ->where('product_option_group_id', $profile->getKey())
+        ->where('slug', 'full')
+        ->firstOrFail();
+
+    try {
+        Livewire::test(CreateProduct::class)
+            ->assertFormFieldExists('product_option_template_id', fn (Select $field): bool => $field->getLabel() === 'Шаблон опций')
+            ->assertSchemaComponentExists('product-characteristics-tab')
+            ->fillForm([
+                'product_type' => ProductType::AutoPart->value,
+                'title' => 'Порог с управляемыми опциями',
+                'slug' => 'porog-managed-options',
+                'product_category_id' => $category->getKey(),
+                'part_type_id' => $partType->getKey(),
+                'product_option_template_id' => $template->getKey(),
+                'status' => ProductStatus::Active->value,
+                'position' => 0,
+                'stock_status' => StockStatus::InStock->value,
+                'variants' => [[
+                    'sku' => 'MANAGED-OPTION-BASE',
+                    'title' => 'Основной вариант',
+                    'price' => 8900,
+                    'stock_quantity' => 4,
+                    'stock_status' => StockStatus::InStock->value,
+                    'is_default' => true,
+                    'is_active' => true,
+                    'options' => [],
+                    'variantOptionValues' => [[
+                        'product_option_group_id' => $profile->getKey(),
+                        'product_option_value_id' => $full->getKey(),
+                    ]],
+                ]],
+                'characteristics' => [[
+                    'name' => 'Производство',
+                    'value' => 'Россия',
+                    'unit' => null,
+                    'source_type' => ProductCharacteristic::SOURCE_MANUAL,
+                    'is_visible' => true,
+                    'position' => 10,
+                ]],
+            ], 'form')
+            ->call('create')
+            ->assertHasNoFormErrors()
+            ->assertRedirect();
+    } finally {
+        $undoRepeaterFake();
+    }
+
+    $product = Product::query()->where('slug', 'porog-managed-options')->firstOrFail();
+    $variant = $product->variants()->firstOrFail();
+
+    expect($product->optionTemplate->is($template))->toBeTrue()
+        ->and($variant->optionValues()->pluck('product_option_values.id')->all())->toBe([$full->getKey()])
+        ->and($variant->optionSummary())->toBe('Профиль: Полный')
+        ->and($variant->options)->toBe([
+            'profile' => ['group' => 'Профиль', 'value' => 'Полный'],
+        ])
+        ->and($product->characteristics()->count())->toBe(1)
+        ->and($product->characteristics()->firstOrFail()->name)->toBe('Производство');
+});
+
+test('ProductResource generic product can remain without an option template', function () {
+    $this->seed(ProductOptionSeeder::class);
+
+    Livewire::test(CreateProduct::class)
+        ->set('data.product_type', ProductType::Generic->value)
+        ->assertSet('data.product_option_template_id', null)
+        ->assertSchemaComponentExists('product-characteristics-tab');
+});
+
+test('ProductResource exposes an explicit action for bounded template variant generation', function () {
+    $this->seed(ProductOptionSeeder::class);
+    $template = ProductOptionTemplate::query()->where('slug', 'default_auto_part')->firstOrFail();
+    $product = Product::factory()->withDefaultVariant()->create([
+        'product_option_template_id' => $template->getKey(),
+    ]);
+
+    Livewire::test(EditProduct::class, ['record' => $product->getKey()])
+        ->assertActionExists('generate_variants_from_template')
+        ->callAction('generate_variants_from_template')
+        ->assertNotified();
+
+    expect($product->variants()->count())->toBe(24)
+        ->and($product->variants()->where('is_default', true)->count())->toBe(1);
+});
 
 test('auto part exposes part type and cars tab while generic product hides them', function () {
     $category = productResourceCategory();

@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
@@ -35,6 +36,91 @@ class ProductVariant extends Model
     public function images(): HasMany
     {
         return $this->hasMany(ProductImage::class);
+    }
+
+    public function variantOptionValues(): HasMany
+    {
+        return $this->hasMany(ProductVariantOptionValue::class);
+    }
+
+    public function optionValues(): BelongsToMany
+    {
+        return $this->belongsToMany(ProductOptionValue::class, 'product_variant_option_values')
+            ->withPivot('product_option_group_id')
+            ->withTimestamps();
+    }
+
+    public function optionSummary(): string
+    {
+        $this->loadMissing('optionValues.group');
+
+        $values = $this->optionValues
+            ->sortBy(fn (ProductOptionValue $value): string => sprintf(
+                '%010d:%010d:%010d',
+                (int) $value->group?->position,
+                (int) $value->position,
+                (int) $value->getKey(),
+            ));
+
+        if ($values->isNotEmpty()) {
+            return $values
+                ->map(fn (ProductOptionValue $value): string => ($value->group?->title ?? 'Опция').': '.$value->title)
+                ->implode('; ');
+        }
+
+        if (! is_array($this->options) || $this->options === []) {
+            return '';
+        }
+
+        return collect($this->options)
+            ->map(function (mixed $option, string|int $key): ?string {
+                if (is_array($option) && filled($option['value'] ?? null)) {
+                    return (string) (($option['group'] ?? null) ?: $key).': '.$option['value'];
+                }
+
+                return is_scalar($option) && filled((string) $option)
+                    ? (string) $key.': '.$option
+                    : null;
+            })
+            ->filter()
+            ->implode('; ');
+    }
+
+    public function syncOptionsSnapshotFromValues(): void
+    {
+        $this->unsetRelation('optionValues');
+        $this->load('optionValues.group');
+
+        $values = $this->optionValues
+            ->sortBy(fn (ProductOptionValue $value): string => sprintf(
+                '%010d:%010d:%010d',
+                (int) $value->group?->position,
+                (int) $value->position,
+                (int) $value->getKey(),
+            ));
+
+        if ($values->isEmpty()) {
+            return;
+        }
+
+        $snapshot = [];
+
+        foreach ($values as $value) {
+            $group = $value->group;
+
+            if (! $group instanceof ProductOptionGroup) {
+                continue;
+            }
+
+            $snapshot[$group->code ?: $group->slug] = [
+                'group' => $group->title,
+                'value' => $value->title,
+            ];
+        }
+
+        if ($snapshot !== []) {
+            $this->forceFill(['options' => $snapshot])->saveQuietly();
+        }
     }
 
     public function cartItems(): HasMany
