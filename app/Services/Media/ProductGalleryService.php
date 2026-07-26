@@ -4,6 +4,7 @@ namespace App\Services\Media;
 
 use App\Models\Product;
 use App\Models\ProductImage;
+use Illuminate\Support\Collection;
 use LogicException;
 use RuntimeException;
 
@@ -13,6 +14,38 @@ class ProductGalleryService
         private readonly DefaultProductImageService $defaultImages,
     ) {}
 
+    /**
+     * @param array<int, string> $paths
+     * @return Collection<int, ProductImage>
+     */
+    public function attachManualImages(Product $product, array $paths, ?string $alt = null): Collection
+    {
+        $paths = collect($paths)
+            ->filter(static fn (mixed $path): bool => is_string($path) && trim($path) !== '')
+            ->map(static fn (string $path): string => trim($path))
+            ->unique()
+            ->values();
+
+        if ($paths->isEmpty()) {
+            return collect();
+        }
+
+        $makeFirstMain = ! $this->productHasMainImage($product);
+
+        return $paths
+            ->map(function (string $path, int $index) use ($product, $alt, $makeFirstMain): ProductImage {
+                return $this->attachManualImage(
+                    product: $product,
+                    path: $path,
+                    alt: $alt,
+                    makeMain: $makeFirstMain && $index === 0,
+                );
+            })
+            ->filter(static fn (ProductImage $image): bool => $image->exists)
+            ->unique(static fn (ProductImage $image): int|string => $image->getKey())
+            ->values();
+    }
+
     public function attachManualImage(Product $product, string $path, ?string $alt = null, ?bool $makeMain = null): ProductImage
     {
         $product->loadMissing('defaultVariant');
@@ -20,7 +53,7 @@ class ProductGalleryService
         $hasMain = $this->productHasMainImage($product);
         $makeMain ??= ! $hasMain;
 
-        return ProductImage::query()->create([
+        $image = ProductImage::query()->create([
             'product_id' => $product->getKey(),
             'product_variant_id' => $product->defaultVariant?->getKey(),
             'disk' => 'public',
@@ -31,7 +64,28 @@ class ProductGalleryService
             'is_main' => $makeMain,
             'position' => $this->nextPosition($product),
             'alt' => $alt ?: $product->title,
-        ])->refresh();
+        ]);
+
+        if ($image->exists) {
+            return $image->refresh();
+        }
+
+        $duplicate = is_string($image->checksum) && $image->checksum !== ''
+            ? ProductImage::query()
+                ->where('product_id', $product->getKey())
+                ->where('checksum', $image->checksum)
+                ->first()
+            : null;
+
+        if ($duplicate instanceof ProductImage) {
+            if ($makeMain && ! $duplicate->is_main) {
+                return $this->makeMain($duplicate);
+            }
+
+            return $duplicate;
+        }
+
+        throw new RuntimeException('Не удалось сохранить загруженное изображение товара.');
     }
 
     public function ensureDefaultImage(Product $product, bool $makeMain = false): ?ProductImage

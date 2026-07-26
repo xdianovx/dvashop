@@ -50,17 +50,26 @@ class MediaUrlService
         return $this->publicDiskUrl($path, $disk) ?? $this->placeholderUrl();
     }
 
+    public function productImageFileUrl(?ProductImage $image): string
+    {
+        if (! $image instanceof ProductImage) {
+            return $this->placeholderUrl();
+        }
+
+        if ($image->source_type === ProductImage::SOURCE_DEFAULT || $image->is_default || $image->disk === DefaultProductImageService::DISK) {
+            return app(DefaultProductImageService::class)->urlForPath($image->path) ?? $this->placeholderUrl();
+        }
+
+        return $this->publicDiskUrlOrPlaceholder($image->path, $image->disk ?: 'public');
+    }
+
     public function productImageUrl(?ProductImage $image): string
     {
         if (! $image instanceof ProductImage || ! $image->is_visible) {
             return $this->placeholderUrl();
         }
 
-        if ($image->source_type === 'default' || $image->is_default || $image->disk === DefaultProductImageService::DISK) {
-            return app(DefaultProductImageService::class)->urlForPath($image->path) ?? $this->placeholderUrl();
-        }
-
-        return $this->publicDiskUrlOrPlaceholder($image->path, $image->disk ?: 'public');
+        return $this->productImageFileUrl($image);
     }
 
     public function productMainImageUrl(Product $product): string
