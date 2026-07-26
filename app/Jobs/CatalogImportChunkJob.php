@@ -2,11 +2,10 @@
 
 namespace App\Jobs;
 
-use App\Enums\ImportRunStatus;
 use App\Models\ImportRun;
-use App\Services\ImportLogger;
 use App\Services\Import\ImportProductFactory;
 use App\Services\Import\ImportRowProcessor;
+use App\Services\ImportLogger;
 use App\Services\ImportStatusService;
 use App\Services\SpreadsheetReader;
 use Illuminate\Bus\Queueable;
@@ -25,6 +24,8 @@ class CatalogImportChunkJob implements ShouldQueue
     use InteractsWithQueue;
     use Queueable;
     use SerializesModels;
+
+    private const PROGRESS_CHECKPOINT_SIZE = 20;
 
     public function __construct(public int $importRunId) {}
 
@@ -64,6 +65,8 @@ class CatalogImportChunkJob implements ShouldQueue
                 return;
             }
 
+            $processedInChunk = 0;
+
             foreach ($rows as $index => $row) {
                 $rowNumber = $offset + $index + 3;
 
@@ -82,18 +85,27 @@ class CatalogImportChunkJob implements ShouldQueue
                         'error' => $e->getMessage(),
                     ]);
                 }
+
+                $processedInChunk++;
+
+                if ($processedInChunk % self::PROGRESS_CHECKPOINT_SIZE === 0) {
+                    $run = $statusService->updateRowsProgress($run, $offset + $processedInChunk);
+
+                    if (! $run->status?->isRowsRunning()) {
+                        return;
+                    }
+                }
             }
 
-            $run->refresh();
-            $run->forceFill([
-                'processed_rows' => min($run->total_rows, $run->processed_rows + $processed),
-                'current_row' => min($run->total_rows, $offset + $processed),
-                'heartbeat_at' => now(),
-            ])->save();
+            $run = $statusService->updateRowsProgress($run, $offset + $processedInChunk);
+
+            if (! $run->status?->isRowsRunning()) {
+                return;
+            }
 
             $logger->info($run, 'Чанк прочитан', [
                 'offset' => $offset,
-                'count' => $processed,
+                'count' => $processedInChunk,
                 'processed_rows' => $run->processed_rows,
                 'total_rows' => $run->total_rows,
             ]);
@@ -111,7 +123,7 @@ class CatalogImportChunkJob implements ShouldQueue
                     $logger->warning($run, 'Автоархивация пропущена, потому что во время импорта были ошибки строк.', [
                         'errors_count' => $run->errors_count,
                     ]);
-                } elseif (! in_array($run->status, [ImportRunStatus::Failed, ImportRunStatus::Canceled], true)) {
+                } elseif ($run->status?->isRowsRunning()) {
                     $archived = $products->archiveMissingProducts($run);
                 }
 

@@ -14,6 +14,8 @@ use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductImage;
 use App\Models\User;
+use App\Services\Import\ImportImageDownloader;
+use App\Services\Import\ImportRowProcessor;
 use App\Services\ImportLogger;
 use App\Services\ImportRunReportExporter;
 use App\Services\ImportStatusService;
@@ -73,7 +75,8 @@ test('file upload metadata is read from stored import file instead of temporary 
 
     file_put_contents($path, importCsvContent());
 
-    $file = new class($path, 'catalog.csv', 'text/csv', null, true) extends UploadedFile {
+    $file = new class($path, 'catalog.csv', 'text/csv', null, true) extends UploadedFile
+    {
         public function getSize(): int|false
         {
             throw new RuntimeException('Temporary upload metadata must not be read after storing.');
@@ -126,8 +129,6 @@ test('spreadsheet reader counts csv rows and reads chunks', function () {
         ]);
 });
 
-
-
 test('spreadsheet reader rejects txt files', function () {
     $path = storage_path('framework/testing/catalog-import.txt');
     if (! is_dir(dirname($path))) {
@@ -138,7 +139,7 @@ test('spreadsheet reader rejects txt files', function () {
     $reader = app(SpreadsheetReader::class);
 
     expect($reader->supports($path))->toBeFalse();
-    expect(fn () => $reader->countRows($path))->toThrow(\InvalidArgumentException::class);
+    expect(fn () => $reader->countRows($path))->toThrow(InvalidArgumentException::class);
 });
 
 test('import logger writes logs', function () {
@@ -153,7 +154,6 @@ test('import logger writes logs', function () {
         ->and($log->message)->toBe('Проверочное предупреждение')
         ->and($log->context)->toBe(['row' => 2]);
 });
-
 
 test('resume and cancel change import status', function () {
     $run = ImportRun::factory()->create(['status' => ImportRunStatus::Paused]);
@@ -249,7 +249,7 @@ test('failed image increments failed counter and writes warning without failing 
     $product = Product::factory()->create();
 
     (new DownloadProductImageJob($product->getKey(), 'https://example.test/broken.jpg', $run->getKey()))->handle(
-        app(\App\Services\Import\ImportImageDownloader::class),
+        app(ImportImageDownloader::class),
         app(ImportLogger::class),
         app(ImportStatusService::class),
     );
@@ -259,7 +259,6 @@ test('failed image increments failed counter and writes warning without failing 
         ->and($run->fresh()->status)->toBe(ImportRunStatus::Done)
         ->and(ImportLog::query()->where('level', ImportLogLevel::Warning->value)->where('message', 'like', '%изображение товара%')->exists())->toBeTrue();
 });
-
 
 test('admin import page opens and upload action creates import run', function () {
     Storage::fake('local');
@@ -327,12 +326,12 @@ test('start job initializes detail columns only once and keeps progress on repea
     ]);
 
     $job = new CatalogImportStartJob($run->getKey());
-    $job->handle(app(SpreadsheetReader::class), app(ImportStatusService::class), app(ImportLogger::class), app(\App\Services\Import\ImportRowProcessor::class));
+    $job->handle(app(SpreadsheetReader::class), app(ImportStatusService::class), app(ImportLogger::class), app(ImportRowProcessor::class));
 
     $firstDetailColumns = $run->fresh()->detail_columns;
     $run->fresh()->forceFill(['processed_rows' => 1, 'current_row' => 1])->save();
 
-    $job->handle(app(SpreadsheetReader::class), app(ImportStatusService::class), app(ImportLogger::class), app(\App\Services\Import\ImportRowProcessor::class));
+    $job->handle(app(SpreadsheetReader::class), app(ImportStatusService::class), app(ImportLogger::class), app(ImportRowProcessor::class));
 
     expect($run->fresh()->detail_columns)->toBe($firstDetailColumns)
         ->and($firstDetailColumns[6]['part_type_full_slug'])->toBe('porog')
@@ -366,7 +365,7 @@ test('start job fails atomically when required canonical store category is missi
         app(SpreadsheetReader::class),
         app(ImportStatusService::class),
         app(ImportLogger::class),
-        app(\App\Services\Import\ImportRowProcessor::class),
+        app(ImportRowProcessor::class),
     );
 
     $run->refresh();
@@ -424,7 +423,6 @@ test('report includes archive skipped reason', function () {
     expect($response)->toBeInstanceOf(StreamedResponse::class);
 });
 
-
 test('CatalogImportPage tutorial explains default images detail titles repeated import and manual data protection', function () {
     $this->actingAs(User::factory()->admin()->create());
 
@@ -454,9 +452,8 @@ test('Report csv includes default import and manual image summary metrics', func
 
     $content = streamedImportResponseContent(app(ImportRunReportExporter::class)->summaryCsv($run));
 
-    expect($content)->toContain('default_product_images_attached')
-        ->and($content)->toContain('import_product_images_linked')
-        ->and($content)->toContain('manual_product_images_preserved')
-        ->and($content)->toContain('queued_url_images')
-        ->and($content)->toContain('unchanged_products');
+    expect($content)->toContain('Привязано дефолтных изображений')
+        ->and($content)->toContain('Изображений импорта связано')
+        ->and($content)->toContain('Ручных изображений сохранено')
+        ->and($content)->toContain('Поставлено URL-изображений');
 });

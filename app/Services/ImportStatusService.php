@@ -141,7 +141,9 @@ class ImportStatusService
 
     public function pause(ImportRun $run): ImportRun
     {
-        if ($run->status?->isRowsRunning()) {
+        $run->refresh();
+
+        if ($run->isActive() && $run->status !== ImportRunStatus::Paused) {
             $run->forceFill([
                 'status' => ImportRunStatus::Paused,
                 'heartbeat_at' => now(),
@@ -187,7 +189,7 @@ class ImportStatusService
                 'heartbeat_at' => now(),
             ])->save();
 
-            $this->logger->warning($run, 'Импорт отменён');
+            $this->logger->warning($run, 'Импорт отменён пользователем');
         }
 
         return $run->refresh();
@@ -196,6 +198,11 @@ class ImportStatusService
     public function markRowsDone(ImportRun $run): ImportRun
     {
         $run->refresh();
+
+        if (in_array($run->status, [ImportRunStatus::Paused, ImportRunStatus::Failed, ImportRunStatus::Canceled], true)) {
+            return $run;
+        }
+
         $run->forceFill([
             'processed_rows' => $run->total_rows,
             'current_row' => $run->total_rows,
@@ -245,6 +252,20 @@ class ImportStatusService
         return $run->refresh();
     }
 
+    public function updateRowsProgress(ImportRun $run, int $currentRow): ImportRun
+    {
+        $run->refresh();
+        $currentRow = min($run->total_rows, max($run->current_row, $currentRow));
+
+        $run->forceFill([
+            'processed_rows' => max($run->processed_rows, $currentRow),
+            'current_row' => $currentRow,
+            'heartbeat_at' => now(),
+        ])->save();
+
+        return $run->refresh();
+    }
+
     public function imageQueued(ImportRun $run, int $count = 1): void
     {
         $this->stats->increment($run, 'queued_images', $count);
@@ -252,6 +273,12 @@ class ImportStatusService
 
     public function imageProcessed(ImportRun $run): ImportRun
     {
+        $run->refresh();
+
+        if (in_array($run->status, [ImportRunStatus::Paused, ImportRunStatus::Failed, ImportRunStatus::Canceled], true)) {
+            return $run;
+        }
+
         $this->stats->increment($run, 'processed_images');
 
         return $this->finishImagesIfComplete($run);
@@ -259,6 +286,12 @@ class ImportStatusService
 
     public function imageFailed(ImportRun $run): ImportRun
     {
+        $run->refresh();
+
+        if (in_array($run->status, [ImportRunStatus::Paused, ImportRunStatus::Failed, ImportRunStatus::Canceled], true)) {
+            return $run;
+        }
+
         $this->stats->increment($run, 'failed_images');
 
         return $this->finishImagesIfComplete($run);
