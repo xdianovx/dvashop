@@ -20,8 +20,22 @@ class EditProduct extends EditRecord
 
     protected static string $resource = ProductResource::class;
 
+    protected ?bool $hasDatabaseTransactions = true;
+
     protected function mutateFormDataBeforeFill(array $data): array
     {
+        $this->record->load([
+            'fitments.generation' => fn ($query) => $query
+                ->withTrashed()
+                ->with([
+                    'model' => fn ($modelQuery) => $modelQuery
+                        ->withTrashed()
+                        ->with([
+                            'make' => fn ($makeQuery) => $makeQuery->withTrashed(),
+                        ]),
+                ]),
+        ]);
+
         return $this->hydrateDefaultVariantData($data);
     }
 
@@ -32,8 +46,8 @@ class EditProduct extends EditRecord
 
     protected function afterSave(): void
     {
-        $this->finishProductSave();
         $this->finishProductOptionSave();
+        $this->finishProductSave();
     }
 
     public function refreshProductGallery(): void

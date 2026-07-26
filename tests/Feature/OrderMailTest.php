@@ -8,6 +8,7 @@ use App\Mail\CustomerOrderCreatedMail;
 use App\Mail\ManagerOrderCreatedMail;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\ProductVariant;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Log;
@@ -26,7 +27,10 @@ function orderForMail(?string $customerEmail = 'customer@example.test'): Order
     ]);
     OrderItem::factory()->for($order)->create([
         'title_snapshot' => 'Порог тестовый',
-        'options_snapshot' => ['material' => ['group' => 'Материал', 'value' => 'Оцинковка']],
+        'options_snapshot' => [
+            ...ProductVariant::technicalOptions(),
+            'material' => ['group' => 'Материал', 'value' => 'Оцинковка'],
+        ],
         'quantity' => 2,
         'price_snapshot' => 1500,
         'total_snapshot' => 3000,
@@ -51,6 +55,7 @@ test('OrderMail sends customer and manager messages and renders snapshot details
         return $mail->hasTo('customer@example.test')
             && str_contains($html, 'Порог тестовый')
             && str_contains($html, 'Материал: Оцинковка')
+            && ! str_contains($html, '__dvashop')
             && str_contains($html, '3 000,00');
     });
     Mail::assertSent(ManagerOrderCreatedMail::class, fn (ManagerOrderCreatedMail $mail): bool => $mail->hasTo('manager@example.test'));

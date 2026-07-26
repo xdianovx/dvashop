@@ -97,6 +97,30 @@ test('CheckoutService creates immutable order snapshots customer fields totals a
     Event::assertDispatched(OrderCreated::class, fn (OrderCreated $event): bool => $event->order->is($order));
 });
 
+test('CheckoutService excludes technical variant management metadata from cart and order snapshots', function () {
+    Event::fake([OrderCreated::class]);
+    $variant = ProductVariant::factory()->create([
+        'options' => [
+            ...ProductVariant::technicalOptions(),
+            'legacy' => ['group' => 'Legacy', 'value' => 'Публичное значение'],
+        ],
+    ]);
+    $cart = Cart::factory()->create();
+    $cartItem = app(CartManager::class)->addItem(checkoutRequest($cart), $variant->getKey());
+
+    $order = app(CheckoutService::class)->createOrderFromCart(
+        checkoutRequest($cart),
+        validCheckoutData(),
+    );
+    $orderItem = $order->items->firstOrFail();
+
+    expect($cartItem->options_snapshot)->not->toHaveKey('__dvashop')
+        ->and($orderItem->options_snapshot)->toBe($cartItem->options_snapshot)
+        ->and($orderItem->options_snapshot)->not->toHaveKey('__dvashop')
+        ->and($orderItem->optionSummary())->toBe('Legacy: Публичное значение')
+        ->and($orderItem->optionSummary())->not->toContain('__dvashop');
+});
+
 test('CheckoutService can create an order from valid snapshots after catalog deletion', function () {
     Event::fake([OrderCreated::class]);
     [$cart, $variant] = cartWithSnapshotItem(1800, 1);

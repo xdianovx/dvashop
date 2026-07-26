@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -38,7 +39,9 @@ use Throwable;
 class ProductImage extends Model
 {
     public const SOURCE_DEFAULT = 'default';
+
     public const SOURCE_IMPORT = 'import';
+
     public const SOURCE_MANUAL = 'manual';
 
     /** @use HasFactory<ProductImageFactory> */
@@ -85,8 +88,9 @@ class ProductImage extends Model
         static::deleted(function (self $image): void {
             $product = $image->product;
             $wasMain = (bool) $image->is_main;
+            $deletedImage = clone $image;
 
-            $image->deleteFiles();
+            DB::afterCommit(fn (): mixed => $deletedImage->deleteFiles());
 
             if ($wasMain && $product instanceof Product) {
                 app(ProductGalleryService::class)->promoteMainImage($product->refresh());
@@ -170,7 +174,6 @@ class ProductImage extends Model
         $cleanup->deletePath($this->path, $this->disk ?: 'public');
         $cleanup->deleteConversions($this->conversions, $this->disk ?: 'public');
     }
-
 
     private function isDefaultImageReference(): bool
     {

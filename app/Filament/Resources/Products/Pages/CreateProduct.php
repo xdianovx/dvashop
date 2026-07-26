@@ -14,6 +14,8 @@ class CreateProduct extends CreateRecord
 
     protected static string $resource = ProductResource::class;
 
+    protected ?bool $hasDatabaseTransactions = true;
+
     protected function mutateFormDataBeforeCreate(array $data): array
     {
         return $this->prepareProductData($data);
@@ -21,7 +23,7 @@ class CreateProduct extends CreateRecord
 
     protected function afterCreate(): void
     {
-        $this->finishProductSave();
         $this->finishProductOptionSave();
+        $this->finishProductSave();
     }
 }

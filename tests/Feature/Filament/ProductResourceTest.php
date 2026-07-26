@@ -16,6 +16,7 @@ use App\Models\ProductImage;
 use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
 use App\Models\ProductOptionValue;
+use App\Models\ProductVariant;
 use App\Models\User;
 use App\Models\VehicleGeneration;
 use Database\Seeders\ProductOptionSeeder;
@@ -216,7 +217,7 @@ test('ProductResource exposes an explicit action for bounded template variant ge
         ->and($product->variants()->where('is_default', true)->count())->toBe(1);
 });
 
-test('auto part exposes part type and cars tab while generic product hides them', function () {
+test('auto part exposes part type and cars tab while a temporary generic switch preserves hidden state', function () {
     $category = productResourceCategory();
     $partType = productResourcePartType($category);
 
@@ -239,8 +240,12 @@ test('auto part exposes part type and cars tab while generic product hides them'
         ->assertFormFieldHidden('part_type_id')
         ->assertFormFieldExists('part_type_id', fn (Select $field): bool => ! $field->isRequired() && ! $field->isDehydrated())
         ->assertSchemaComponentHidden('product-fitments-tab')
-        ->assertSet('data.part_type_id', null)
-        ->assertSet('data.fitments', []);
+        ->assertSet('data.part_type_id', $partType->getKey())
+        ->assertSet('data.fitments', [])
+        ->set('data.product_type', ProductType::AutoPart->value)
+        ->assertFormFieldVisible('part_type_id')
+        ->assertSchemaComponentVisible('product-fitments-tab')
+        ->assertSet('data.part_type_id', $partType->getKey());
 });
 
 test('generic product create discards stale part type and fitments', function () {
@@ -414,6 +419,7 @@ test('compact price fields create one default variant without opening variants s
     $variant = $product->defaultVariant()->firstOrFail();
 
     expect($product->variants()->count())->toBe(1)
+        ->and($variant->isTechnical())->toBeTrue()
         ->and($variant->sku)->toBe('PRIMARY-SKU')
         ->and($variant->price)->toBe('14900.00')
         ->and($variant->old_price)->toBe('15900.00')
@@ -490,10 +496,11 @@ test('repeated edit save does not create a second default variant', function () 
         ->forCategory($category)
         ->forPartType($partType)
         ->withDefaultVariant()
-        ->create();
+        ->create(['sku' => 'PARENT-DEFAULT-SKU']);
     $variant = $product->defaultVariant()->firstOrFail();
     $variant->forceFill([
         'sku' => 'MANUAL-DEFAULT-SKU',
+        'options' => ProductVariant::technicalOptions(),
         'price' => 17850,
         'old_price' => 18900,
         'stock_quantity' => 4,
@@ -501,7 +508,7 @@ test('repeated edit save does not create a second default variant', function () 
     ])->save();
 
     Livewire::test(EditProduct::class, ['record' => $product->getKey()])
-        ->assertSet('data.sku', 'MANUAL-DEFAULT-SKU')
+        ->assertSet('data.sku', 'PARENT-DEFAULT-SKU')
         ->assertSet('data.price', '17850.00')
         ->assertSet('data.old_price', '18900.00')
         ->assertSet('data.default_stock_quantity', 4)
@@ -517,6 +524,7 @@ test('repeated edit save does not create a second default variant', function () 
 
     expect($product->variants()->count())->toBe(1)
         ->and($product->variants()->where('is_default', true)->count())->toBe(1)
+        ->and($product->refresh()->sku)->toBe('PARENT-DEFAULT-SKU')
         ->and($variant->refresh()->sku)->toBe('MANUAL-DEFAULT-SKU')
         ->and($variant->price)->toBe('17850.00')
         ->and($variant->old_price)->toBe('18900.00')

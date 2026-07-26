@@ -66,6 +66,9 @@ final class ProductsTable
                     }),
                 TextColumn::make('partType.full_title')
                     ->label('Тип детали')
+                    ->state(fn (Product $record): string => $record->isAutoPart() && $record->partType instanceof PartType
+                        ? ProductForm::partTypeLabel($record->partType)
+                        : '—')
                     ->placeholder('—')
                     ->wrap()
                     ->searchable(query: function (Builder $query, string $search): Builder {
@@ -78,8 +81,15 @@ final class ProductsTable
                     }),
                 TextColumn::make('sku')
                     ->label('SKU')
-                    ->searchable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->searchable(query: function (Builder $query, string $search): Builder {
+                        return $query->where(function (Builder $skuQuery) use ($search): void {
+                            $skuQuery
+                                ->where('sku', 'like', '%'.$search.'%')
+                                ->orWhereHas('variants', fn (Builder $variantQuery): Builder => $variantQuery
+                                    ->where('sku', 'like', '%'.$search.'%'));
+                        });
+                    })
+                    ->toggleable(),
                 TextColumn::make('status')
                     ->label('Статус')
                     ->badge()
@@ -88,15 +98,20 @@ final class ProductsTable
                         : (ProductStatus::tryFrom((string) $state)?->label() ?? '—')),
                 TextColumn::make('price')
                     ->label('Цена')
+                    ->state(fn (Product $record): mixed => $record->defaultVariant?->price ?? $record->price)
                     ->money('RUB')
                     ->placeholder('—')
-                    ->sortable(),
+                    ->sortable(query: self::applyEffectivePriceSort(...)),
                 TextColumn::make('stock_status')
                     ->label('Наличие')
                     ->badge()
                     ->formatStateUsing(fn (StockStatus|string|null $state): string => $state instanceof StockStatus
                         ? $state->label()
                         : (StockStatus::tryFrom((string) $state)?->label() ?? '—')),
+                TextColumn::make('defaultVariant.stock_quantity')
+                    ->label('Остаток')
+                    ->numeric()
+                    ->placeholder('—'),
                 TextColumn::make('images_count')
                     ->label('Изображения')
                     ->badge()
@@ -136,6 +151,9 @@ final class ProductsTable
                 SelectFilter::make('status')
                     ->label('Статус')
                     ->options(ProductStatus::options()),
+                SelectFilter::make('stock_status')
+                    ->label('Наличие')
+                    ->options(StockStatus::options()),
                 SelectFilter::make('product_category_id')
                     ->label('Категория магазина')
                     ->searchable()
@@ -200,6 +218,25 @@ final class ProductsTable
     public static function applyWithoutVisibleImagesFilter(Builder $query): Builder
     {
         return $query->whereDoesntHave('images', fn (Builder $imageQuery): Builder => $imageQuery->where('is_visible', true));
+    }
+
+    public static function applyEffectivePriceSort(Builder $query, string $direction): Builder
+    {
+        $direction = strtolower($direction) === 'desc' ? 'desc' : 'asc';
+
+        return $query->orderByRaw(<<<SQL
+            COALESCE(
+                (
+                    SELECT `product_variants`.`price`
+                    FROM `product_variants`
+                    WHERE `product_variants`.`product_id` = `products`.`id`
+                        AND `product_variants`.`is_default` = 1
+                    ORDER BY `product_variants`.`id`
+                    LIMIT 1
+                ),
+                `products`.`price`
+            ) {$direction}
+            SQL);
     }
 
     public static function applyImageSourceFilter(Builder $query, string $sourceType): Builder

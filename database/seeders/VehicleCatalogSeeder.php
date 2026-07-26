@@ -21,14 +21,26 @@ class VehicleCatalogSeeder extends Seeder
             ['title' => 'Vesta', 'slug' => 'vesta', 'position' => 10, 'is_active' => true],
         );
 
-        VehicleGeneration::query()->firstOrCreate(
+        VehicleGeneration::query()->updateOrCreate(
             ['vehicle_model_id' => $model->getKey(), 'norm_key' => 'i'],
             [
                 'title' => 'I',
                 'slug' => 'i',
-                'years_label' => '2015–н.в.',
+                'years_label' => '2015–2022',
                 'body' => 'sedan',
                 'position' => 10,
+                'is_active' => true,
+            ],
+        );
+
+        VehicleGeneration::query()->updateOrCreate(
+            ['vehicle_model_id' => $model->getKey(), 'norm_key' => 'ng'],
+            [
+                'title' => 'NG',
+                'slug' => 'ng',
+                'years_label' => '2022–н.в.',
+                'body' => 'sedan',
+                'position' => 20,
                 'is_active' => true,
             ],
         );
