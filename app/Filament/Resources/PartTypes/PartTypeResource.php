@@ -5,6 +5,7 @@ namespace App\Filament\Resources\PartTypes;
 use App\Filament\Resources\PartTypes\Pages\CreatePartType;
 use App\Filament\Resources\PartTypes\Pages\EditPartType;
 use App\Filament\Resources\PartTypes\Pages\ListPartTypes;
+use App\Filament\Schemas\SeoSchema;
 use App\Models\PartType;
 use App\Models\ProductCategory;
 use App\Services\Catalog\PartTypeTreeService;
@@ -16,7 +17,6 @@ use Filament\Actions\EditAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\RestoreBulkAction;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
@@ -34,7 +34,7 @@ class PartTypeResource extends Resource
 {
     protected static ?string $model = PartType::class;
 
-    protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-wrench-screwdriver';
+    protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-wrench-screwdriver';
 
     protected static ?string $recordTitleAttribute = 'full_title';
 
@@ -104,13 +104,7 @@ class PartTypeResource extends Resource
             Toggle::make('is_active')
                 ->label('Активен')
                 ->default(true),
-            TextInput::make('meta_title')
-                ->label('Meta title')
-                ->maxLength(255),
-            Textarea::make('meta_description')
-                ->label('Meta description')
-                ->rows(3)
-                ->columnSpanFull(),
+            SeoSchema::section(),
         ]);
     }
 
@@ -179,6 +173,14 @@ class PartTypeResource extends Resource
                 IconColumn::make('is_active')
                     ->label('Активен')
                     ->boolean(),
+                TextColumn::make('meta_title')
+                    ->label('Meta title')
+                    ->limit(48)
+                    ->toggleable(isToggledHiddenByDefault: true),
+                IconColumn::make('noindex')
+                    ->label('Noindex')
+                    ->boolean()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('position')
                     ->label('Позиция')
                     ->sortable(),
@@ -193,6 +195,10 @@ class PartTypeResource extends Resource
                     ->label('Активность')
                     ->trueLabel('Только активные')
                     ->falseLabel('Только неактивные'),
+                TernaryFilter::make('noindex')
+                    ->label('Индексация')
+                    ->trueLabel('Только noindex')
+                    ->falseLabel('Только индексируемые'),
                 SelectFilter::make('product_category_id')
                     ->label('Категория магазина')
                     ->options(fn (): array => ProductCategory::query()

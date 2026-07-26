@@ -5,6 +5,7 @@ namespace App\Filament\Resources\ProductCategories;
 use App\Filament\Resources\ProductCategories\Pages\CreateProductCategory;
 use App\Filament\Resources\ProductCategories\Pages\EditProductCategory;
 use App\Filament\Resources\ProductCategories\Pages\ListProductCategories;
+use App\Filament\Schemas\SeoSchema;
 use App\Models\ProductCategory;
 use BackedEnum;
 use Filament\Actions\BulkActionGroup;
@@ -16,7 +17,6 @@ use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\RestoreBulkAction;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
@@ -33,7 +33,7 @@ class ProductCategoryResource extends Resource
 {
     protected static ?string $model = ProductCategory::class;
 
-    protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-folder';
+    protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-folder';
 
     protected static ?string $recordTitleAttribute = 'title';
 
@@ -96,13 +96,7 @@ class ProductCategoryResource extends Resource
             Toggle::make('is_active')
                 ->label('Активна')
                 ->default(true),
-            TextInput::make('meta_title')
-                ->label('Meta title')
-                ->maxLength(255),
-            Textarea::make('meta_description')
-                ->label('Meta description')
-                ->rows(3)
-                ->columnSpanFull(),
+            SeoSchema::section(),
         ]);
     }
 
@@ -129,6 +123,14 @@ class ProductCategoryResource extends Resource
                 IconColumn::make('is_active')
                     ->label('Активна')
                     ->boolean(),
+                TextColumn::make('meta_title')
+                    ->label('Meta title')
+                    ->limit(48)
+                    ->toggleable(isToggledHiddenByDefault: true),
+                IconColumn::make('noindex')
+                    ->label('Noindex')
+                    ->boolean()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('updated_at')
                     ->label('Обновлено')
                     ->dateTime('d.m.Y H:i')
@@ -140,6 +142,10 @@ class ProductCategoryResource extends Resource
                     ->label('Активность')
                     ->trueLabel('Только активные')
                     ->falseLabel('Только неактивные'),
+                TernaryFilter::make('noindex')
+                    ->label('Индексация')
+                    ->trueLabel('Только noindex')
+                    ->falseLabel('Только индексируемые'),
                 TrashedFilter::make(),
             ])
             ->recordActions([

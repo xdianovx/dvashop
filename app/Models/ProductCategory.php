@@ -24,6 +24,13 @@ use Illuminate\Support\Collection;
     'is_active',
     'meta_title',
     'meta_description',
+    'seo_h1',
+    'seo_text',
+    'canonical_url',
+    'noindex',
+    'og_title',
+    'og_description',
+    'og_image',
 ])]
 class ProductCategory extends Model
 {
@@ -127,6 +134,7 @@ class ProductCategory extends Model
             'is_active' => 'boolean',
             'position' => 'integer',
             'depth' => 'integer',
+            'noindex' => 'boolean',
         ];
     }
 }

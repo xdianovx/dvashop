@@ -82,6 +82,46 @@ test('ProductResource limits option selectors to the selected template', functio
         ->not->toHaveKey($outsideValue->getKey());
 });
 
+test('ProductResource SEO tab validates canonical URL and saves extended metadata', function () {
+    $product = Product::factory()->withDefaultVariant()->create([
+        'product_type' => ProductType::Generic,
+    ]);
+
+    Livewire::test(EditProduct::class, ['record' => $product->getKey()])
+        ->assertSchemaComponentExists('product-seo-tab')
+        ->assertFormFieldExists('seo_h1')
+        ->assertFormFieldExists('seo_text')
+        ->assertFormFieldExists('og_image')
+        ->fillForm(['canonical_url' => 'invalid-url'])
+        ->call('save')
+        ->assertHasFormErrors(['canonical_url' => 'url'])
+        ->fillForm([
+            'meta_title' => 'SEO title товара',
+            'meta_description' => 'SEO description товара',
+            'seo_h1' => 'SEO H1 товара',
+            'seo_text' => 'Расширенный SEO-текст товара',
+            'canonical_url' => 'https://example.test/products/canonical',
+            'noindex' => true,
+            'og_title' => 'OG title товара',
+            'og_description' => 'OG description товара',
+            'og_image' => UploadedFile::fake()->image('product-og.jpg', 1200, 630),
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($product->refresh())
+        ->meta_title->toBe('SEO title товара')
+        ->seo_h1->toBe('SEO H1 товара')
+        ->seo_text->toBe('Расширенный SEO-текст товара')
+        ->canonical_url->toBe('https://example.test/products/canonical')
+        ->noindex->toBeTrue()
+        ->og_title->toBe('OG title товара')
+        ->og_description->toBe('OG description товара')
+        ->og_image->not->toBeNull();
+
+    Storage::disk('public')->assertExists($product->og_image);
+});
+
 test('ProductResource saves option template normalized variant values and characteristics', function () {
     $undoRepeaterFake = Repeater::fake();
     $this->seed(ProductOptionSeeder::class);

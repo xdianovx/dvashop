@@ -37,6 +37,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'is_featured',
     'meta_title',
     'meta_description',
+    'seo_h1',
+    'seo_text',
+    'canonical_url',
+    'noindex',
+    'og_title',
+    'og_description',
+    'og_image',
     'import_key',
     'import_source',
     'last_import_run_id',
@@ -205,6 +212,7 @@ class Product extends Model
             'old_price' => 'decimal:2',
             'position' => 'integer',
             'is_featured' => 'boolean',
+            'noindex' => 'boolean',
         ];
     }
 }

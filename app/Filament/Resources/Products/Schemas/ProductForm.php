@@ -6,6 +6,7 @@ use App\Enums\ProductStatus;
 use App\Enums\ProductType;
 use App\Enums\StockStatus;
 use App\Filament\Resources\Products\Actions\ProductGalleryActions;
+use App\Filament\Schemas\SeoSchema;
 use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
@@ -571,15 +572,8 @@ final class ProductForm
     {
         return Tab::make('SEO')
             ->key('product-seo-tab', isInheritable: false)
-            ->schema([
-                TextInput::make('meta_title')
-                    ->label('Meta title')
-                    ->maxLength(255),
-                Textarea::make('meta_description')
-                    ->label('Meta description')
-                    ->rows(3)
-                    ->columnSpanFull(),
-            ]);
+            ->schema(SeoSchema::fields())
+            ->columns(2);
     }
 
     private static function technicalTab(): Tab

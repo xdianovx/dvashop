@@ -20,10 +20,12 @@ use Filament\Actions\ForceDeleteAction;
 use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\RestoreBulkAction;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -48,7 +50,7 @@ final class ProductsTable
                 TextColumn::make('product_type')
                     ->label('Тип товара')
                     ->badge()
-                    ->formatStateUsing(fn (ProductType | string | null $state): string => $state instanceof ProductType
+                    ->formatStateUsing(fn (ProductType|string|null $state): string => $state instanceof ProductType
                         ? $state->label()
                         : (ProductType::tryFrom((string) $state)?->label() ?? '—')),
                 TextColumn::make('category.full_title')
@@ -81,7 +83,7 @@ final class ProductsTable
                 TextColumn::make('status')
                     ->label('Статус')
                     ->badge()
-                    ->formatStateUsing(fn (ProductStatus | string | null $state): string => $state instanceof ProductStatus
+                    ->formatStateUsing(fn (ProductStatus|string|null $state): string => $state instanceof ProductStatus
                         ? $state->label()
                         : (ProductStatus::tryFrom((string) $state)?->label() ?? '—')),
                 TextColumn::make('price')
@@ -92,7 +94,7 @@ final class ProductsTable
                 TextColumn::make('stock_status')
                     ->label('Наличие')
                     ->badge()
-                    ->formatStateUsing(fn (StockStatus | string | null $state): string => $state instanceof StockStatus
+                    ->formatStateUsing(fn (StockStatus|string|null $state): string => $state instanceof StockStatus
                         ? $state->label()
                         : (StockStatus::tryFrom((string) $state)?->label() ?? '—')),
                 TextColumn::make('images_count')
@@ -111,6 +113,14 @@ final class ProductsTable
                     ->formatStateUsing(fn (?string $state): string => ProductImage::sourceTypeLabel($state))
                     ->color(fn (?string $state): string => ProductImage::sourceTypeColor($state))
                     ->placeholder('—'),
+                TextColumn::make('meta_title')
+                    ->label('Meta title')
+                    ->limit(48)
+                    ->toggleable(isToggledHiddenByDefault: true),
+                IconColumn::make('noindex')
+                    ->label('Noindex')
+                    ->boolean()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('updated_at')
                     ->label('Обновлено')
                     ->dateTime('d.m.Y H:i')
@@ -148,6 +158,10 @@ final class ProductsTable
                 Filter::make('with_import_image')
                     ->label('С импортным изображением')
                     ->query(fn (Builder $query): Builder => self::applyImageSourceFilter($query, ProductImage::SOURCE_IMPORT)),
+                TernaryFilter::make('noindex')
+                    ->label('Индексация')
+                    ->trueLabel('Только noindex')
+                    ->falseLabel('Только индексируемые'),
                 SelectFilter::make('import_source')
                     ->label('Источник импорта')
                     ->options(fn (): array => Product::query()

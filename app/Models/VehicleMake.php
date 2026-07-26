@@ -28,6 +28,13 @@ use Throwable;
     'is_active',
     'meta_title',
     'meta_description',
+    'seo_h1',
+    'seo_text',
+    'canonical_url',
+    'noindex',
+    'og_title',
+    'og_description',
+    'og_image',
 ])]
 class VehicleMake extends Model
 {
@@ -58,7 +65,6 @@ class VehicleMake extends Model
             $make->processManualImageIfNeeded();
         });
     }
-
 
     public function processManualImageIfNeeded(): void
     {
@@ -122,6 +128,7 @@ class VehicleMake extends Model
             'is_active' => 'boolean',
             'position' => 'integer',
             'image_conversions' => 'array',
+            'noindex' => 'boolean',
         ];
     }
 }

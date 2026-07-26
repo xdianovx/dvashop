@@ -25,6 +25,13 @@ use Illuminate\Support\Facades\DB;
     'product_category_id',
     'meta_title',
     'meta_description',
+    'seo_h1',
+    'seo_text',
+    'canonical_url',
+    'noindex',
+    'og_title',
+    'og_description',
+    'og_image',
 ])]
 class PartType extends Model
 {
@@ -80,6 +87,7 @@ class PartType extends Model
             'depth' => 'integer',
             'position' => 'integer',
             'is_active' => 'boolean',
+            'noindex' => 'boolean',
         ];
     }
 }
