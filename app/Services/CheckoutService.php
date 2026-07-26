@@ -11,6 +11,7 @@ use App\Events\OrderCreated;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Order;
+use App\Models\ProductVariant;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -76,7 +77,7 @@ class CheckoutService
                     'product_variant_id' => $item->product_variant_id,
                     'title_snapshot' => $item->title_snapshot,
                     'sku_snapshot' => $item->sku_snapshot,
-                    'options_snapshot' => $item->options_snapshot,
+                    'options_snapshot' => ProductVariant::optionsWithoutManagementMetadata($item->options_snapshot),
                     'image_snapshot' => $item->image_snapshot,
                     'price_snapshot' => $item->price_snapshot,
                     'old_price_snapshot' => $item->old_price_snapshot,

@@ -43,7 +43,7 @@ class CartItem extends Model
 
     public function optionSummary(): string
     {
-        return collect($this->options_snapshot ?? [])
+        return collect(ProductVariant::optionsWithoutManagementMetadata($this->options_snapshot) ?? [])
             ->map(function (mixed $option, string|int $key): ?string {
                 if (is_array($option) && filled($option['value'] ?? null)) {
                     return (string) (($option['group'] ?? null) ?: $key).': '.$option['value'];
@@ -107,30 +107,9 @@ class CartItem extends Model
             ->implode(' — ');
     }
 
-    /** @return array<string, array{group: string, value: string}>|array<array-key, mixed> */
+    /** @return array<array-key, mixed> */
     private function makeOptionsSnapshot(ProductVariant $variant): array
     {
-        if ($variant->optionValues->isEmpty()) {
-            return is_array($variant->options) ? $variant->options : [];
-        }
-
-        return $variant->optionValues
-            ->filter(fn (ProductOptionValue $value): bool => $value->group instanceof ProductOptionGroup)
-            ->sortBy(fn (ProductOptionValue $value): string => sprintf(
-                '%010d:%010d:%010d',
-                (int) $value->group?->position,
-                (int) $value->position,
-                (int) $value->getKey(),
-            ))
-            ->mapWithKeys(function (ProductOptionValue $value): array {
-                $group = $value->group;
-                $key = $group?->code ?: $group?->slug ?: (string) $group?->getKey();
-
-                return [$key => [
-                    'group' => (string) $group?->title,
-                    'value' => $value->title,
-                ]];
-            })
-            ->all();
+        return $variant->publicOptionsSnapshot();
     }
 }

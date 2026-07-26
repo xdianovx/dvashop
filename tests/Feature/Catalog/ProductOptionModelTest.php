@@ -93,6 +93,19 @@ test('ProductVariant option summary and JSON snapshot use normalized option valu
         ]);
 });
 
+test('ProductVariant public option snapshot and summary exclude management metadata', function () {
+    $variant = ProductVariant::factory()->create([
+        'options' => [
+            ...ProductVariant::technicalOptions(),
+            'legacy' => 'Старое значение',
+        ],
+    ]);
+
+    expect($variant->publicOptionsSnapshot())->toBe(['legacy' => 'Старое значение'])
+        ->and($variant->optionSummary())->toBe('legacy: Старое значение')
+        ->and($variant->optionSummary())->not->toContain('__dvashop');
+});
+
 test('Product can belong to an option template', function () {
     $template = ProductOptionTemplate::factory()->create();
     $product = Product::factory()->create(['product_option_template_id' => $template->getKey()]);

@@ -55,7 +55,7 @@ class ProductResource extends Resource
         return parent::getEloquentQuery()
             ->with([
                 'category.parent.parent',
-                'partType',
+                'partType' => fn ($query) => $query->withTrashed(),
                 'optionTemplate',
                 'defaultVariant',
                 'mainImage',

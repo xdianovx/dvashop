@@ -47,7 +47,7 @@ class OrderItem extends Model
 
     public function optionSummary(): string
     {
-        return collect($this->options_snapshot ?? [])
+        return collect(ProductVariant::optionsWithoutManagementMetadata($this->options_snapshot) ?? [])
             ->map(function (mixed $option, string|int $key): ?string {
                 if (is_array($option) && filled($option['value'] ?? null)) {
                     return (string) (($option['group'] ?? null) ?: $key).': '.$option['value'];

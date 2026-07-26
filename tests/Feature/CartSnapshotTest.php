@@ -51,6 +51,26 @@ test('CartSnapshot add item stores catalog snapshots including options and image
         ->and($item->lineTotal())->toBe(5980.0);
 });
 
+test('CartSnapshot excludes technical variant management metadata', function () {
+    $variant = ProductVariant::factory()->create([
+        'options' => [
+            ...ProductVariant::technicalOptions(),
+            'legacy' => ['group' => 'Legacy', 'value' => 'Доступное значение'],
+        ],
+    ]);
+    $cart = Cart::factory()->create();
+
+    $item = app(CartManager::class)->addItem(requestForCart($cart), $variant->getKey());
+
+    expect($variant->isTechnical())->toBeTrue()
+        ->and($item->options_snapshot)->toBe([
+            'legacy' => ['group' => 'Legacy', 'value' => 'Доступное значение'],
+        ])
+        ->and($item->options_snapshot)->not->toHaveKey('__dvashop')
+        ->and($item->optionSummary())->toBe('Legacy: Доступное значение')
+        ->and($item->optionSummary())->not->toContain('__dvashop');
+});
+
 test('CartSnapshot quantity updates keep snapshots and totals use snapshot price', function () {
     $variant = ProductVariant::factory()->create(['price' => 1750]);
     $cart = Cart::factory()->create();

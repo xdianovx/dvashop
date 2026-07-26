@@ -7,6 +7,7 @@ use App\Models\ProductImage;
 use Illuminate\Support\Collection;
 use LogicException;
 use RuntimeException;
+use Throwable;
 
 class ProductGalleryService
 {
@@ -15,7 +16,7 @@ class ProductGalleryService
     ) {}
 
     /**
-     * @param array<int, string> $paths
+     * @param  array<int, string>  $paths
      * @return Collection<int, ProductImage>
      */
     public function attachManualImages(Product $product, array $paths, ?string $alt = null): Collection
@@ -31,19 +32,28 @@ class ProductGalleryService
         }
 
         $makeFirstMain = ! $this->productHasMainImage($product);
+        $originalImages = $product->images()
+            ->get(['id', 'is_main', 'is_visible'])
+            ->keyBy(fn (ProductImage $image): int|string => $image->getKey());
 
-        return $paths
-            ->map(function (string $path, int $index) use ($product, $alt, $makeFirstMain): ProductImage {
-                return $this->attachManualImage(
-                    product: $product,
-                    path: $path,
-                    alt: $alt,
-                    makeMain: $makeFirstMain && $index === 0,
-                );
-            })
-            ->filter(static fn (ProductImage $image): bool => $image->exists)
-            ->unique(static fn (ProductImage $image): int|string => $image->getKey())
-            ->values();
+        try {
+            return $paths
+                ->map(function (string $path, int $index) use ($product, $alt, $makeFirstMain): ProductImage {
+                    return $this->attachManualImage(
+                        product: $product,
+                        path: $path,
+                        alt: $alt,
+                        makeMain: $makeFirstMain && $index === 0,
+                    );
+                })
+                ->filter(static fn (ProductImage $image): bool => $image->exists)
+                ->unique(static fn (ProductImage $image): int|string => $image->getKey())
+                ->values();
+        } catch (Throwable $exception) {
+            $this->compensateFailedManualImageBatch($product, $originalImages, $paths);
+
+            throw $exception;
+        }
     }
 
     public function attachManualImage(Product $product, string $path, ?string $alt = null, ?bool $makeMain = null): ProductImage
@@ -86,6 +96,41 @@ class ProductGalleryService
         }
 
         throw new RuntimeException('Не удалось сохранить загруженное изображение товара.');
+    }
+
+    /**
+     * @param  Collection<int|string, ProductImage>  $originalImages
+     * @param  Collection<int, string>  $sourcePaths
+     */
+    private function compensateFailedManualImageBatch(
+        Product $product,
+        Collection $originalImages,
+        Collection $sourcePaths,
+    ): void {
+        $originalIds = $originalImages->keys()->all();
+        $newImages = $product->images()
+            ->when($originalIds !== [], fn ($images) => $images->whereNotIn('id', $originalIds))
+            ->get();
+
+        foreach ($newImages as $image) {
+            if (! $sourcePaths->containsStrict($image->path)) {
+                $image->deleteFiles();
+            }
+
+            $image->deleteQuietly();
+        }
+
+        foreach ($originalImages as $originalImage) {
+            ProductImage::query()
+                ->whereKey($originalImage->getKey())
+                ->update([
+                    'is_main' => $originalImage->is_main,
+                    'is_visible' => $originalImage->is_visible,
+                ]);
+        }
+
+        $product->unsetRelation('images');
+        $product->unsetRelation('mainImage');
     }
 
     public function ensureDefaultImage(Product $product, bool $makeMain = false): ?ProductImage

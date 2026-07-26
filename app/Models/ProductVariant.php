@@ -25,6 +25,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class ProductVariant extends Model
 {
+    private const MANAGEMENT_METADATA_KEY = '__dvashop';
+
+    public const MANAGEMENT_EXPLICIT = 'explicit';
+
+    public const MANAGEMENT_TECHNICAL = 'technical';
+
     /** @use HasFactory<ProductVariantFactory> */
     use HasFactory;
 
@@ -50,11 +56,45 @@ class ProductVariant extends Model
             ->withTimestamps();
     }
 
-    public function optionSummary(): string
+    /** @return array<string, array{management: string}> */
+    public static function technicalOptions(): array
+    {
+        return [
+            self::MANAGEMENT_METADATA_KEY => [
+                'management' => self::MANAGEMENT_TECHNICAL,
+            ],
+        ];
+    }
+
+    public function isTechnical(): bool
+    {
+        return data_get($this->options, self::MANAGEMENT_METADATA_KEY.'.management') === self::MANAGEMENT_TECHNICAL;
+    }
+
+    public function managementMode(): string
+    {
+        return $this->isTechnical() ? self::MANAGEMENT_TECHNICAL : self::MANAGEMENT_EXPLICIT;
+    }
+
+    /** @return array<string, mixed>|null */
+    public static function optionsWithoutManagementMetadata(mixed $options): ?array
+    {
+        if (! is_array($options)) {
+            return null;
+        }
+
+        unset($options[self::MANAGEMENT_METADATA_KEY]);
+
+        return $options === [] ? null : $options;
+    }
+
+    /** @return array<array-key, mixed> */
+    public function publicOptionsSnapshot(): array
     {
         $this->loadMissing('optionValues.group');
 
         $values = $this->optionValues
+            ->filter(fn (ProductOptionValue $value): bool => $value->group instanceof ProductOptionGroup)
             ->sortBy(fn (ProductOptionValue $value): string => sprintf(
                 '%010d:%010d:%010d',
                 (int) $value->group?->position,
@@ -62,17 +102,32 @@ class ProductVariant extends Model
                 (int) $value->getKey(),
             ));
 
-        if ($values->isNotEmpty()) {
-            return $values
-                ->map(fn (ProductOptionValue $value): string => ($value->group?->title ?? 'Опция').': '.$value->title)
-                ->implode('; ');
+        if ($values->isEmpty()) {
+            return self::optionsWithoutManagementMetadata($this->options) ?? [];
         }
 
-        if (! is_array($this->options) || $this->options === []) {
+        return $values
+            ->mapWithKeys(function (ProductOptionValue $value): array {
+                $group = $value->group;
+                $key = $group?->code ?: $group?->slug ?: (string) $group?->getKey();
+
+                return [$key => [
+                    'group' => (string) $group?->title,
+                    'value' => $value->title,
+                ]];
+            })
+            ->all();
+    }
+
+    public function optionSummary(): string
+    {
+        $options = $this->publicOptionsSnapshot();
+
+        if ($options === []) {
             return '';
         }
 
-        return collect($this->options)
+        return collect($options)
             ->map(function (mixed $option, string|int $key): ?string {
                 if (is_array($option) && filled($option['value'] ?? null)) {
                     return (string) (($option['group'] ?? null) ?: $key).': '.$option['value'];
@@ -91,32 +146,11 @@ class ProductVariant extends Model
         $this->unsetRelation('optionValues');
         $this->load('optionValues.group');
 
-        $values = $this->optionValues
-            ->sortBy(fn (ProductOptionValue $value): string => sprintf(
-                '%010d:%010d:%010d',
-                (int) $value->group?->position,
-                (int) $value->position,
-                (int) $value->getKey(),
-            ));
-
-        if ($values->isEmpty()) {
+        if ($this->optionValues->isEmpty()) {
             return;
         }
 
-        $snapshot = [];
-
-        foreach ($values as $value) {
-            $group = $value->group;
-
-            if (! $group instanceof ProductOptionGroup) {
-                continue;
-            }
-
-            $snapshot[$group->code ?: $group->slug] = [
-                'group' => $group->title,
-                'value' => $value->title,
-            ];
-        }
+        $snapshot = $this->publicOptionsSnapshot();
 
         if ($snapshot !== []) {
             $this->forceFill(['options' => $snapshot])->saveQuietly();

@@ -11,11 +11,15 @@ use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductCharacteristic;
+use App\Models\ProductFitment;
 use App\Models\ProductImage;
 use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
 use App\Models\ProductOptionValue;
+use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
+use App\Models\VehicleMake;
+use App\Models\VehicleModel;
 use App\Services\Media\MediaUrlService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
@@ -34,6 +38,7 @@ use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\Rule;
 
 final class ProductForm
 {
@@ -61,6 +66,12 @@ final class ProductForm
         return ($state instanceof ProductType ? $state->value : $state) === ProductType::AutoPart->value;
     }
 
+    public static function requiresCompactPrice(mixed $managementMode, mixed $variants): bool
+    {
+        return $managementMode === ProductVariant::MANAGEMENT_TECHNICAL
+            || empty($variants);
+    }
+
     /** @return array<int|string, string> */
     public static function productCategoryOptions(): array
     {
@@ -75,23 +86,94 @@ final class ProductForm
     }
 
     /** @return array<int|string, string> */
-    public static function partTypeOptions(): array
+    public static function partTypeOptions(mixed $selectedId = null): array
     {
-        return PartType::query()
+        return PartType::withTrashed()
+            ->where(function ($query) use ($selectedId): void {
+                $query
+                    ->where(function ($active): void {
+                        $active->where('is_active', true)->whereNull('deleted_at');
+                    })
+                    ->when(filled($selectedId), fn ($options) => $options->orWhere('id', $selectedId));
+            })
             ->orderBy('full_slug')
-            ->pluck('full_title', 'id')
+            ->get()
+            ->mapWithKeys(fn (PartType $partType): array => [
+                $partType->getKey() => self::partTypeLabel($partType),
+            ])
             ->all();
     }
 
     /** @return array<int|string, string> */
-    public static function vehicleGenerationOptions(): array
+    public static function vehicleMakeOptions(mixed $selectedId = null): array
     {
-        return VehicleGeneration::query()
-            ->with('model.make')
+        return VehicleMake::withTrashed()
+            ->where(function ($query) use ($selectedId): void {
+                $query
+                    ->where(function ($active): void {
+                        $active->where('is_active', true)->whereNull('deleted_at');
+                    })
+                    ->when(filled($selectedId), fn ($options) => $options->orWhere('id', $selectedId));
+            })
+            ->orderBy('position')
+            ->orderBy('title')
             ->get()
-            ->sortBy('display_title')
+            ->mapWithKeys(fn (VehicleMake $make): array => [
+                $make->getKey() => self::vehicleLabel($make->title, $make->is_active, $make->trashed()),
+            ])
+            ->all();
+    }
+
+    /** @return array<int|string, string> */
+    public static function vehicleModelOptions(mixed $makeId, mixed $selectedId = null): array
+    {
+        if (blank($makeId)) {
+            return [];
+        }
+
+        return VehicleModel::withTrashed()
+            ->where('vehicle_make_id', $makeId)
+            ->where(function ($query) use ($selectedId): void {
+                $query
+                    ->where(function ($active): void {
+                        $active->where('is_active', true)->whereNull('deleted_at');
+                    })
+                    ->when(filled($selectedId), fn ($options) => $options->orWhere('id', $selectedId));
+            })
+            ->orderBy('position')
+            ->orderBy('title')
+            ->get()
+            ->mapWithKeys(fn (VehicleModel $model): array => [
+                $model->getKey() => self::vehicleLabel($model->title, $model->is_active, $model->trashed()),
+            ])
+            ->all();
+    }
+
+    /** @return array<int|string, string> */
+    public static function vehicleGenerationOptions(mixed $modelId, mixed $selectedId = null): array
+    {
+        if (blank($modelId)) {
+            return [];
+        }
+
+        return VehicleGeneration::withTrashed()
+            ->where('vehicle_model_id', $modelId)
+            ->where(function ($query) use ($selectedId): void {
+                $query
+                    ->where(function ($active): void {
+                        $active->where('is_active', true)->whereNull('deleted_at');
+                    })
+                    ->when(filled($selectedId), fn ($options) => $options->orWhere('id', $selectedId));
+            })
+            ->orderBy('position')
+            ->orderBy('title')
+            ->get()
             ->mapWithKeys(fn (VehicleGeneration $generation): array => [
-                $generation->getKey() => $generation->display_title,
+                $generation->getKey() => self::vehicleLabel(
+                    trim($generation->title.' '.($generation->years_label ?: '')),
+                    $generation->is_active,
+                    $generation->trashed(),
+                ),
             ])
             ->all();
     }
@@ -161,9 +243,7 @@ final class ProductForm
                     ->live()
                     ->afterStateUpdated(function (ProductType|string|null $state, Set $set): void {
                         if (! self::isAutoPartState($state)) {
-                            $set('part_type_id', null);
                             $set('product_option_template_id', null);
-                            $set('fitments', []);
                         }
                     }),
                 TextInput::make('title')
@@ -186,7 +266,7 @@ final class ProductForm
                     ->label('Тип детали')
                     ->searchable()
                     ->preload()
-                    ->options(self::partTypeOptions(...))
+                    ->options(fn (Get $get): array => self::partTypeOptions($get('part_type_id')))
                     ->hidden(fn (Get $get): bool => ! self::isAutoPartState($get('product_type')))
                     ->dehydrated(fn (Get $get): bool => self::isAutoPartState($get('product_type')))
                     ->required(fn (Get $get): bool => self::isAutoPartState($get('product_type'))),
@@ -195,6 +275,8 @@ final class ProductForm
                     ->searchable()
                     ->preload()
                     ->options(fn (Get $get): array => self::optionTemplateOptions($get('product_type')))
+                    ->hidden(fn (Get $get): bool => ! self::isAutoPartState($get('product_type')))
+                    ->dehydrated(fn (Get $get): bool => self::isAutoPartState($get('product_type')))
                     ->live()
                     ->default(fn (): mixed => ProductOptionTemplate::query()
                         ->where('slug', 'default_auto_part')
@@ -235,6 +317,8 @@ final class ProductForm
                 Section::make('Основная цена и наличие')
                     ->description('Эти поля используются для компактного отображения товара и базового предложения.')
                     ->schema([
+                        Hidden::make('variant_management_mode')
+                            ->dehydrated(false),
                         TextInput::make('sku')
                             ->label('SKU товара')
                             ->maxLength(255)
@@ -242,11 +326,16 @@ final class ProductForm
                         TextInput::make('price')
                             ->label('Цена')
                             ->numeric()
+                            ->minValue(0)
                             ->prefix('₽')
-                            ->required(fn (Get $get): bool => empty($get('variants'))),
+                            ->required(fn (Get $get): bool => self::requiresCompactPrice(
+                                $get('variant_management_mode'),
+                                $get('variants'),
+                            )),
                         TextInput::make('old_price')
                             ->label('Старая цена')
                             ->numeric()
+                            ->minValue(0)
                             ->prefix('₽'),
                         TextInput::make('default_stock_quantity')
                             ->label('Остаток')
@@ -268,10 +357,16 @@ final class ProductForm
                         Repeater::make('variants')
                             ->label('')
                             ->relationship()
+                            ->mutateRelationshipDataBeforeFillUsing(function (array $data): array {
+                                $data['options'] = ProductVariant::optionsWithoutManagementMetadata($data['options'] ?? null);
+
+                                return $data;
+                            })
                             ->schema([
                                 TextInput::make('sku')
                                     ->label('SKU варианта')
                                     ->maxLength(255)
+                                    ->distinct()
                                     ->unique(ignoreRecord: true),
                                 TextInput::make('title')
                                     ->label('Название варианта')
@@ -279,15 +374,18 @@ final class ProductForm
                                 TextInput::make('price')
                                     ->label('Цена')
                                     ->numeric()
+                                    ->minValue(0)
                                     ->prefix('₽')
                                     ->required(),
                                 TextInput::make('old_price')
                                     ->label('Старая цена')
                                     ->numeric()
+                                    ->minValue(0)
                                     ->prefix('₽'),
                                 TextInput::make('stock_quantity')
                                     ->label('Остаток')
-                                    ->numeric(),
+                                    ->numeric()
+                                    ->minValue(0),
                                 Select::make('stock_status')
                                     ->label('Наличие')
                                     ->options(StockStatus::options())
@@ -503,7 +601,7 @@ final class ProductForm
                     ->columnSpan(2),
             ])
             ->columns(4)
-            ->orderColumn('position')
+            ->reorderable(false)
             ->addable(false)
             ->collapsible()
             ->itemLabel(fn (array $state): string => implode(' · ', array_filter([
@@ -547,21 +645,71 @@ final class ProductForm
                             ->saveRelationshipsWhenHidden(false)
                             ->defaultItems(0)
                             ->schema([
+                                Select::make('vehicle_make_id')
+                                    ->label('Марка')
+                                    ->searchable()
+                                    ->preload()
+                                    ->options(fn (Get $get): array => self::vehicleMakeOptions($get('vehicle_make_id')))
+                                    ->live()
+                                    ->afterStateUpdated(function (Set $set): void {
+                                        $set('vehicle_model_id', null);
+                                        $set('vehicle_generation_id', null);
+                                    })
+                                    ->required()
+                                    ->dehydrated(false),
+                                Select::make('vehicle_model_id')
+                                    ->label('Модель')
+                                    ->searchable()
+                                    ->preload()
+                                    ->options(fn (Get $get): array => self::vehicleModelOptions(
+                                        $get('vehicle_make_id'),
+                                        $get('vehicle_model_id'),
+                                    ))
+                                    ->live()
+                                    ->afterStateUpdated(fn (Set $set): mixed => $set('vehicle_generation_id', null))
+                                    ->required()
+                                    ->disabled(fn (Get $get): bool => blank($get('vehicle_make_id')))
+                                    ->rule(fn (Get $get) => Rule::exists('vehicle_models', 'id')
+                                        ->where('vehicle_make_id', $get('vehicle_make_id')))
+                                    ->dehydrated(false),
                                 Select::make('vehicle_generation_id')
                                     ->label('Поколение')
                                     ->searchable()
                                     ->preload()
-                                    ->options(self::vehicleGenerationOptions(...))
-                                    ->required(),
+                                    ->options(fn (Get $get): array => self::vehicleGenerationOptions(
+                                        $get('vehicle_model_id'),
+                                        $get('vehicle_generation_id'),
+                                    ))
+                                    ->afterStateHydrated(function (mixed $state, Set $set, ?ProductFitment $record): void {
+                                        $generation = $record?->generation;
+
+                                        if (! $generation instanceof VehicleGeneration && filled($state)) {
+                                            $generation = VehicleGeneration::withTrashed()->find($state);
+                                        }
+
+                                        if (! $generation instanceof VehicleGeneration) {
+                                            return;
+                                        }
+
+                                        $model = $generation->model
+                                            ?? VehicleModel::withTrashed()->find($generation->vehicle_model_id);
+
+                                        $set('vehicle_model_id', $model?->getKey());
+                                        $set('vehicle_make_id', $model?->vehicle_make_id);
+                                    })
+                                    ->required()
+                                    ->disabled(fn (Get $get): bool => blank($get('vehicle_model_id')))
+                                    ->rule(fn (Get $get) => Rule::exists('vehicle_generations', 'id')
+                                        ->where('vehicle_model_id', $get('vehicle_model_id')))
+                                    ->disableOptionsWhenSelectedInSiblingRepeaterItems(),
                                 TextInput::make('note')
                                     ->label('Примечание')
                                     ->maxLength(255),
                                 Toggle::make('is_primary')
                                     ->label('Основной автомобиль')
-                                    ->default(false)
-                                    ->fixIndistinctState(),
+                                    ->default(false),
                             ])
-                            ->columns(3)
+                            ->columns(5)
                             ->addActionLabel('Добавить автомобиль')
                             ->columnSpanFull(),
                     ]),
@@ -641,6 +789,20 @@ final class ProductForm
         }
 
         return (string) (($state['title'] ?? null) ?: ($state['sku'] ?? null) ?: 'Вариант товара');
+    }
+
+    public static function partTypeLabel(PartType $partType): string
+    {
+        return self::vehicleLabel($partType->full_title, $partType->is_active, $partType->trashed());
+    }
+
+    private static function vehicleLabel(string $title, bool $isActive, bool $isDeleted): string
+    {
+        return match (true) {
+            $isDeleted => $title.' (удалено)',
+            ! $isActive => $title.' (неактивно)',
+            default => $title,
+        };
     }
 
     /** @param array<string, mixed> $arguments */
