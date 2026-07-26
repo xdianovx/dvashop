@@ -1,0 +1,207 @@
+<?php
+
+use App\Enums\CartStatus;
+use App\Enums\DeliveryMethod;
+use App\Enums\OrderStatus;
+use App\Enums\PaymentMethod;
+use App\Enums\PaymentStatus;
+use App\Events\OrderCreated;
+use App\Listeners\SendOrderCreatedEmails;
+use App\Models\Cart;
+use App\Models\ProductVariant;
+use App\Models\User;
+use App\Services\CartManager;
+use App\Services\CheckoutService;
+use Illuminate\Events\CallQueuedListener;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Validation\ValidationException;
+
+uses(RefreshDatabase::class);
+
+function checkoutRequest(Cart $cart, ?User $user = null): Request
+{
+    $request = Request::create('/checkout', 'POST', [], [CartManager::COOKIE_NAME => $cart->token]);
+    $request->setUserResolver(fn (): ?User => $user);
+
+    return $request;
+}
+
+function validCheckoutData(array $overrides = []): array
+{
+    return [
+        'customer_name' => 'Иван Петров',
+        'customer_phone' => '+7 999 123-45-67',
+        'customer_email' => null,
+        'customer_city' => 'Москва',
+        'customer_address' => 'Ленинградское шоссе, 1',
+        'customer_comment' => 'Позвонить заранее',
+        'delivery_method' => DeliveryMethod::TransportCompany->value,
+        'payment_method' => PaymentMethod::Sbp->value,
+        'agree_terms' => true,
+        ...$overrides,
+    ];
+}
+
+function cartWithSnapshotItem(float $price = 2500, int $quantity = 2): array
+{
+    $variant = ProductVariant::factory()->create([
+        'title' => 'Комплект',
+        'options' => ['material' => ['group' => 'Материал', 'value' => 'Оцинковка']],
+        'price' => $price,
+    ]);
+    $cart = Cart::factory()->create();
+    app(CartManager::class)->addItem(checkoutRequest($cart), $variant->getKey(), $quantity);
+
+    return [$cart, $variant];
+}
+
+test('CheckoutService creates immutable order snapshots customer fields totals and completes cart', function () {
+    Event::fake([OrderCreated::class]);
+    [$cart, $variant] = cartWithSnapshotItem();
+    $cartItem = $cart->items()->firstOrFail();
+
+    $order = app(CheckoutService::class)->createOrderFromCart(
+        checkoutRequest($cart),
+        validCheckoutData(),
+    );
+    $orderItem = $order->items->first();
+
+    expect($order->status)->toBe(OrderStatus::New)
+        ->and($order->payment_status)->toBe(PaymentStatus::Pending)
+        ->and($order->payment_method)->toBe(PaymentMethod::Sbp)
+        ->and($order->delivery_method)->toBe(DeliveryMethod::TransportCompany)
+        ->and($order->customer_name)->toBe('Иван Петров')
+        ->and($order->customer_city)->toBe('Москва')
+        ->and($order->customer_comment)->toBe('Позвонить заранее')
+        ->and($order->subtotal)->toBe('5000.00')
+        ->and($order->delivery_price)->toBe('0.00')
+        ->and($order->total)->toBe('5000.00')
+        ->and($order->placed_at)->not->toBeNull()
+        ->and($orderItem->title_snapshot)->toBe($cartItem->title_snapshot)
+        ->and($orderItem->options_snapshot)->toBe($cartItem->options_snapshot)
+        ->and($orderItem->price_snapshot)->toBe('2500.00')
+        ->and($orderItem->total_snapshot)->toBe('5000.00')
+        ->and($cart->refresh()->status)->toBe(CartStatus::Ordered);
+
+    $variant->product->update(['title' => 'Изменённый товар']);
+    $variant->update(['title' => 'Новый вариант', 'price' => 9900]);
+
+    expect($orderItem->refresh()->title_snapshot)->toBe($cartItem->title_snapshot)
+        ->and($orderItem->price_snapshot)->toBe('2500.00');
+
+    Event::assertDispatched(OrderCreated::class, fn (OrderCreated $event): bool => $event->order->is($order));
+});
+
+test('CheckoutService can create an order from valid snapshots after catalog deletion', function () {
+    Event::fake([OrderCreated::class]);
+    [$cart, $variant] = cartWithSnapshotItem(1800, 1);
+    $variant->product->forceDelete();
+
+    $order = app(CheckoutService::class)->createOrderFromCart(checkoutRequest($cart), validCheckoutData());
+
+    expect($order->items)->toHaveCount(1)
+        ->and($order->items->first()->product_id)->toBeNull()
+        ->and($order->items->first()->product_variant_id)->toBeNull()
+        ->and($order->total)->toBe('1800.00');
+});
+
+test('CheckoutService ignores a guest supplied user id', function () {
+    Event::fake([OrderCreated::class]);
+    $otherUser = User::factory()->create();
+    [$cart] = cartWithSnapshotItem();
+
+    $order = app(CheckoutService::class)->createOrderFromCart(
+        checkoutRequest($cart),
+        validCheckoutData(['user_id' => $otherUser->getKey()]),
+    );
+
+    expect($order->user_id)->toBeNull();
+});
+
+test('CheckoutService uses only the authenticated user id', function () {
+    Event::fake([OrderCreated::class]);
+    $currentUser = User::factory()->create();
+    $otherUser = User::factory()->create();
+    [$cart] = cartWithSnapshotItem();
+
+    $order = app(CheckoutService::class)->createOrderFromCart(
+        checkoutRequest($cart, $currentUser),
+        validCheckoutData(['user_id' => $otherUser->getKey()]),
+    );
+
+    expect($order->user_id)->toBe($currentUser->getKey())
+        ->and($order->user_id)->not->toBe($otherUser->getKey());
+});
+
+test('CheckoutService queues one after commit email listener without sending mail inline', function () {
+    Queue::fake();
+    Mail::fake();
+    [$cart] = cartWithSnapshotItem();
+
+    $order = app(CheckoutService::class)->createOrderFromCart(
+        checkoutRequest($cart),
+        validCheckoutData(),
+    );
+
+    expect($order->exists)->toBeTrue();
+    Mail::assertNothingSent();
+    Queue::assertPushed(CallQueuedListener::class, function (CallQueuedListener $job): bool {
+        return $job->class === SendOrderCreatedEmails::class
+            && $job->afterCommit === true;
+    });
+    Queue::assertPushedTimes(CallQueuedListener::class, 1);
+});
+
+test('CheckoutService rejects an empty cart', function () {
+    $cart = Cart::factory()->create();
+
+    expect(fn () => app(CheckoutService::class)->createOrderFromCart(
+        checkoutRequest($cart),
+        validCheckoutData(),
+    ))->toThrow(ValidationException::class, 'пустую корзину');
+});
+
+test('CheckoutService validates payment and delivery methods', function (array $overrides) {
+    [$cart] = cartWithSnapshotItem();
+
+    expect(fn () => app(CheckoutService::class)->createOrderFromCart(
+        checkoutRequest($cart),
+        validCheckoutData($overrides),
+    ))->toThrow(ValidationException::class);
+})->with([
+    'unknown payment method' => [['payment_method' => 'crypto']],
+    'unknown delivery method' => [['delivery_method' => 'teleport']],
+]);
+
+test('CheckoutService rejects a non-positive item quantity', function () {
+    Queue::fake();
+    [$cart] = cartWithSnapshotItem();
+    DB::table('cart_items')->where('cart_id', $cart->getKey())->update(['quantity' => 0]);
+
+    expect(fn () => app(CheckoutService::class)->createOrderFromCart(
+        checkoutRequest($cart),
+        validCheckoutData(),
+    ))->toThrow(ValidationException::class, 'больше нуля');
+
+    Queue::assertNothingPushed();
+    expect($cart->refresh()->status)->toBe(CartStatus::Active)
+        ->and(DB::table('orders')->count())->toBe(0);
+});
+
+test('CheckoutService requires customer identity and accepted terms while allowing nullable email', function (array $overrides) {
+    [$cart] = cartWithSnapshotItem();
+
+    expect(fn () => app(CheckoutService::class)->createOrderFromCart(
+        checkoutRequest($cart),
+        validCheckoutData($overrides),
+    ))->toThrow(ValidationException::class);
+})->with([
+    'name' => [['customer_name' => '']],
+    'phone' => [['customer_phone' => '']],
+    'terms' => [['agree_terms' => false]],
+]);

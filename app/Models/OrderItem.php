@@ -12,6 +12,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'order_id',
     'product_id',
     'product_variant_id',
+    'title_snapshot',
+    'sku_snapshot',
+    'options_snapshot',
+    'image_snapshot',
+    'price_snapshot',
+    'old_price_snapshot',
+    'total_snapshot',
     'title',
     'sku',
     'quantity',
@@ -38,10 +45,39 @@ class OrderItem extends Model
         return $this->belongsTo(ProductVariant::class, 'product_variant_id');
     }
 
+    public function optionSummary(): string
+    {
+        return collect($this->options_snapshot ?? [])
+            ->map(function (mixed $option, string|int $key): ?string {
+                if (is_array($option) && filled($option['value'] ?? null)) {
+                    return (string) (($option['group'] ?? null) ?: $key).': '.$option['value'];
+                }
+
+                return is_scalar($option) && filled((string) $option)
+                    ? (string) $key.': '.$option
+                    : null;
+            })
+            ->filter()
+            ->implode('; ');
+    }
+
+    public function lineTotal(): float
+    {
+        $storedTotal = $this->total_snapshot;
+
+        return $storedTotal !== null
+            ? round((float) $storedTotal, 2)
+            : round((float) $this->price_snapshot * max(1, (int) $this->quantity), 2);
+    }
+
     protected function casts(): array
     {
         return [
             'quantity' => 'integer',
+            'options_snapshot' => 'array',
+            'price_snapshot' => 'decimal:2',
+            'old_price_snapshot' => 'decimal:2',
+            'total_snapshot' => 'decimal:2',
             'price' => 'decimal:2',
             'total' => 'decimal:2',
         ];

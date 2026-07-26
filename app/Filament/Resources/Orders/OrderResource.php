@@ -2,31 +2,39 @@
 
 namespace App\Filament\Resources\Orders;
 
+use App\Enums\DeliveryMethod;
 use App\Enums\OrderStatus;
+use App\Enums\PaymentMethod;
+use App\Enums\PaymentStatus;
 use App\Filament\Resources\Orders\Pages\EditOrder;
 use App\Filament\Resources\Orders\Pages\ListOrders;
 use App\Filament\Resources\Orders\Pages\ViewOrder;
 use App\Models\Order;
 use BackedEnum;
-use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 
 class OrderResource extends Resource
 {
     protected static ?string $model = Order::class;
 
-    protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-clipboard-document-list';
+    protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-clipboard-document-list';
 
     protected static ?string $recordTitleAttribute = 'number';
 
@@ -59,14 +67,25 @@ class OrderResource extends Resource
                         ->label('Статус')
                         ->options(OrderStatus::options())
                         ->required(),
+                    DateTimePicker::make('placed_at')
+                        ->label('Оформлен')
+                        ->disabled(),
                     TextInput::make('subtotal')
                         ->label('Сумма товаров')
+                        ->prefix('₽')
+                        ->disabled(),
+                    TextInput::make('delivery_price')
+                        ->label('Доставка')
                         ->prefix('₽')
                         ->disabled(),
                     TextInput::make('total')
                         ->label('Итого')
                         ->prefix('₽')
                         ->disabled(),
+                    Textarea::make('manager_comment')
+                        ->label('Комментарий менеджера')
+                        ->rows(3)
+                        ->columnSpanFull(),
                 ])
                 ->columns(2),
             Section::make('Покупатель')
@@ -80,17 +99,40 @@ class OrderResource extends Resource
                     TextInput::make('customer_email')
                         ->label('Email')
                         ->disabled(),
-                    TextInput::make('delivery_city')
+                    TextInput::make('customer_city')
                         ->label('Город')
                         ->disabled(),
-                    TextInput::make('delivery_address')
+                    TextInput::make('customer_address')
                         ->label('Адрес')
                         ->disabled()
                         ->columnSpanFull(),
-                    Textarea::make('comment')
+                    Textarea::make('customer_comment')
                         ->label('Комментарий')
                         ->disabled()
                         ->columnSpanFull(),
+                ])
+                ->columns(2),
+            Section::make('Оплата и доставка')
+                ->schema([
+                    Select::make('payment_method')
+                        ->label('Способ оплаты')
+                        ->options(PaymentMethod::options())
+                        ->disabled(),
+                    Select::make('payment_status')
+                        ->label('Статус оплаты')
+                        ->options(PaymentStatus::options())
+                        ->required()
+                        ->live(),
+                    DateTimePicker::make('paid_at')
+                        ->label('Оплачен')
+                        ->disabled()
+                        ->visible(fn (Get $get): bool => ($get('payment_status') instanceof PaymentStatus
+                            ? $get('payment_status')->value
+                            : $get('payment_status')) === PaymentStatus::Paid->value),
+                    Select::make('delivery_method')
+                        ->label('Способ доставки')
+                        ->options(DeliveryMethod::options())
+                        ->disabled(),
                 ])
                 ->columns(2),
             Section::make('Состав заказа')
@@ -99,21 +141,30 @@ class OrderResource extends Resource
                         ->label('Товары')
                         ->relationship()
                         ->schema([
-                            TextInput::make('title')
+                            TextInput::make('title_snapshot')
                                 ->label('Товар')
                                 ->disabled()
                                 ->columnSpanFull(),
-                            TextInput::make('sku')
+                            TextInput::make('sku_snapshot')
                                 ->label('SKU')
                                 ->disabled(),
+                            Textarea::make('options_snapshot')
+                                ->label('Выбранные опции')
+                                ->formatStateUsing(fn (mixed $state): string => self::optionSummary($state))
+                                ->disabled()
+                                ->columnSpanFull(),
+                            TextInput::make('image_snapshot')
+                                ->label('Снимок изображения')
+                                ->disabled()
+                                ->columnSpanFull(),
                             TextInput::make('quantity')
                                 ->label('Кол-во')
                                 ->disabled(),
-                            TextInput::make('price')
+                            TextInput::make('price_snapshot')
                                 ->label('Цена')
                                 ->prefix('₽')
                                 ->disabled(),
-                            TextInput::make('total')
+                            TextInput::make('total_snapshot')
                                 ->label('Сумма')
                                 ->prefix('₽')
                                 ->disabled(),
@@ -130,6 +181,9 @@ class OrderResource extends Resource
         return $table
             ->defaultSort('created_at', 'desc')
             ->columns([
+                TextColumn::make('id')
+                    ->label('ID')
+                    ->sortable(),
                 TextColumn::make('number')
                     ->label('Номер')
                     ->searchable()
@@ -137,7 +191,7 @@ class OrderResource extends Resource
                 TextColumn::make('status')
                     ->label('Статус')
                     ->badge()
-                    ->formatStateUsing(fn (OrderStatus | string | null $state): string => $state instanceof OrderStatus ? $state->label() : (OrderStatus::tryFrom((string) $state)?->label() ?? '—')),
+                    ->formatStateUsing(fn (OrderStatus|string|null $state): string => $state instanceof OrderStatus ? $state->label() : (OrderStatus::tryFrom((string) $state)?->label() ?? '—')),
                 TextColumn::make('customer_name')
                     ->label('Клиент')
                     ->searchable(),
@@ -156,6 +210,18 @@ class OrderResource extends Resource
                     ->label('Итого')
                     ->money('RUB')
                     ->sortable(),
+                TextColumn::make('payment_method')
+                    ->label('Оплата')
+                    ->formatStateUsing(fn (PaymentMethod|string|null $state): string => $state instanceof PaymentMethod ? $state->label() : (PaymentMethod::tryFrom((string) $state)?->label() ?? '—'))
+                    ->toggleable(),
+                TextColumn::make('payment_status')
+                    ->label('Статус оплаты')
+                    ->badge()
+                    ->formatStateUsing(fn (PaymentStatus|string|null $state): string => $state instanceof PaymentStatus ? $state->label() : (PaymentStatus::tryFrom((string) $state)?->label() ?? '—')),
+                TextColumn::make('delivery_method')
+                    ->label('Доставка')
+                    ->formatStateUsing(fn (DeliveryMethod|string|null $state): string => $state instanceof DeliveryMethod ? $state->label() : (DeliveryMethod::tryFrom((string) $state)?->label() ?? '—'))
+                    ->toggleable(),
                 TextColumn::make('created_at')
                     ->label('Создан')
                     ->dateTime('d.m.Y H:i')
@@ -165,12 +231,39 @@ class OrderResource extends Resource
                 SelectFilter::make('status')
                     ->label('Статус')
                     ->options(OrderStatus::options()),
+                SelectFilter::make('payment_status')
+                    ->label('Статус оплаты')
+                    ->options(PaymentStatus::options()),
+                SelectFilter::make('payment_method')
+                    ->label('Способ оплаты')
+                    ->options(PaymentMethod::options()),
+                SelectFilter::make('delivery_method')
+                    ->label('Способ доставки')
+                    ->options(DeliveryMethod::options()),
+                Filter::make('created_at')
+                    ->label('Дата создания')
+                    ->schema([
+                        DatePicker::make('from')->label('С'),
+                        DatePicker::make('until')->label('По'),
+                    ])
+                    ->query(fn (Builder $query, array $data): Builder => $query
+                        ->when($data['from'] ?? null, fn (Builder $query, string $date): Builder => $query->whereDate('created_at', '>=', $date))
+                        ->when($data['until'] ?? null, fn (Builder $query, string $date): Builder => $query->whereDate('created_at', '<=', $date))),
             ])
             ->recordActions([
                 ViewAction::make(),
                 EditAction::make(),
-                DeleteAction::make(),
             ]);
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return false;
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        return false;
     }
 
     public static function getPages(): array
@@ -180,5 +273,21 @@ class OrderResource extends Resource
             'view' => ViewOrder::route('/{record}'),
             'edit' => EditOrder::route('/{record}/edit'),
         ];
+    }
+
+    private static function optionSummary(mixed $options): string
+    {
+        return collect(is_array($options) ? $options : [])
+            ->map(function (mixed $option, string|int $key): ?string {
+                if (is_array($option) && filled($option['value'] ?? null)) {
+                    return (string) (($option['group'] ?? null) ?: $key).': '.$option['value'];
+                }
+
+                return is_scalar($option) && filled((string) $option)
+                    ? (string) $key.': '.$option
+                    : null;
+            })
+            ->filter()
+            ->implode('; ');
     }
 }

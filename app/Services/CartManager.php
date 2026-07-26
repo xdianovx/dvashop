@@ -58,11 +58,8 @@ class CartManager
             return $item->refresh();
         }
 
-        $item->fill([
-            'quantity' => max(1, $quantity),
-            'price_snapshot' => $variant->price,
-            'title_snapshot' => $this->titleSnapshot($variant),
-        ]);
+        $item->quantity = max(1, $quantity);
+        $item->refreshSnapshotFromVariant($variant);
 
         $item->save();
 
@@ -102,7 +99,7 @@ class CartManager
         return [
             'items_count' => (int) $items->sum('quantity'),
             'subtotal' => round((float) $items->sum(
-                fn (CartItem $item): float => (float) $item->price_snapshot * $item->quantity
+                fn (CartItem $item): float => $item->lineTotal()
             ), 2),
         ];
     }
@@ -144,16 +141,6 @@ class CartManager
         }
 
         return $variant;
-    }
-
-    private function titleSnapshot(ProductVariant $variant): string
-    {
-        $parts = array_filter([
-            $variant->product?->title,
-            $variant->title,
-        ]);
-
-        return implode(' — ', $parts) ?: 'Товар';
     }
 
     private function ensureItemBelongsToCart(CartItem $item, Cart $cart): void
