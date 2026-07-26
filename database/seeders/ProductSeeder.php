@@ -2,58 +2,69 @@
 
 namespace Database\Seeders;
 
+use App\Enums\ProductStatus;
+use App\Enums\ProductType;
+use App\Enums\StockStatus;
+use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductFitment;
-use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
+use App\Services\Media\ProductGalleryService;
 use Illuminate\Database\Seeder;
 
 class ProductSeeder extends Seeder
 {
-    public function run(): void
+    public function run(ProductGalleryService $gallery): void
     {
-        $category = ProductCategory::query()->where('slug', 'porogi')->first()
-            ?? ProductCategory::query()->orderBy('id')->first();
+        $partType = PartType::query()
+            ->with('productCategory')
+            ->where('full_slug', 'porog')
+            ->firstOrFail();
+
+        $category = $partType->productCategory
+            ?? ProductCategory::query()
+                ->where('full_slug', 'kuzovnye-detali/remontnye-elementy-kuzova/porogi')
+                ->firstOrFail();
 
         $generation = VehicleGeneration::query()->with('model.make')->orderBy('id')->first();
 
-        $product = Product::query()->firstOrCreate(
+        $product = Product::query()->updateOrCreate(
             ['slug' => 'demo-porogi-toyota-camry'],
             [
-                'product_category_id' => $category?->getKey(),
+                'product_category_id' => $category->getKey(),
+                'product_type' => ProductType::AutoPart,
+                'part_type_id' => $partType->getKey(),
                 'title' => 'Демо пороги Toyota Camry',
                 'sku' => 'DEMO-POROGI-CAMRY',
-                'status' => 'active',
+                'status' => ProductStatus::Active,
                 'short_description' => 'Демонстрационный товар для проверки структуры каталога.',
                 'price' => 12500,
-                'stock_status' => 'in_stock',
+                'stock_status' => StockStatus::InStock,
                 'position' => 10,
                 'is_featured' => true,
             ],
         );
 
-        ProductVariant::query()->firstOrCreate(
+        ProductVariant::query()->updateOrCreate(
             ['sku' => 'DEMO-POROGI-CAMRY-BASE'],
             [
                 'product_id' => $product->getKey(),
                 'title' => 'Базовый комплект',
                 'price' => 12500,
-                'stock_status' => 'in_stock',
+                'stock_status' => StockStatus::InStock,
                 'is_default' => true,
                 'is_active' => true,
             ],
         );
 
-        ProductImage::query()->firstOrCreate(
-            ['product_id' => $product->getKey(), 'path' => 'products/demo-porogi-camry.jpg'],
-            [
-                'alt' => 'Демо пороги Toyota Camry',
-                'position' => 0,
-                'is_main' => true,
-            ],
-        );
+        $product->images()
+            ->where('path', 'products/demo-porogi-camry.jpg')
+            ->get()
+            ->each->delete();
+
+        $gallery->ensureDefaultImage($product->refresh());
 
         if ($generation) {
             ProductFitment::query()->firstOrCreate(

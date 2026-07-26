@@ -56,10 +56,14 @@ function galleryTestProduct(?ProductCategory $category = null, ?PartType $partTy
     return Product::factory()->forCategory($category ?: galleryTestCategory())->create($state);
 }
 
-function putManualGallerySource(Product $product, string $name = 'source.jpg'): string
-{
+function putManualGallerySource(
+    Product $product,
+    string $name = 'source.jpg',
+    int $width = 80,
+    int $height = 60,
+): string {
     $path = 'uploads/products/manual/'.$product->getKey().'/'.$name;
-    Storage::disk('public')->put($path, test_image_binary('jpeg', 80, 60));
+    Storage::disk('public')->put($path, test_image_binary('jpeg', $width, $height));
 
     return $path;
 }
@@ -279,4 +283,46 @@ test('ProductResource image filters work at query level', function () {
         ->and(ProductResource::applyImageSourceFilter(Product::query(), ProductImage::SOURCE_MANUAL)->pluck('id')->all())->toBe([$manual->getKey()])
         ->and(ProductResource::applyImageSourceFilter(Product::query(), ProductImage::SOURCE_IMPORT)->pluck('id')->all())->toBe([$import->getKey()])
         ->and(ProductResource::applyImageSourceFilter(Product::query(), ProductImage::SOURCE_DEFAULT)->pluck('id')->all())->toBe([$default->getKey()]);
+});
+
+test('batch manual upload processes every image and keeps exactly one visible main', function () {
+    $product = galleryTestProduct();
+    $firstPath = putManualGallerySource($product, 'batch-first.jpg');
+    $secondPath = putManualGallerySource($product, 'batch-second.jpg', 96, 64);
+
+    $images = app(ProductGalleryService::class)->attachManualImages(
+        product: $product,
+        paths: [$firstPath, $secondPath],
+        alt: 'Пачечная загрузка',
+    );
+
+    expect($images)->toHaveCount(2)
+        ->and($product->images()->count())->toBe(2)
+        ->and($product->images()->where('source_type', ProductImage::SOURCE_MANUAL)->count())->toBe(2)
+        ->and($product->images()->where('is_main', true)->count())->toBe(1)
+        ->and($product->images()->where('is_main', true)->where('is_visible', true)->count())->toBe(1)
+        ->and($product->images()->where('is_visible', false)->count())->toBe(0)
+        ->and(Storage::disk('public')->exists($firstPath))->toBeFalse()
+        ->and(Storage::disk('public')->exists($secondPath))->toBeFalse();
+
+    foreach ($images as $image) {
+        expect($image->mime)->toBe('image/webp')
+            ->and(Storage::disk('public')->exists($image->path))->toBeTrue();
+    }
+});
+
+test('batch manual upload reuses an identical image without failing or creating a duplicate', function () {
+    $product = galleryTestProduct();
+    $firstPath = putManualGallerySource($product, 'same-a.jpg');
+    $secondPath = putManualGallerySource($product, 'same-b.jpg');
+
+    $images = app(ProductGalleryService::class)->attachManualImages(
+        product: $product,
+        paths: [$firstPath, $secondPath],
+        alt: 'Одинаковое изображение',
+    );
+
+    expect($images)->toHaveCount(1)
+        ->and($product->images()->count())->toBe(1)
+        ->and($product->images()->where('is_main', true)->where('is_visible', true)->count())->toBe(1);
 });

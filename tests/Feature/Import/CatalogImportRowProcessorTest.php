@@ -459,10 +459,14 @@ test('catalog chunk archives missing products after successful import', function
     Storage::fake('local');
     Queue::fake();
 
+    $previousRun = catalogImportRun([
+        'status' => ImportRunStatus::Done,
+    ]);
+
     $oldProduct = Product::factory()->create([
         'import_key' => 'catalog:old:product',
         'import_source' => 'catalog',
-        'last_import_run_id' => '1',
+        'last_import_run_id' => (string) $previousRun->getKey(),
         'status' => ProductStatus::Active,
     ]);
 

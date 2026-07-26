@@ -141,6 +141,7 @@ class ProductImage extends Model
 
         if ($duplicate instanceof self) {
             app(MediaFileCleanupService::class)->deleteProcessedImage($processed);
+            $this->forceFill(['checksum' => $processed->checksum]);
             $this->deleteQuietly();
 
             if ($this->is_main && ! $duplicate->is_main) {
