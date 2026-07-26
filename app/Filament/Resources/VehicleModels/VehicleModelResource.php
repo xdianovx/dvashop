@@ -5,6 +5,7 @@ namespace App\Filament\Resources\VehicleModels;
 use App\Filament\Resources\VehicleModels\Pages\CreateVehicleModel;
 use App\Filament\Resources\VehicleModels\Pages\EditVehicleModel;
 use App\Filament\Resources\VehicleModels\Pages\ListVehicleModels;
+use App\Filament\Schemas\SeoSchema;
 use App\Models\VehicleModel;
 use BackedEnum;
 use Filament\Actions\BulkActionGroup;
@@ -16,7 +17,6 @@ use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\RestoreBulkAction;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
@@ -34,7 +34,7 @@ class VehicleModelResource extends Resource
 {
     protected static ?string $model = VehicleModel::class;
 
-    protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-rectangle-stack';
 
     protected static ?string $recordTitleAttribute = 'title';
 
@@ -84,13 +84,7 @@ class VehicleModelResource extends Resource
             Toggle::make('is_active')
                 ->label('Активна')
                 ->default(true),
-            TextInput::make('meta_title')
-                ->label('Meta title')
-                ->maxLength(255),
-            Textarea::make('meta_description')
-                ->label('Meta description')
-                ->rows(3)
-                ->columnSpanFull(),
+            SeoSchema::section(),
         ]);
     }
 
@@ -125,6 +119,19 @@ class VehicleModelResource extends Resource
                 IconColumn::make('is_active')
                     ->label('Активна')
                     ->boolean(),
+                TextColumn::make('meta_title')
+                    ->label('Meta title')
+                    ->limit(48)
+                    ->toggleable(isToggledHiddenByDefault: true),
+                IconColumn::make('noindex')
+                    ->label('Noindex')
+                    ->boolean()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('updated_at')
+                    ->label('Обновлено')
+                    ->dateTime('d.m.Y H:i')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 SelectFilter::make('vehicle_make_id')
@@ -136,6 +143,10 @@ class VehicleModelResource extends Resource
                     ->label('Активность')
                     ->trueLabel('Только активные')
                     ->falseLabel('Только неактивные'),
+                TernaryFilter::make('noindex')
+                    ->label('Индексация')
+                    ->trueLabel('Только noindex')
+                    ->falseLabel('Только индексируемые'),
                 TrashedFilter::make(),
             ])
             ->recordActions([

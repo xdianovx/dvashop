@@ -72,6 +72,7 @@ test('part type resource query eager loads category and includes products count'
 
 test('part type resource has no force delete actions and readonly path fields are declared', function () {
     $resourceSource = file_get_contents(app_path('Filament/Resources/PartTypes/PartTypeResource.php'));
+    $seoSchemaSource = file_get_contents(app_path('Filament/Schemas/SeoSchema.php'));
     $editSource = file_get_contents(app_path('Filament/Resources/PartTypes/Pages/EditPartType.php'));
 
     expect($resourceSource)->toContain("Select::make('parent_id')")
@@ -83,11 +84,12 @@ test('part type resource has no force delete actions and readonly path fields ar
         ->toContain("TextInput::make('default_image_key')")
         ->toContain("TextInput::make('position')")
         ->toContain("Toggle::make('is_active')")
-        ->toContain("TextInput::make('meta_title')")
-        ->toContain("Textarea::make('meta_description')")
+        ->toContain('SeoSchema::section()')
         ->toContain('->dehydrated(false)')
         ->toContain("->withCount('products')")
         ->not->toContain('ForceDeleteAction')
         ->not->toContain('ForceDeleteBulkAction')
+        ->and($seoSchemaSource)->toContain("TextInput::make('meta_title')")
+        ->toContain("Textarea::make('meta_description')")
         ->and($editSource)->not->toContain('ForceDeleteAction');
 });

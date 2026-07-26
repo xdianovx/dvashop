@@ -22,6 +22,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'is_active',
     'meta_title',
     'meta_description',
+    'seo_h1',
+    'seo_text',
+    'canonical_url',
+    'noindex',
+    'og_title',
+    'og_description',
+    'og_image',
 ])]
 class VehicleModel extends Model
 {
@@ -64,6 +71,7 @@ class VehicleModel extends Model
         return [
             'is_active' => 'boolean',
             'position' => 'integer',
+            'noindex' => 'boolean',
         ];
     }
 }

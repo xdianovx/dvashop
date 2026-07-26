@@ -34,6 +34,13 @@ use Throwable;
     'is_active',
     'meta_title',
     'meta_description',
+    'seo_h1',
+    'seo_text',
+    'canonical_url',
+    'noindex',
+    'og_title',
+    'og_description',
+    'og_image',
 ])]
 class VehicleGeneration extends Model
 {
@@ -81,7 +88,6 @@ class VehicleGeneration extends Model
             $generation->processManualImageIfNeeded();
         });
     }
-
 
     public function processManualImageIfNeeded(): void
     {
@@ -148,6 +154,7 @@ class VehicleGeneration extends Model
             'is_active' => 'boolean',
             'position' => 'integer',
             'image_conversions' => 'array',
+            'noindex' => 'boolean',
         ];
     }
 }
