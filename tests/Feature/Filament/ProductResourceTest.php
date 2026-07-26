@@ -130,7 +130,9 @@ test('generic product create discards stale part type and fitments', function ()
 
     expect($product->product_type)->toBe(ProductType::Generic)
         ->and($product->part_type_id)->toBeNull()
-        ->and($product->fitments()->count())->toBe(0);
+        ->and($product->fitments()->count())->toBe(0)
+        ->and($product->defaultVariant?->price)->toBe('2500.00')
+        ->and($product->defaultVariant?->stock_quantity)->toBe(5);
 });
 
 test('technical product fields are readonly and isolated from the main tab', function () {
@@ -223,6 +225,71 @@ test('create product accepts multiple manual gallery images and keeps one visibl
         ->and(Storage::disk('public')->allFiles('uploads/products/pending/manual'))->toBe([]);
 });
 
+test('compact price fields create one default variant without opening variants section', function () {
+    $category = productResourceCategory();
+    $partType = productResourcePartType($category);
+
+    Livewire::test(CreateProduct::class)
+        ->fillForm([
+            'product_type' => ProductType::AutoPart->value,
+            'title' => 'Порог с основной ценой',
+            'slug' => 'porog-primary-price',
+            'product_category_id' => $category->getKey(),
+            'part_type_id' => $partType->getKey(),
+            'status' => ProductStatus::Active->value,
+            'position' => 0,
+            'is_featured' => false,
+            'sku' => 'PRIMARY-SKU',
+            'price' => 14900,
+            'old_price' => 15900,
+            'default_stock_quantity' => 7,
+            'stock_status' => StockStatus::InStock->value,
+        ], 'form')
+        ->assertSet('data.variants', [])
+        ->call('create')
+        ->assertHasNoFormErrors()
+        ->assertRedirect();
+
+    $product = Product::query()->where('slug', 'porog-primary-price')->firstOrFail();
+    $variant = $product->defaultVariant()->firstOrFail();
+
+    expect($product->variants()->count())->toBe(1)
+        ->and($variant->sku)->toBe('PRIMARY-SKU')
+        ->and($variant->price)->toBe('14900.00')
+        ->and($variant->old_price)->toBe('15900.00')
+        ->and($variant->stock_quantity)->toBe(7)
+        ->and($variant->stock_status)->toBe(StockStatus::InStock)
+        ->and($variant->is_default)->toBeTrue()
+        ->and($variant->is_active)->toBeTrue();
+});
+
+test('edit product accepts a batch of new manual gallery images', function () {
+    $category = productResourceCategory();
+    $partType = productResourcePartType($category);
+    $product = Product::factory()
+        ->forCategory($category)
+        ->forPartType($partType)
+        ->withDefaultVariant()
+        ->create();
+
+    Livewire::test(EditProduct::class, ['record' => $product->getKey()])
+        ->set('data.gallery_uploads', [
+            UploadedFile::fake()->image('edit-front.jpg', 800, 600),
+            UploadedFile::fake()->image('edit-side.png', 600, 800),
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors()
+        ->assertNotified();
+
+    $images = $product->images()->orderBy('position')->get();
+
+    expect($images)->toHaveCount(2)
+        ->and($images->where('source_type', ProductImage::SOURCE_MANUAL))->toHaveCount(2)
+        ->and($images->where('is_main', true))->toHaveCount(1)
+        ->and($images->where('is_visible', true))->toHaveCount(2)
+        ->and($images->every(fn (ProductImage $image): bool => Storage::disk('public')->exists($image->path)))->toBeTrue();
+});
+
 test('switching an existing product to generic removes stored fitments', function () {
     $undoRepeaterFake = Repeater::fake();
     $category = productResourceCategory();
@@ -264,8 +331,21 @@ test('repeated edit save does not create a second default variant', function () 
         ->forPartType($partType)
         ->withDefaultVariant()
         ->create();
+    $variant = $product->defaultVariant()->firstOrFail();
+    $variant->forceFill([
+        'sku' => 'MANUAL-DEFAULT-SKU',
+        'price' => 17850,
+        'old_price' => 18900,
+        'stock_quantity' => 4,
+        'stock_status' => StockStatus::PreOrder,
+    ])->save();
 
     Livewire::test(EditProduct::class, ['record' => $product->getKey()])
+        ->assertSet('data.sku', 'MANUAL-DEFAULT-SKU')
+        ->assertSet('data.price', '17850.00')
+        ->assertSet('data.old_price', '18900.00')
+        ->assertSet('data.default_stock_quantity', 4)
+        ->assertSet('data.stock_status', StockStatus::PreOrder->value)
         ->call('save')
         ->assertHasNoFormErrors()
         ->assertNotified();
@@ -276,7 +356,12 @@ test('repeated edit save does not create a second default variant', function () 
         ->assertNotified();
 
     expect($product->variants()->count())->toBe(1)
-        ->and($product->variants()->where('is_default', true)->count())->toBe(1);
+        ->and($product->variants()->where('is_default', true)->count())->toBe(1)
+        ->and($variant->refresh()->sku)->toBe('MANUAL-DEFAULT-SKU')
+        ->and($variant->price)->toBe('17850.00')
+        ->and($variant->old_price)->toBe('18900.00')
+        ->and($variant->stock_quantity)->toBe(4)
+        ->and($variant->stock_status)->toBe(StockStatus::PreOrder);
 });
 
 test('product resource query and table keep store category and part type separate', function () {

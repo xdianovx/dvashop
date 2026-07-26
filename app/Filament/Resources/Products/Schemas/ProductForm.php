@@ -50,7 +50,7 @@ final class ProductForm
         ]);
     }
 
-    public static function isAutoPartState(ProductType | string | null $state): bool
+    public static function isAutoPartState(ProductType|string|null $state): bool
     {
         return ($state instanceof ProductType ? $state->value : $state) === ProductType::AutoPart->value;
     }
@@ -104,7 +104,7 @@ final class ProductForm
                     ->default(ProductType::AutoPart->value)
                     ->required()
                     ->live()
-                    ->afterStateUpdated(function (ProductType | string | null $state, Set $set): void {
+                    ->afterStateUpdated(function (ProductType|string|null $state, Set $set): void {
                         if (! self::isAutoPartState($state)) {
                             $set('part_type_id', null);
                             $set('fitments', []);
@@ -174,18 +174,24 @@ final class ProductForm
                         TextInput::make('price')
                             ->label('Цена')
                             ->numeric()
-                            ->prefix('₽'),
+                            ->prefix('₽')
+                            ->required(fn (Get $get): bool => empty($get('variants'))),
                         TextInput::make('old_price')
                             ->label('Старая цена')
                             ->numeric()
                             ->prefix('₽'),
+                        TextInput::make('default_stock_quantity')
+                            ->label('Остаток')
+                            ->numeric()
+                            ->minValue(0)
+                            ->helperText('Остаток основного варианта.'),
                         Select::make('stock_status')
                             ->label('Наличие')
                             ->options(StockStatus::options())
                             ->default(StockStatus::InStock->value)
                             ->required(),
                     ])
-                    ->columns(4),
+                    ->columns(5),
                 Section::make('Варианты товара')
                     ->description('Откройте секцию только когда у товара есть несколько комплектаций или вариантов.')
                     ->collapsible()
@@ -232,7 +238,7 @@ final class ProductForm
                                     ->valueLabel('Значение')
                                     ->columnSpanFull(),
                             ])
-                            ->defaultItems(1)
+                            ->defaultItems(0)
                             ->columns(4)
                             ->collapsible()
                             ->collapsed()

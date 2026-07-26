@@ -15,6 +15,11 @@ class EditProduct extends EditRecord
 
     protected static string $resource = ProductResource::class;
 
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        return $this->hydrateDefaultVariantData($data);
+    }
+
     protected function mutateFormDataBeforeSave(array $data): array
     {
         return $this->prepareProductData($data);
