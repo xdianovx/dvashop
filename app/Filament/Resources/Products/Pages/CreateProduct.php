@@ -3,12 +3,14 @@
 namespace App\Filament\Resources\Products\Pages;
 
 use App\Filament\Resources\Products\Pages\Concerns\HandlesProductGalleryUploads;
+use App\Filament\Resources\Products\Pages\Concerns\HandlesProductOptionValues;
 use App\Filament\Resources\Products\ProductResource;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreateProduct extends CreateRecord
 {
     use HandlesProductGalleryUploads;
+    use HandlesProductOptionValues;
 
     protected static string $resource = ProductResource::class;
 
@@ -20,5 +22,6 @@ class CreateProduct extends CreateRecord
     protected function afterCreate(): void
     {
         $this->finishProductSave();
+        $this->finishProductOptionSave();
     }
 }

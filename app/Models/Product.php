@@ -23,6 +23,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'product_category_id',
     'product_type',
     'part_type_id',
+    'product_option_template_id',
     'title',
     'slug',
     'sku',
@@ -55,6 +56,11 @@ class Product extends Model
         return $this->belongsTo(PartType::class);
     }
 
+    public function optionTemplate(): BelongsTo
+    {
+        return $this->belongsTo(ProductOptionTemplate::class, 'product_option_template_id');
+    }
+
     public function isAutoPart(): bool
     {
         return $this->product_type === ProductType::AutoPart;
@@ -68,6 +74,11 @@ class Product extends Model
     public function variants(): HasMany
     {
         return $this->hasMany(ProductVariant::class);
+    }
+
+    public function characteristics(): HasMany
+    {
+        return $this->hasMany(ProductCharacteristic::class)->orderBy('position')->orderBy('id');
     }
 
     public function defaultVariant(): HasOne

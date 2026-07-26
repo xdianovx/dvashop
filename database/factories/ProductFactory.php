@@ -27,6 +27,7 @@ class ProductFactory extends Factory
             'product_category_id' => ProductCategory::factory(),
             'product_type' => ProductType::AutoPart,
             'part_type_id' => null,
+            'product_option_template_id' => null,
             'title' => $title,
             'slug' => Str::slug($title),
             'sku' => fake()->boolean(70)

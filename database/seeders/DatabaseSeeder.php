@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             AdminUserSeeder::class,
             ProductCatalogSeeder::class,
             PartTypeSeeder::class,
+            ProductOptionSeeder::class,
             VehicleCatalogSeeder::class,
             ProductSeeder::class,
         ]);
