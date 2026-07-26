@@ -7,6 +7,8 @@ use App\Jobs\CatalogImportChunkJob;
 use App\Jobs\CatalogImportStartJob;
 use App\Models\ImportLog;
 use App\Models\ImportRun;
+use App\Services\Import\ImportProgress;
+use App\Services\Import\ImportProgressService;
 use App\Services\ImportLogger;
 use App\Services\ImportRunReportExporter;
 use App\Services\ImportStatusService;
@@ -33,7 +35,7 @@ class CatalogImportPage extends Page implements HasTable
     use InteractsWithTable;
     use WithFileUploads;
 
-    protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-arrow-up-tray';
+    protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-arrow-up-tray';
 
     protected string $view = 'filament.pages.catalog-import';
 
@@ -48,6 +50,8 @@ class CatalogImportPage extends Page implements HasTable
     public int $chunkSize = 300;
 
     public bool $startAfterUpload = true;
+
+    public bool $uploadInProgress = false;
 
     public static function getNavigationGroup(): ?string
     {
@@ -107,13 +111,13 @@ class CatalogImportPage extends Page implements HasTable
                     ->label('Статус')
                     ->badge()
                     ->color(fn (ImportRunStatus|string|null $state): string => $state instanceof ImportRunStatus ? $state->color() : 'gray')
-                    ->formatStateUsing(fn (ImportRunStatus|string|null $state): string => $state instanceof ImportRunStatus ? $state->label() : (string) $state)
+                    ->formatStateUsing(fn (ImportRunStatus|string|null $state, ImportRun $record): string => $this->statusLabel($record))
                     ->sortable(),
                 TextColumn::make('created_at')
                     ->label('Создан')
                     ->dateTime('d.m.Y H:i')
                     ->sortable(),
-                                TextColumn::make('rows_progress')
+                TextColumn::make('rows_progress')
                     ->label('Строки')
                     ->state(fn (ImportRun $record): string => $record->processed_rows.' / '.$record->total_rows.' · '.$record->rowsProgressPercent().'%'),
                 TextColumn::make('products_stats')
@@ -157,7 +161,19 @@ class CatalogImportPage extends Page implements HasTable
                     ->modalHeading(fn (ImportRun $record): string => 'Импорт #'.$record->getKey())
                     ->modalContent(fn (ImportRun $record) => view('filament.pages.catalog-import-details', [
                         'run' => $record->refresh(),
-                        'logs' => $this->latestLogs($record, 30),
+                        'problems' => $this->latestProblems($record, 3),
+                    ]))
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('Закрыть'),
+                Action::make('logs')
+                    ->label('Логи')
+                    ->icon('heroicon-o-list-bullet')
+                    ->slideOver()
+                    ->modalWidth('5xl')
+                    ->modalHeading(fn (ImportRun $record): string => 'Логи импорта #'.$record->getKey())
+                    ->modalContent(fn (ImportRun $record) => view('filament.pages.catalog-import-logs', [
+                        'run' => $record,
+                        'logs' => $this->latestLogs($record, 200),
                     ]))
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('Закрыть'),
@@ -170,7 +186,7 @@ class CatalogImportPage extends Page implements HasTable
                     ->label('Пауза')
                     ->icon('heroicon-o-pause')
                     ->color('warning')
-                    ->visible(fn (ImportRun $record): bool => $record->status?->isRowsRunning())
+                    ->visible(fn (ImportRun $record): bool => $record->status?->isActive() && $record->status !== ImportRunStatus::Paused)
                     ->action(fn (ImportRun $record): mixed => $this->pause($record->getKey())),
                 Action::make('resume')
                     ->label('Продолжить')
@@ -202,27 +218,57 @@ class CatalogImportPage extends Page implements HasTable
 
     public function submitImport(): void
     {
-        $this->validate([
-            'file' => ['required', 'file', 'mimes:csv,xlsx', 'max:51200'],
-            'type' => ['required', 'string', 'max:64'],
-            'chunkSize' => ['required', 'integer', 'in:100,300,500'],
-            'startAfterUpload' => ['boolean'],
-        ]);
-
-        $statusService = app(ImportStatusService::class);
-
-        $run = $statusService->createFromUpload($this->file, $this->type, $this->chunkSize);
-        $this->reset('file');
-
-        if ($this->startAfterUpload) {
-            $this->start($run->getKey(), $statusService, false);
+        if ($this->uploadInProgress) {
+            return;
         }
 
-        Notification::make()
-            ->title('Файл загружен')
-            ->body('Создан импорт #'.$run->getKey())
-            ->success()
-            ->send();
+        $this->uploadInProgress = true;
+
+        try {
+            $this->validate(
+                [
+                    'file' => ['required', 'file', 'mimes:csv,xlsx', 'max:51200'],
+                    'type' => ['required', 'string', 'max:64', 'regex:/^[a-z0-9][a-z0-9_-]{0,63}$/'],
+                    'chunkSize' => ['required', 'integer', 'in:100,300,500'],
+                    'startAfterUpload' => ['boolean'],
+                ],
+                [
+                    'file.required' => 'Выберите файл импорта.',
+                    'file.file' => 'Выберите файл импорта.',
+                    'file.mimes' => 'Файл должен быть в формате CSV или XLSX.',
+                    'file.max' => 'Файл импорта слишком большой.',
+                    'type.required' => 'Укажите корректный источник импорта.',
+                    'type.regex' => 'Укажите корректный источник импорта.',
+                    'type.max' => 'Укажите корректный источник импорта.',
+                    'chunkSize.required' => 'Укажите корректный размер чанка.',
+                    'chunkSize.integer' => 'Укажите корректный размер чанка.',
+                    'chunkSize.in' => 'Укажите корректный размер чанка.',
+                ],
+                [
+                    'file' => 'файл импорта',
+                    'type' => 'источник импорта',
+                    'chunkSize' => 'размер чанка',
+                    'startAfterUpload' => 'запуск после загрузки',
+                ],
+            );
+
+            $statusService = app(ImportStatusService::class);
+
+            $run = $statusService->createFromUpload($this->file, $this->type, $this->chunkSize);
+            $this->reset('file');
+
+            if ($this->startAfterUpload) {
+                $this->start($run->getKey(), $statusService, false);
+            }
+
+            Notification::make()
+                ->title('Файл загружен')
+                ->body('Создан импорт #'.$run->getKey())
+                ->success()
+                ->send();
+        } finally {
+            $this->uploadInProgress = false;
+        }
     }
 
     public function start(int $runId, ?ImportStatusService $statusService = null, bool $notify = true): mixed
@@ -261,9 +307,11 @@ class CatalogImportPage extends Page implements HasTable
 
     public function resume(int $runId, ?ImportStatusService $statusService = null): mixed
     {
-        $run = ($statusService ?? app(ImportStatusService::class))->resume(ImportRun::query()->findOrFail($runId));
+        $existingRun = ImportRun::query()->findOrFail($runId);
+        $wasPaused = $existingRun->status === ImportRunStatus::Paused;
+        $run = ($statusService ?? app(ImportStatusService::class))->resume($existingRun);
 
-        if ($run->status?->isRowsRunning()) {
+        if ($wasPaused && $run->status?->isRowsRunning()) {
             CatalogImportChunkJob::dispatch($run->getKey())->onQueue('imports');
         }
 
@@ -335,11 +383,22 @@ class CatalogImportPage extends Page implements HasTable
     /** @return Collection<int, ImportLog> */
     public function latestLogs(ImportRun $run, int $limit = 10): Collection
     {
-        return app(ImportLogger::class)->latest($run, $limit);
+        return app(ImportLogger::class)->latest($run, min(200, max(1, $limit)));
+    }
+
+    /** @return Collection<int, ImportLog> */
+    public function latestProblems(ImportRun $run, int $limit = 3): Collection
+    {
+        return app(ImportLogger::class)->latestProblems($run, min(3, max(1, $limit)));
+    }
+
+    public function progress(ImportRun $run): ImportProgress
+    {
+        return app(ImportProgressService::class)->forRun($run);
     }
 
     public function statusLabel(ImportRun $run): string
     {
-        return $run->status instanceof ImportRunStatus ? $run->status->label() : (string) $run->status;
+        return app(ImportProgressService::class)->statusLabel($run);
     }
 }

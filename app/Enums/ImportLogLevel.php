@@ -11,9 +11,9 @@ enum ImportLogLevel: string
     public function label(): string
     {
         return match ($this) {
-            self::Info => 'Info',
-            self::Warning => 'Warning',
-            self::Error => 'Error',
+            self::Info => 'Информация',
+            self::Warning => 'Предупреждение',
+            self::Error => 'Ошибка',
         };
     }
 

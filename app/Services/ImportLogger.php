@@ -57,4 +57,17 @@ class ImportLogger
             ->reverse()
             ->values();
     }
+
+    /** @return Collection<int, ImportLog> */
+    public function latestProblems(ImportRun $run, int $limit = 3): Collection
+    {
+        return ImportLog::query()
+            ->where('import_run_id', $run->getKey())
+            ->whereIn('level', [ImportLogLevel::Warning->value, ImportLogLevel::Error->value])
+            ->latest('id')
+            ->limit($limit)
+            ->get()
+            ->reverse()
+            ->values();
+    }
 }

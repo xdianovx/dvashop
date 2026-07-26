@@ -22,7 +22,7 @@ class DownloadProductImageJob implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
-    public int $tries = 1;
+    public int $tries = 0;
 
     public int $timeout = 60;
 
@@ -35,6 +35,12 @@ class DownloadProductImageJob implements ShouldQueue
     public function handle(ImportImageDownloader $downloader, ImportLogger $logger, ImportStatusService $statusService): void
     {
         $run = $this->importRun();
+
+        if ($run?->status === ImportRunStatus::Paused) {
+            $this->release(60);
+
+            return;
+        }
 
         if ($run?->status === ImportRunStatus::Canceled || $run?->status === ImportRunStatus::Failed) {
             return;
@@ -66,7 +72,7 @@ class DownloadProductImageJob implements ShouldQueue
     {
         $run = $this->importRun();
 
-        if ($run === null || $run->status === ImportRunStatus::Canceled || $run->status === ImportRunStatus::Failed) {
+        if ($run === null || in_array($run->status, [ImportRunStatus::Paused, ImportRunStatus::Canceled, ImportRunStatus::Failed], true)) {
             return;
         }
 

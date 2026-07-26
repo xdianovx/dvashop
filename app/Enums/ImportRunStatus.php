@@ -20,7 +20,7 @@ enum ImportRunStatus: string
             self::Running => 'Выполняется',
             self::RunningRows => 'Обработка строк',
             self::ProcessingImages => 'Обработка изображений',
-            self::Paused => 'Пауза',
+            self::Paused => 'На паузе',
             self::Failed => 'Ошибка',
             self::Done => 'Завершён',
             self::Canceled => 'Отменён',
