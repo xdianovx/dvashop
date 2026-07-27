@@ -3,9 +3,14 @@
 @section('title', 'Кузовной порог для Alfa Romeo 33 (1990–1994) — 2POROGA')
 
 @php
-    $gallery = ['/img/products/threshold.png', '/img/products/threshold.png', '/img/products/threshold.png', '/img/products/threshold.png'];
+    $gallery = [
+        '/img/products/threshold.png',
+        '/img/products/threshold.png',
+        '/img/products/threshold.png',
+        '/img/products/threshold.png',
+    ];
 
-    $profiles = ['Полный', 'Нижняя часть'];
+    $profiles = ['Стандартный', 'Увеличенный'];
 
     $radioGroups = [
         ['name' => 'position', 'label' => 'Положение:', 'items' => ['Левый', 'Правый', 'Левый + Правый']],
@@ -82,8 +87,8 @@
                 <h1 class="part-buy__title">Кузовной порог для Alfa Romeo 33 (1990–1994)</h1>
                 <p class="part-buy__article">Артикул: 01.AR0033XXXX.ALL.0.00</p>
                 <p class="part-buy__stock">
-                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"
-                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" aria-hidden="true">
                         <circle cx="10" cy="10" r="8.5" />
                         <path d="m6.5 10 2.5 2.5 4.5-5" />
                     </svg>
@@ -95,7 +100,8 @@
                     <span class="part-option-group__label">Профиль:</span>
                     <div class="part-tabs">
                         @foreach ($profiles as $i => $profile)
-                            <button type="button" class="part-tab @if ($i === 0) part-tab--active @endif">
+                            <button type="button"
+                                class="part-tab @if ($i === 0) part-tab--active @endif">
                                 {{ $profile }}
                             </button>
                         @endforeach
@@ -108,7 +114,8 @@
                         <div class="part-radios">
                             @foreach ($group['items'] as $i => $item)
                                 <label class="part-radio">
-                                    <input type="radio" name="{{ $group['name'] }}" @if ($i === 0) checked @endif>
+                                    <input type="radio" name="{{ $group['name'] }}"
+                                        @if ($i === 0) checked @endif>
                                     <span class="part-radio__dot"></span>
                                     <span class="part-radio__label">{{ $item }}</span>
                                 </label>
