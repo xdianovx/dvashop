@@ -17,7 +17,7 @@
         <span class="cart-summary__value">{{ $total }}</span>
     </div>
 
-    <button type="button" class="cart-summary__promo" data-promo-toggle>У меня есть промокод</button>
+    <button type="button" class="cart-summary__promo" data-promo-toggle>У меня есть <span>промокод</span></button>
 
     <div class="cart-summary__actions">
         <button type="button" class="btn btn--primary cart-summary__checkout">Оформить заказ</button>

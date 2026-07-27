@@ -135,7 +135,7 @@
     transition: border-color 0.15s ease;
 }
 
-.pay input:checked + .pay__box {
+.pay input:checked+.pay__box {
     border-color: var(--color-primary);
 }
 
@@ -190,7 +190,7 @@
 .checkout-order__list {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 20px;
     margin-bottom: 24px;
 }
 
@@ -209,6 +209,7 @@
     height: 50px;
     border: 1px solid var(--color-border);
     border-radius: 8px;
+    margin-bottom: auto;
     background-color: #f9fbfa;
 }
 
@@ -313,7 +314,7 @@
     background-color: var(--color-surface);
 }
 
-.checkout-order__agree input:checked + .checkout-order__agree-box {
+.checkout-order__agree input:checked+.checkout-order__agree-box {
     background-color: var(--color-ink);
     box-shadow: inset 0 0 0 4px var(--color-surface), inset 0 0 0 24px var(--color-ink);
 }
