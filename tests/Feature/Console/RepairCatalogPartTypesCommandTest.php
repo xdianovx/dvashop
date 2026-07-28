@@ -33,7 +33,8 @@ test('repair command defaults to dry run and changes no rows', function () {
         ->expectsOutputToContain('Диагностика переноса типов деталей')
         ->expectsOutputToContain('Режим: DRY-RUN')
         ->expectsOutputToContain('Изменения в базе не выполняются.')
-        ->expectsOutputToContain('До следующего этапа интеграции импорта новый Excel-импорт запускать нельзя:')
+        ->expectsOutputToContain('Команда проверяет и ремонтирует только legacy-данные каталога.')
+        ->expectsOutputToContain('Новый импорт использует PartType и канонические ProductCategory.')
         ->assertExitCode(0);
 
     expect(ProductCategory::withTrashed()->get()->map->getAttributes()->all())->toBe($before['categories'])
@@ -70,7 +71,7 @@ test('repair command apply updates products and prints actual counters', functio
         ->expectsOutputToContain('Режим: APPLY')
         ->expectsOutputToContain('Применение repair')
         ->expectsOutputToContain('Repair успешно применён.')
-        ->expectsOutputToContain('Импорт в этом этапе не изменён.')
+        ->expectsOutputToContain('Новый импорт использует PartType и канонические ProductCategory.')
         ->assertExitCode(0);
 
     expect($product->fresh()->part_type_id)->not->toBeNull()

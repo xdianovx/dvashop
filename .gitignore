@@ -26,11 +26,15 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 *.patch
+*.tar.gz
+*.tgz
+*.zip
 *:Zone.Identifier
 
 .env.*
 !.env.example
 !.env.docker.example
+!.env.testing.example
 .env.local.bak
 
 /bootstrap/cache/*.php
