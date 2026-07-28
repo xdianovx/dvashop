@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\Import\ImportFileInspector;
+use App\Support\ProjectCleanTreeInspector;
 use Illuminate\Support\Facades\Artisan;
 use Symfony\Component\Process\Process;
 
@@ -54,8 +55,7 @@ Artisan::command('import:inspect-file {path : Путь к csv/xlsx файлу}',
     return 0;
 })->purpose('Inspect catalog import file without writing to database');
 
-
-Artisan::command('project:check-clean-tree {--strict : Also check physical local files before manual clean packaging}', function (): int {
+Artisan::command('project:check-clean-tree {--strict : Also check physical local files before manual clean packaging}', function (ProjectCleanTreeInspector $inspector): int {
     $root = base_path();
     $errors = [];
 
@@ -86,30 +86,7 @@ Artisan::command('project:check-clean-tree {--strict : Also check physical local
             $errors[] = 'Не удалось получить список tracked-файлов git: '.$process->getErrorOutput();
         } else {
             $trackedFiles = array_values(array_filter(explode("\0", $process->getOutput())));
-            $forbiddenTracked = [];
-
-            foreach ($trackedFiles as $path) {
-                $isEnvExample = in_array($path, ['.env.example', '.env.docker.example'], true);
-
-                if ($path === '.env'
-                    || ($path !== '.env.example' && $path !== '.env.docker.example' && str_starts_with($path, '.env.'))
-                    || $path === '.env.local.bak'
-                    || $path === 'public/storage'
-                    || str_starts_with($path, 'public/storage/')
-                    || $path === 'public/hot'
-                    || str_starts_with($path, 'public/hot/')
-                    || preg_match('#^bootstrap/cache/.+\.php$#', $path)
-                    || preg_match('#(^|/)vendor/#', $path)
-                    || preg_match('#(^|/)node_modules/#', $path)
-                    || str_ends_with($path, '.patch')
-                    || str_ends_with($path, ':Zone.Identifier')) {
-                    if (! $isEnvExample) {
-                        $forbiddenTracked[] = $path;
-                    }
-                }
-            }
-
-            foreach ($forbiddenTracked as $path) {
+            foreach ($inspector->forbiddenTrackedFiles($trackedFiles) as $path) {
                 $errors[] = 'Запрещённый tracked-файл: '.$path;
             }
         }
@@ -118,34 +95,7 @@ Artisan::command('project:check-clean-tree {--strict : Also check physical local
     }
 
     if ((bool) $this->option('strict')) {
-        $forbiddenLocalPaths = [
-            '.env',
-            '.env.local.bak',
-            'public/hot',
-            'public/storage',
-            'bootstrap/cache/packages.php',
-            'bootstrap/cache/services.php',
-            'bootstrap/cache/config.php',
-            'bootstrap/cache/events.php',
-        ];
-
-        foreach ($forbiddenLocalPaths as $path) {
-            if (file_exists($root.DIRECTORY_SEPARATOR.$path) || is_link($root.DIRECTORY_SEPARATOR.$path)) {
-                $errors[] = 'Запрещённый локальный файл/ссылка для strict clean tree: '.$path;
-            }
-        }
-
-        foreach (glob($root.DIRECTORY_SEPARATOR.'bootstrap/cache/routes*.php') ?: [] as $path) {
-            $errors[] = 'Запрещённый generated route cache: '.str_replace($root.DIRECTORY_SEPARATOR, '', $path);
-        }
-
-        foreach (glob($root.DIRECTORY_SEPARATOR.'*.patch') ?: [] as $path) {
-            $errors[] = 'Patch-файл в корне проекта: '.basename($path);
-        }
-
-        foreach (glob($root.DIRECTORY_SEPARATOR.'*:Zone.Identifier') ?: [] as $path) {
-            $errors[] = 'Zone.Identifier в корне проекта: '.basename($path);
-        }
+        array_push($errors, ...$inspector->strictLocalViolations($root));
     }
 
     if ($errors !== []) {

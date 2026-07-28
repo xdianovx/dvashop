@@ -20,12 +20,12 @@ Laravel 13 Blade-монолит для интернет-магазина авт�
 `docker-compose.yml` поднимает:
 
 - `app` — PHP-FPM 8.4, Laravel-приложение;
-- `nginx` — web-сервер, порт по умолчанию `8080`;
+- `nginx` — web-сервер; Compose fallback — `8080`, а `.env.docker.example` использует менее конфликтный `8088`;
 - `mysql` — MySQL 8.4, порт хоста по умолчанию `33066`;
 - `redis` — Redis 7, порт хоста по умолчанию `63790`;
 - `queue` — `php artisan queue:work`;
 - `scheduler` — `php artisan schedule:run` каждую минуту;
-- `node` — Vite dev-server, порт по умолчанию `5173`;
+- `node` — Vite dev-server, порт по умолчанию `5173`, запускается только через профиль `frontend`;
 - `mailpit` — локальная почта, web-интерфейс `8025`;
 - `adminer` — web-интерфейс к БД, порт `8081`.
 
@@ -39,6 +39,8 @@ Laravel 13 Blade-монолит для интернет-магазина авт�
 cp .env.docker.example .env
 ```
 
+Пример использует `APP_PORT=8088`, чтобы не конфликтовать с другими локальными проектами на `8080`. При необходимости выбери свободный порт в своём `.env`; Compose fallback остаётся `8080`.
+
 Перед миграциями поменяй в `.env` данные первого администратора:
 
 ```dotenv
@@ -51,6 +53,18 @@ ADMIN_PASSWORD=change-me
 
 ```bash
 docker compose up -d --build
+```
+
+Обычный запуск поднимает backend-сервисы без Vite и не создаёт `public/hot`. Для frontend-разработки запусти профиль явно:
+
+```bash
+docker compose --profile frontend up -d node
+```
+
+После остановки Vite файл `public/hot` удаляется автоматически:
+
+```bash
+docker compose --profile frontend stop node
 ```
 
 Установка PHP-зависимостей:
@@ -86,14 +100,14 @@ docker compose exec app php artisan migrate --seed
 Сборка фронтенда:
 
 ```bash
-docker compose run --rm node npm install
-docker compose run --rm node npm run build
+docker compose --profile frontend run --rm node npm install
+docker compose --profile frontend run --rm node npm run build
 ```
 
-Dev-режим Vite уже запускается сервисом `node`. Если нужно запустить вручную:
+Одноразовый интерактивный запуск Vite:
 
 ```bash
-docker compose run --rm --service-ports node npm run dev -- --host 0.0.0.0
+docker compose --profile frontend run --rm --service-ports node npm run dev -- --host 0.0.0.0
 ```
 
 Тесты:
@@ -140,8 +154,8 @@ npm run dev
 ## Проверка после запуска
 
 ```bash
-curl -I http://localhost:8080/
-curl -I http://localhost:8080/admin
+curl -I http://localhost:8088/
+curl -I http://localhost:8088/admin
 ```
 
 Ожидаемо:
@@ -317,13 +331,14 @@ php artisan project:check-clean-tree --strict
 
 Перед созданием clean-архива нельзя передавать:
 
-- `.env`, `.env.*`, кроме `.env.example` и `.env.docker.example`;
+- `.env`, `.env.*`, кроме `.env.example`, `.env.docker.example` и `.env.testing.example`;
 - `public/storage`;
 - `public/hot`;
 - `bootstrap/cache/*.php`;
 - `vendor`;
 - `node_modules`;
 - `*.patch`;
+- `*.tar.gz`, `*.tgz`, `*.zip`;
 - `*:Zone.Identifier`;
 - реальные файлы внутри `storage/app/imports`, `storage/app/public`, `storage/logs`, `storage/framework/cache`, `storage/framework/sessions`, `storage/framework/views`.
 
@@ -333,14 +348,37 @@ php artisan project:check-clean-tree --strict
 scripts/make-clean-archive.sh ../dvashop_clean_$(date +%Y%m%d_%H%M%S).tar.gz
 ```
 
-Скрипт использует `git archive`, проверяет hygiene через `project:check-clean-tree`, затем дополнительно проверяет содержимое созданного архива. `.env.example`, `.env.docker.example`, `storage/**/.gitignore` и `bootstrap/cache/.gitignore` остаются в архиве.
+Скрипт использует `git archive`, проверяет hygiene через `project:check-clean-tree`, затем дополнительно проверяет содержимое созданного архива. `.env.example`, `.env.docker.example`, `.env.testing.example`, `storage/**/.gitignore` и `bootstrap/cache/.gitignore` остаются в архиве.
+
+## Изолированная проверка миграций и сидеров
+
+`php artisan test` уже использует SQLite `:memory:` через `phpunit.xml`. Для отдельного запуска `migrate:fresh --seed` подготовлен безопасный файловый SQLite-конфиг:
+
+```bash
+cp .env.testing.example .env.testing
+docker compose exec app sh -lc 'touch /tmp/dvashop_testing.sqlite && chmod 600 /tmp/dvashop_testing.sqlite'
+docker compose exec \
+  -e APP_ENV=testing \
+  -e DB_CONNECTION=sqlite \
+  -e DB_DATABASE=/tmp/dvashop_testing.sqlite \
+  -e DB_URL= \
+  -e CACHE_STORE=array \
+  -e QUEUE_CONNECTION=sync \
+  -e MAIL_MAILER=array \
+  -e SESSION_DRIVER=array \
+  app php artisan migrate:fresh --seed --env=testing --force
+```
+
+Явные `-e` нужны в Docker, потому что Compose передаёт значения рабочего `.env` контейнеру. Они гарантируют, что destructive-команда работает только с `/tmp/dvashop_testing.sqlite`, а не с dev MySQL. Реальный `.env.testing` игнорируется Git и не должен коммититься.
 
 ## Базовые проверки перед реальным импортом
 
 ```bash
 composer validate
 php artisan optimize:clear
-php artisan migrate:fresh --seed
+php artisan migrate --seed
 php artisan test
 npm run build
 ```
+
+Для destructive-проверки с нуля используй только изолированный SQLite-сценарий из раздела выше.

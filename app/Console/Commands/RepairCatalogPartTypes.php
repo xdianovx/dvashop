@@ -57,9 +57,8 @@ class RepairCatalogPartTypes extends Command
             return self::FAILURE;
         } finally {
             $this->newLine();
-            $this->warn('Импорт в этом этапе не изменён.');
-            $this->warn('До следующего этапа интеграции импорта новый Excel-импорт запускать нельзя:');
-            $this->warn('старая реализация импорта снова создаст технические ProductCategory.');
+            $this->line('Команда проверяет и ремонтирует только legacy-данные каталога.');
+            $this->line('Новый импорт использует PartType и канонические ProductCategory.');
         }
     }
 
