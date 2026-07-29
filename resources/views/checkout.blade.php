@@ -4,15 +4,31 @@
 
 @php
     $payments = [
-        ['value' => 'card', 'icon' => '💳', 'title' => 'Банковская карта', 'desc' => 'онлайн после подтверждения', 'checked' => true],
+        [
+            'value' => 'card',
+            'icon' => '💳',
+            'title' => 'Банковская карта',
+            'desc' => 'онлайн после подтверждения',
+            'checked' => true,
+        ],
         ['value' => 'sbp', 'icon' => '⚡', 'title' => 'СБП', 'desc' => 'Перевод по QR или ссылке'],
         ['value' => 'invoice', 'icon' => '📄', 'title' => 'Счёт для юрлиц', 'desc' => 'С НДС'],
         ['value' => 'cash', 'icon' => '🤝', 'title' => 'При получении', 'desc' => 'курьеру / на складе'],
     ];
 
     $order = [
-        ['name' => 'Кузовной порог для Alfa Romeo 33 (1990–1994)', 'opts' => 'Оцинковка · 1 мм · правый', 'qty' => '2 шт. × 1 750 руб.', 'sum' => '3 500 руб.'],
-        ['name' => 'Арка для Alfa Romeo 33 (1990–1994)', 'opts' => 'Оцинковка · 1 мм · правый', 'qty' => '1 шт. × 1 750 руб.', 'sum' => '1 750 руб.'],
+        [
+            'name' => 'Кузовной порог для Alfa Romeo 33 (1990–1994)',
+            'opts' => 'Оцинковка · 1 мм · правый',
+            'qty' => '2 шт. × 1 750 руб.',
+            'sum' => '3 500 руб.',
+        ],
+        [
+            'name' => 'Арка для Alfa Romeo 33 (1990–1994)',
+            'opts' => 'Оцинковка · 1 мм · правый',
+            'qty' => '1 шт. × 1 750 руб.',
+            'sum' => '1 750 руб.',
+        ],
     ];
 @endphp
 
@@ -34,7 +50,8 @@
                         <span class="checkout-card__step">Шаг 1</span>
                     </header>
                     <form class="checkout-form">
-                        <x-form-field class="checkout-form__full" label="ФИО" name="name" placeholder="Иван" :required="true" />
+                        <x-form-field class="checkout-form__full" label="ФИО" name="name"
+                            placeholder="Иванов Иван Иванович" :required="true" />
                         <x-form-field label="Телефон" name="phone" placeholder="+7 (___) ___‑__‑__" :required="true" />
                         <x-form-field label="Email" name="email" placeholder="mail@yandex.ru" />
                         <x-form-field label="Город" name="city" placeholder="Москва" :required="true" />
@@ -51,8 +68,8 @@
                     </header>
                     <div class="checkout-payments">
                         @foreach ($payments as $p)
-                            <x-payment-method :value="$p['value']" :icon="$p['icon']" :title="$p['title']"
-                                :desc="$p['desc']" :checked="$p['checked'] ?? false" />
+                            <x-payment-method :value="$p['value']" :icon="$p['icon']" :title="$p['title']" :desc="$p['desc']"
+                                :checked="$p['checked'] ?? false" />
                         @endforeach
                     </div>
                 </section>
