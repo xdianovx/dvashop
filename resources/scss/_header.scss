@@ -1,6 +1,6 @@
 // Top utility bar (scrolls away)
 .header__top {
-    padding-block: 32px;
+    padding-block: 25px;
 
     @media (max-width: 900px) {
         display: none;
@@ -32,7 +32,7 @@
 
 .header__util-link {
     font-size: var(--fs-base);
-    color: var(--color-muted);
+
 }
 
 .header__util-link:hover {
@@ -86,7 +86,7 @@
 }
 
 .header__nav-link {
-    font-weight: var(--fw-bold);
+
     font-size: var(--fs-lg);
     color: var(--color-ink);
 }
