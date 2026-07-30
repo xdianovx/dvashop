@@ -20,8 +20,13 @@ $color-muted-2: #9c9c9c; // footer muted text
 $color-on-dark: #ffffff; // text on dark/colored backgrounds
 $color-on-primary: #ebebeb; // text on the blue button
 $color-header-bg: rgba(255, 255, 255, 0.62); // sticky menu backdrop
+$color-surface-glass: rgba(255, 255, 255, 0.82); // frosted cards on mobile
+$color-border-glass: rgba(221, 227, 236, 0.92); // hairline on frosted cards
+$color-danger: #f40b0b; // required-field marker, destructive actions
 
 $gradient-company: linear-gradient(179deg, #1750b7 1.36%, #022253 122.71%);
+
+$shadow-card: 0 14px 32px rgba(17, 24, 39, 0.06); // frosted cards on mobile
 
 // ── Typography ──────────────────────────────────────────────
 $font-display: 'Montserrat', system-ui, sans-serif; // headings, banner buttons
@@ -88,7 +93,11 @@ $header-height: 65px;
     --color-on-dark: #{$color-on-dark};
     --color-on-primary: #{$color-on-primary};
     --color-header-bg: #{$color-header-bg};
+    --color-surface-glass: #{$color-surface-glass};
+    --color-border-glass: #{$color-border-glass};
+    --color-danger: #{$color-danger};
     --gradient-company: #{$gradient-company};
+    --shadow-card: #{$shadow-card};
 
     --font-display: #{$font-display};
     --font-body: #{$font-body};
