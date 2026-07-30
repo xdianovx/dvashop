@@ -30,8 +30,15 @@
     display: none;
 }
 
+// Rows here are never full, so cards keep the design's own 228px width instead
+// of being stretched to a sixth of the container like on the brand page.
 .model-page__grid {
+    grid-template-columns: repeat(auto-fill, 228px);
     margin-top: 20px;
+}
+
+.model-page__grid--other {
+    margin-top: 36px;
 }
 
 @media (max-width: 768px) {
@@ -72,7 +79,9 @@
         display: inline;
     }
 
-    .model-page__grid {
+    .model-page__grid,
+    .model-page__grid--other {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         margin-top: 10px;
     }
 }

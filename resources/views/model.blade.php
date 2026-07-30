@@ -38,7 +38,7 @@
             @endforeach
 
             <h2 class="model-page__title model-page__title--other">Другие модели <span>Alfa Romeo</span></h2>
-            <ul class="model-grid model-page__grid">
+            <ul class="model-grid model-page__grid model-page__grid--other">
                 @foreach ($otherModels as $model)
                     <li>
                         <x-model-card :href="route('catalog.model')" :name="$model['name']" :sub="$model['sub']" variant="other" />
