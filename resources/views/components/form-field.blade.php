@@ -9,7 +9,7 @@
 
 <label class="field {{ $attributes->get('class') }}">
     <span class="field__label">
-        {{ $label }}@if ($required)<span class="field__req">*</span>@endif
+        {{ $label }}@if ($required) <span class="field__req">*</span>@endif
     </span>
     @if ($textarea)
         <textarea class="field__input field__input--area" name="{{ $name }}" placeholder="{{ $placeholder }}"></textarea>

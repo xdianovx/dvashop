@@ -3,6 +3,26 @@
 @section('title', 'Оформление заказа — 2POROGA')
 
 @php
+    $shipping = [
+        [
+            'value' => 'cdek',
+            'image' => '/img/checkout/cdek.svg',
+            'imageWidth' => 75,
+            'imageHeight' => 21,
+            'title' => 'Пункт выдачи СДЕК',
+            'desc' => 'Наш менеджер подберёт ближайший пункт выдачи',
+            'checked' => true,
+        ],
+        [
+            'value' => 'pickup',
+            'image' => '/img/checkout/pickup.svg',
+            'imageWidth' => 39,
+            'imageHeight' => 38,
+            'title' => 'Самовывоз',
+            'desc' => 'Если вы из Санкт-Петербурга',
+        ],
+    ];
+
     $payments = [
         [
             'value' => 'card',
@@ -13,7 +33,7 @@
         ],
         ['value' => 'sbp', 'icon' => '⚡', 'title' => 'СБП', 'desc' => 'Перевод по QR или ссылке'],
         ['value' => 'invoice', 'icon' => '📄', 'title' => 'Счёт для юрлиц', 'desc' => 'С НДС'],
-        ['value' => 'cash', 'icon' => '🤝', 'title' => 'При получении', 'desc' => 'курьеру / на складе'],
+        ['value' => 'cash', 'icon' => '🤝', 'title' => 'При получении', 'desc' => 'курьеру / в пункте выдачи'],
     ];
 
     $order = [
@@ -50,12 +70,12 @@
                         <span class="checkout-card__step">Шаг 1</span>
                     </header>
                     <form class="checkout-form">
-                        <x-form-field class="checkout-form__full" label="ФИО" name="name"
-                            placeholder="Иванов Иван Иванович" :required="true" />
+                        <x-form-field class="checkout-form__full" label="ФИО" name="name" placeholder="Иван"
+                            :required="true" />
                         <x-form-field label="Телефон" name="phone" placeholder="+7 (___) ___‑__‑__" :required="true" />
                         <x-form-field label="Email" name="email" placeholder="mail@yandex.ru" />
-                        <x-form-field label="Город" name="city" placeholder="Москва" :required="true" />
-                        <x-form-field label="Адрес" name="address" placeholder="Улица, дом, квартира" :required="true" />
+                        <x-form-field class="checkout-form__full" label="Город" name="city" placeholder="Москва"
+                            :required="true" />
                         <x-form-field class="checkout-form__full" label="Комментарий к заказу" name="comment"
                             placeholder="Текст...." :textarea="true" />
                     </form>
@@ -63,8 +83,22 @@
 
                 <section class="checkout-card">
                     <header class="checkout-card__head">
-                        <h2 class="checkout-card__title">Оплата</h2>
+                        <h2 class="checkout-card__title">Выбор способа получения</h2>
                         <span class="checkout-card__step">Шаг 2</span>
+                    </header>
+                    <div class="checkout-shipping">
+                        @foreach ($shipping as $s)
+                            <x-delivery-method :value="$s['value']" :image="$s['image']" :image-width="$s['imageWidth']"
+                                :image-height="$s['imageHeight']" :title="$s['title']" :desc="$s['desc']"
+                                :checked="$s['checked'] ?? false" />
+                        @endforeach
+                    </div>
+                </section>
+
+                <section class="checkout-card">
+                    <header class="checkout-card__head">
+                        <h2 class="checkout-card__title">Оплата</h2>
+                        <span class="checkout-card__step">Шаг 3</span>
                     </header>
                     <div class="checkout-payments">
                         @foreach ($payments as $p)
