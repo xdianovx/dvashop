@@ -117,6 +117,10 @@
 .checkout-payments {
     display: grid;
     grid-template-columns: 1fr 1fr;
+
+    @media (max-width: 1280px) {
+        grid-template-columns: 1fr;
+    }
 }
 
 .checkout-shipping {
@@ -403,35 +407,224 @@
     }
 }
 
+// Mobile follows the PHONE frame (node 3038:833, 320px board, 290px content).
 @media (max-width: 768px) {
     .checkout-title {
-        font-size: 24px;
-        margin-bottom: 24px;
+        margin-bottom: 20px;
+        font-size: 22px;
+        line-height: 25px;
+        letter-spacing: 0.22px;
+        color: var(--color-primary-dark);
+    }
+
+    .checkout-layout {
+        gap: 24px;
+    }
+
+    .checkout-main {
+        gap: 10px;
     }
 
     .checkout-card {
-        padding: 20px;
+        padding: 14px 14px 16px;
+        border-color: var(--color-border-glass);
+        border-radius: 16px;
+        background-color: var(--color-surface-glass);
+        box-shadow: var(--shadow-card);
+    }
+
+    .checkout-card__head {
+        padding-bottom: 0;
+        border-bottom: none;
+    }
+
+    // The PHONE frame hand-sizes each heading box, so the gap below the head
+    // differs per card: 10px (data), 14px (shipping), 15px (payment).
+    .checkout-main .checkout-card:nth-of-type(1) .checkout-card__head {
+        margin-bottom: 6.16px;
+    }
+
+    .checkout-main .checkout-card:nth-of-type(2) .checkout-card__head {
+        margin-bottom: 14px;
+    }
+
+    .checkout-main .checkout-card:nth-of-type(3) .checkout-card__head {
+        margin-bottom: 15px;
     }
 
     .checkout-card__title {
+        min-height: 34px;
+        padding: 0;
         font-size: 20px;
+        line-height: 25px;
+        color: var(--color-ink);
     }
 
+    .checkout-card__step {
+        font-weight: var(--fw-regular);
+        line-height: normal;
+        letter-spacing: 0;
+        text-transform: lowercase;
+        color: var(--color-primary);
+    }
+
+    // ── Form ────────────────────────────────────────────
     .checkout-form,
     .checkout-shipping,
     .checkout-payments {
         grid-template-columns: 1fr;
     }
 
-    .checkout-order__submit {
-        width: 100%;
+    .checkout-form {
+        gap: 7.16px;
+    }
+
+    .field {
+        gap: 4.16px;
+    }
+
+    .field__label {
+        font-size: 12px;
+    }
+
+    .field__req {
+        color: var(--color-danger);
+    }
+
+    .field__input {
+        height: 44px;
+        padding: 0 12px;
+        border-radius: 14px;
+        font-size: 10px;
+        line-height: 20px;
+    }
+
+    .field__input--area {
+        height: 74px;
+        min-height: 74px;
+        padding: 9px 15px;
+    }
+
+    // ── Shipping / payment tiles ────────────────────────
+    .checkout-shipping {
+        gap: 5px;
+    }
+
+    .checkout-payments {
+        gap: 4px;
+    }
+
+    .ship__box,
+    .pay__box {
+        height: 68px;
+        padding: 0 15px;
+        gap: 7px;
+        border-radius: 12px;
+    }
+
+    .ship__logo,
+    .pay__icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+    }
+
+    .ship__logo img {
+        width: auto;
+        height: auto;
+        max-width: 30px;
+        max-height: 19px;
+    }
+
+    .ship__text,
+    .pay__text {
+        gap: 6px;
+    }
+
+    .ship__title,
+    .pay__title {
+        font-size: 12px;
+        line-height: 1;
+    }
+
+    .ship__desc,
+    .pay__desc {
+        font-size: 10px;
+    }
+
+    // ── Order summary ───────────────────────────────────
+    .checkout-order {
+        padding: 17px 12px 23px 19px;
+        border: 0.7px solid var(--color-ink);
+        border-radius: 12px;
+        box-shadow: none;
     }
 
     .checkout-order__title {
-        font-size: 20px;
+        margin-bottom: 10px;
+        font-size: 22px;
+        line-height: 37.8px;
+        color: var(--color-ink);
+    }
+
+    // The PHONE frame drops the item list from the summary card.
+    .checkout-order__list {
+        display: none;
+    }
+
+    .checkout-order__row {
+        height: 20.22px;
+        padding: 0;
+        margin-bottom: 10px;
+        font-size: 12px;
+        line-height: normal;
+    }
+
+    .checkout-order__value {
+        font-weight: var(--fw-regular);
+        font-size: 16px;
+        color: var(--color-muted);
+    }
+
+    .checkout-order__total {
+        height: 65px;
+        padding-top: 37.5px;
+        font-size: 16px;
+        line-height: normal;
+        color: var(--color-ink);
     }
 
     .checkout-order__total-value {
-        font-size: 24px;
+        font-weight: var(--fw-bold);
+        font-size: 20px;
+        letter-spacing: -0.6px;
+    }
+
+    .checkout-order__submit {
+        width: 206px;
+        height: 37px;
+        margin: 20.8px auto 0;
+        border-radius: 38px;
+        font-size: 12px;
+        background-image: linear-gradient(to top, var(--color-primary-dark) 74.32%, var(--color-primary));
+    }
+
+    .checkout-order__agree {
+        max-width: none;
+        margin-top: 16px;
+    }
+
+    .checkout-order__agree-box {
+        border-color: var(--color-primary);
+    }
+
+    .checkout-order__agree input:checked+.checkout-order__agree-box {
+        background-color: var(--color-primary);
+        box-shadow: inset 0 0 0 4px var(--color-surface), inset 0 0 0 24px var(--color-primary);
+    }
+
+    .checkout-order__agree-text {
+        font-size: 10px;
+        line-height: 1.2;
     }
 }
