@@ -1,0 +1,201 @@
+// 404 page — desktop node 3040:1468, mobile node 3040:1616.
+// Vertical offsets are measured from the illustration, which starts 60px above
+// its frame in the design.
+.error-page {
+    margin-top: 12px;
+    padding-bottom: 63px;
+}
+
+// The shared footer keeps a 64px top margin; the design butts it straight
+// against this page's own bottom padding.
+main:has(.error-page)+.footer {
+    margin-top: 0;
+}
+
+.error-page__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 714px;
+    align-items: start;
+    gap: 21px;
+}
+
+.error-page__art {
+    position: relative;
+    aspect-ratio: 1484 / 1060;
+}
+
+.error-page__art-layer {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.error-page__art-layer--shadow {
+    position: absolute;
+    inset: 0;
+    mix-blend-mode: multiply;
+}
+
+.error-page__content {
+    margin-top: 74px;
+}
+
+.error-page__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 182px;
+    height: 41px;
+    border: 1px solid #af6a6b;
+    border-radius: 58px;
+    background-color: rgba(255, 255, 255, 0.59);
+    font-family: var(--font-body);
+    font-size: 18px;
+    line-height: 1;
+    color: var(--color-primary-dark);
+}
+
+.error-page__title {
+    margin-top: 14px;
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    font-size: 54px;
+    line-height: 1.2;
+    color: var(--color-primary-dark);
+}
+
+.error-page__text {
+    max-width: 629px;
+    margin-top: 11px;
+    font-family: var(--font-body);
+    font-size: 20px;
+    line-height: 1.4;
+    color: var(--color-primary-dark);
+}
+
+.error-page__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-top: 74px;
+}
+
+.error-page__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 347px;
+    height: 68px;
+    font-family: var(--font-body);
+    font-size: 20px;
+    line-height: 1;
+    text-align: center;
+    transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.error-page__btn--primary {
+    border-radius: 48px;
+    background-image: linear-gradient(-82.82deg, #1750b7 15%, #022253 143.53%);
+    color: var(--color-on-dark);
+}
+
+.error-page__btn--primary:hover {
+    opacity: 0.92;
+}
+
+.error-page__btn--outline {
+    border: 1.5px solid var(--color-primary-dark);
+    border-radius: 53px;
+    color: var(--color-primary-dark);
+}
+
+.error-page__btn--outline:hover {
+    background-color: var(--color-primary-dark);
+    color: var(--color-on-dark);
+}
+
+@media (max-width: 1024px) {
+    .error-page__body {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .error-page__content {
+        margin-top: 24px;
+    }
+}
+
+// Mobile stacks everything centred, with the illustration between the copy and
+// the buttons — hence display: contents on the content wrapper.
+@media (max-width: 768px) {
+    .error-page {
+        margin-top: 23px;
+        padding-bottom: 25px;
+    }
+
+    .error-page__body {
+        justify-items: center;
+        gap: 0;
+    }
+
+    .error-page__content {
+        display: contents;
+    }
+
+    .error-page__badge {
+        order: 1;
+        width: 94px;
+        height: 20px;
+        border-radius: 20px;
+        font-size: 10px;
+    }
+
+    .error-page__title {
+        order: 2;
+        margin-top: 8px;
+        font-weight: var(--fw-bold);
+        font-size: 16px;
+        line-height: 1;
+        letter-spacing: 0.16px;
+        text-align: center;
+        text-transform: uppercase;
+    }
+
+    .error-page__text {
+        order: 3;
+        width: 253px;
+        max-width: 100%;
+        margin-top: 4px;
+        font-size: 8px;
+        text-align: center;
+        color: var(--color-text);
+    }
+
+    .error-page__art {
+        order: 4;
+        width: 234px;
+        margin-top: 9px;
+        aspect-ratio: 234 / 129;
+    }
+
+    .error-page__actions {
+        order: 5;
+        flex-direction: column;
+        gap: 5px;
+        margin-top: 23px;
+    }
+
+    .error-page__btn {
+        width: 181px;
+        height: 34px;
+        font-size: 12px;
+    }
+
+    .error-page__btn--primary,
+    .error-page__btn--outline {
+        border: none;
+        border-radius: 30px;
+        background-image: linear-gradient(to bottom, var(--color-primary), var(--color-primary-dark));
+        color: var(--color-on-dark);
+    }
+}
