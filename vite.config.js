@@ -1,11 +1,16 @@
 import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
 import { bunny } from 'laravel-vite-plugin/fonts';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
     plugins: [
         laravel({
-            input: ['resources/scss/app.scss', 'resources/js/app.js'],
+            input: [
+                'resources/scss/app.scss',
+                'resources/js/app.js',
+                'resources/css/filament/admin/theme.css',
+            ],
             refresh: [
                 'resources/views/**',
                 'resources/css/**',
@@ -17,6 +22,7 @@ export default defineConfig({
                 bunny('Golos Text', { weights: [400, 500, 600] }),
             ],
         }),
+        tailwindcss(),
     ],
     server: {
         host: '0.0.0.0',
