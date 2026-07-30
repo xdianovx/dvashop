@@ -70,8 +70,8 @@
                         <span class="checkout-card__step">Шаг 1</span>
                     </header>
                     <form class="checkout-form">
-                        <x-form-field class="checkout-form__full" label="ФИО" name="name" placeholder="Иван"
-                            :required="true" />
+                        <x-form-field class="checkout-form__full" label="ФИО" name="name"
+                            placeholder="Иванов Иван Иванович" :required="true" />
                         <x-form-field label="Телефон" name="phone" placeholder="+7 (___) ___‑__‑__" :required="true" />
                         <x-form-field label="Email" name="email" placeholder="mail@yandex.ru" />
                         <x-form-field class="checkout-form__full" label="Город" name="city" placeholder="Москва"
