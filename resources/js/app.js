@@ -94,48 +94,49 @@ document.querySelectorAll('[data-burger]').forEach((burger) => {
 
 // Catalog sidebar.
 // Tablet (≤1200px): "Свернуть/Развернуть" collapses the list inline.
-// Mobile (≤768px): the sidebar is a popup — trigger opens it, "Свернуть"
-// and a backdrop click close it.
+// Mobile (≤768px): the sidebar is a dropdown under the trigger — the trigger
+// toggles it, clicking outside or Esc closes it.
 const isMobile = window.matchMedia('(max-width: 768px)');
 
 document.querySelectorAll('[data-catalog-nav]').forEach((nav) => {
     const toggle = nav.querySelector('[data-catalog-toggle]');
+    const triggers = [...document.querySelectorAll('[data-catalog-open]')];
 
-    const openPopup = () => {
-        nav.setAttribute('data-open', '');
-        document.body.classList.add('is-scroll-locked');
+    const setDropdown = (open) => {
+        nav.toggleAttribute('data-open', open);
+        triggers.forEach((btn) => btn.setAttribute('aria-expanded', String(open)));
     };
 
-    const closePopup = () => {
-        nav.removeAttribute('data-open');
-        document.body.classList.remove('is-scroll-locked');
-    };
+    const closeDropdown = () => setDropdown(false);
 
-    document.querySelectorAll('[data-catalog-open]').forEach((btn) => {
-        btn.addEventListener('click', openPopup);
+    triggers.forEach((btn) => {
+        btn.addEventListener('click', () => setDropdown(!nav.hasAttribute('data-open')));
     });
 
-    // Backdrop click (outside the panel) closes the popup.
-    nav.addEventListener('click', (event) => {
-        if (event.target === nav) closePopup();
+    // A click anywhere outside the dropdown and its trigger closes it.
+    document.addEventListener('click', (event) => {
+        if (!nav.hasAttribute('data-open')) return;
+        if (nav.contains(event.target)) return;
+        if (triggers.some((btn) => btn.contains(event.target))) return;
+        closeDropdown();
     });
 
-    // Esc closes the popup.
+    // Esc closes the dropdown.
     document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && nav.hasAttribute('data-open')) closePopup();
+        if (event.key === 'Escape' && nav.hasAttribute('data-open')) closeDropdown();
     });
 
-    // Picking a category closes the popup (AJAX load will hook in here later).
+    // Picking a category closes it (AJAX load will hook in here later).
     nav.querySelectorAll('.catalog-nav__link').forEach((link) => {
         link.addEventListener('click', () => {
-            if (isMobile.matches) closePopup();
+            if (isMobile.matches) closeDropdown();
         });
     });
 
     if (toggle) {
         toggle.addEventListener('click', () => {
             if (isMobile.matches) {
-                closePopup();
+                closeDropdown();
                 return;
             }
             const collapsed = nav.toggleAttribute('data-collapsed');

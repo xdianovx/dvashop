@@ -27,10 +27,6 @@ body {
     text-rendering: optimizeLegibility;
 }
 
-body.is-scroll-locked {
-    overflow: hidden;
-}
-
 // Vertical rhythm between page sections.
 :root {
     --section-gap: 120px;
