@@ -14,6 +14,7 @@ use App\Services\ImportRunReportExporter;
 use App\Services\ImportStatusService;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\DatePicker;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -95,40 +96,50 @@ class CatalogImportPage extends Page implements HasTable
             ->query(fn (): Builder => ImportRun::query()->latest('id'))
             ->defaultSort('id', 'desc')
             ->columns([
-                TextColumn::make('id')
-                    ->label('ID')
-                    ->formatStateUsing(fn (int $state): string => '#'.$state)
-                    ->sortable(),
                 TextColumn::make('original_name')
-                    ->label('Файл')
+                    ->label('Импорт')
+                    ->description(fn (ImportRun $record): string => '#'.$record->getKey().' · '.($record->created_at?->format('d.m.Y H:i') ?? 'дата не указана').' · '.$record->type)
+                    ->weight('semibold')
+                    ->size('base')
                     ->searchable()
+                    ->sortable()
                     ->wrap(),
-                TextColumn::make('type')
-                    ->label('Источник')
-                    ->badge()
-                    ->sortable(),
                 TextColumn::make('status')
                     ->label('Статус')
                     ->badge()
                     ->color(fn (ImportRunStatus|string|null $state): string => $state instanceof ImportRunStatus ? $state->color() : 'gray')
                     ->formatStateUsing(fn (ImportRunStatus|string|null $state, ImportRun $record): string => $this->statusLabel($record))
                     ->sortable(),
-                TextColumn::make('created_at')
-                    ->label('Создан')
-                    ->dateTime('d.m.Y H:i')
-                    ->sortable(),
-                TextColumn::make('rows_progress')
-                    ->label('Строки')
-                    ->state(fn (ImportRun $record): string => $record->processed_rows.' / '.$record->total_rows.' · '.$record->rowsProgressPercent().'%'),
-                TextColumn::make('products_stats')
-                    ->label('Товары')
-                    ->state(fn (ImportRun $record): string => '+'.$record->created_products.' / ~'.$record->updated_products.' / архив '.$record->archived_products),
-                TextColumn::make('image_stats')
-                    ->label('Изображения')
-                    ->state(fn (ImportRun $record): string => $record->processed_images.' / '.$record->queued_images.' · ошибок '.$record->failed_images),
-                TextColumn::make('log_stats')
-                    ->label('Ошибки')
-                    ->state(fn (ImportRun $record): string => $record->errors_count.' / предупреждений '.$record->warnings_count),
+                TextColumn::make('progress_summary')
+                    ->label('Прогресс')
+                    ->state(fn (ImportRun $record): array => [
+                        'Строки: '.$record->processed_rows.' / '.$record->total_rows.' · '.$record->rowsProgressPercent().'%',
+                        'Изображения: '.$record->processed_images.' / '.$record->queued_images,
+                    ])
+                    ->listWithLineBreaks()
+                    ->wrap(),
+                TextColumn::make('result_summary')
+                    ->label('Результат')
+                    ->state(fn (ImportRun $record): array => [
+                        'Создано: '.$record->created_products,
+                        'Обновлено: '.$record->updated_products,
+                        'Архивировано: '.$record->archived_products,
+                    ])
+                    ->listWithLineBreaks()
+                    ->wrap(),
+                TextColumn::make('problems_summary')
+                    ->label('Проблемы')
+                    ->state(fn (ImportRun $record): array => [
+                        'Предупреждения: '.$record->warnings_count,
+                        'Ошибки: '.$record->errors_count,
+                    ])
+                    ->color(fn (ImportRun $record): string => match (true) {
+                        $record->errors_count > 0 => 'danger',
+                        $record->warnings_count > 0 => 'warning',
+                        default => 'gray',
+                    })
+                    ->listWithLineBreaks()
+                    ->wrap(),
             ])
             ->filters([
                 SelectFilter::make('status')
@@ -154,10 +165,12 @@ class CatalogImportPage extends Page implements HasTable
                             ->when($data['until'] ?? null, fn (Builder $query, string $date): Builder => $query->whereDate('created_at', '<=', $date));
                     }),
             ])
+            ->recordActionsColumnLabel('Действия')
             ->recordActions([
                 Action::make('details')
                     ->label('Подробности')
                     ->icon('heroicon-o-eye')
+                    ->button()
                     ->modalHeading(fn (ImportRun $record): string => 'Импорт #'.$record->getKey())
                     ->modalContent(fn (ImportRun $record) => view('filament.pages.catalog-import-details', [
                         'run' => $record->refresh(),
@@ -165,55 +178,71 @@ class CatalogImportPage extends Page implements HasTable
                     ]))
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('Закрыть'),
-                Action::make('logs')
-                    ->label('Логи')
-                    ->icon('heroicon-o-list-bullet')
-                    ->slideOver()
-                    ->modalWidth('5xl')
-                    ->modalHeading(fn (ImportRun $record): string => 'Логи импорта #'.$record->getKey())
-                    ->modalContent(fn (ImportRun $record) => view('filament.pages.catalog-import-logs', [
-                        'run' => $record,
-                        'logs' => $this->latestLogs($record, 200),
-                    ]))
-                    ->modalSubmitAction(false)
-                    ->modalCancelActionLabel('Закрыть'),
-                Action::make('start')
-                    ->label('Старт')
-                    ->icon('heroicon-o-play')
-                    ->visible(fn (ImportRun $record): bool => $record->status === ImportRunStatus::Ready)
-                    ->action(fn (ImportRun $record): mixed => $this->start($record->getKey())),
-                Action::make('pause')
-                    ->label('Пауза')
-                    ->icon('heroicon-o-pause')
-                    ->color('warning')
-                    ->visible(fn (ImportRun $record): bool => $record->status?->isActive() && $record->status !== ImportRunStatus::Paused)
-                    ->action(fn (ImportRun $record): mixed => $this->pause($record->getKey())),
-                Action::make('resume')
-                    ->label('Продолжить')
-                    ->icon('heroicon-o-arrow-path')
-                    ->visible(fn (ImportRun $record): bool => $record->status === ImportRunStatus::Paused)
-                    ->action(fn (ImportRun $record): mixed => $this->resume($record->getKey())),
-                Action::make('cancel')
-                    ->label('Отменить')
-                    ->icon('heroicon-o-x-mark')
-                    ->color('danger')
-                    ->requiresConfirmation()
-                    ->visible(fn (ImportRun $record): bool => ! $record->isTerminal())
-                    ->action(fn (ImportRun $record): mixed => $this->cancel($record->getKey())),
-                Action::make('download_original')
-                    ->label('Файл')
-                    ->icon('heroicon-o-arrow-down-tray')
-                    ->action(fn (ImportRun $record): BinaryFileResponse => $this->downloadOriginal($record->getKey())),
-                Action::make('download_logs')
-                    ->label('Логи CSV')
-                    ->icon('heroicon-o-document-arrow-down')
-                    ->action(fn (ImportRun $record): StreamedResponse => $this->downloadLogs($record->getKey())),
-                Action::make('download_report')
-                    ->label('Отчёт CSV')
-                    ->icon('heroicon-o-document-text')
-                    ->action(fn (ImportRun $record): StreamedResponse => $this->downloadReport($record->getKey())),
+                ActionGroup::make([
+                    Action::make('logs')
+                        ->label('Логи')
+                        ->icon('heroicon-o-list-bullet')
+                        ->slideOver()
+                        ->modalWidth('5xl')
+                        ->modalHeading(fn (ImportRun $record): string => 'Логи импорта #'.$record->getKey())
+                        ->modalContent(fn (ImportRun $record) => view('filament.pages.catalog-import-logs', [
+                            'run' => $record,
+                            'logs' => $this->latestLogs($record, 200),
+                        ]))
+                        ->modalSubmitAction(false)
+                        ->modalCancelActionLabel('Закрыть'),
+                    Action::make('start')
+                        ->label('Старт')
+                        ->icon('heroicon-o-play')
+                        ->visible(fn (ImportRun $record): bool => $record->status === ImportRunStatus::Ready)
+                        ->action(fn (ImportRun $record): mixed => $this->start($record->getKey())),
+                    Action::make('pause')
+                        ->label('Пауза')
+                        ->icon('heroicon-o-pause')
+                        ->color('warning')
+                        ->visible(fn (ImportRun $record): bool => $record->status?->isActive() && $record->status !== ImportRunStatus::Paused)
+                        ->action(fn (ImportRun $record): mixed => $this->pause($record->getKey())),
+                    Action::make('resume')
+                        ->label('Продолжить')
+                        ->icon('heroicon-o-arrow-path')
+                        ->visible(fn (ImportRun $record): bool => $record->status === ImportRunStatus::Paused)
+                        ->action(fn (ImportRun $record): mixed => $this->resume($record->getKey())),
+                    Action::make('cancel')
+                        ->label('Отменить')
+                        ->icon('heroicon-o-x-mark')
+                        ->color('danger')
+                        ->requiresConfirmation()
+                        ->modalDescription('Уже внесённые изменения сохранятся.')
+                        ->visible(fn (ImportRun $record): bool => ! $record->isTerminal())
+                        ->action(fn (ImportRun $record): mixed => $this->cancel($record->getKey())),
+                    Action::make('download_original')
+                        ->label('Скачать исходный файл')
+                        ->icon('heroicon-o-arrow-down-tray')
+                        ->action(fn (ImportRun $record): BinaryFileResponse => $this->downloadOriginal($record->getKey())),
+                    Action::make('download_logs')
+                        ->label('Скачать логи CSV')
+                        ->icon('heroicon-o-document-arrow-down')
+                        ->action(fn (ImportRun $record): StreamedResponse => $this->downloadLogs($record->getKey())),
+                    Action::make('download_report')
+                        ->label('Скачать отчёт CSV')
+                        ->icon('heroicon-o-document-text')
+                        ->action(fn (ImportRun $record): StreamedResponse => $this->downloadReport($record->getKey())),
+                ])
+                    ->label('Ещё')
+                    ->icon('heroicon-m-ellipsis-horizontal')
+                    ->color('gray')
+                    ->button(),
             ])
+            ->emptyStateHeading('Импортов пока нет')
+            ->emptyStateDescription('Загрузите первый CSV или XLSX через форму выше.')
+            ->emptyStateIcon('heroicon-o-document-arrow-up')
             ->paginated([10, 25, 50]);
+    }
+
+    public function removeSelectedFile(): void
+    {
+        $this->reset('file');
+        $this->resetValidation('file');
     }
 
     public function submitImport(): void
