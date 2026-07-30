@@ -54,36 +54,38 @@
         </form>
 
         <div class="product-layout">
-            <button type="button" class="catalog-trigger" data-catalog-open aria-haspopup="dialog">
-                <span>Категории</span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M6 9l6 6 6-6" />
-                </svg>
-            </button>
+            <div class="catalog-dropdown">
+                <button type="button" class="catalog-trigger" data-catalog-open aria-expanded="false">
+                    <span>Категории</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M6 9l6 6 6-6" />
+                    </svg>
+                </button>
 
-            <aside class="catalog-nav" data-catalog-nav>
-                <div class="catalog-nav__panel">
-                    <div class="catalog-nav__bar">
-                        <span class="catalog-nav__title">Категории</span>
-                        <button type="button" class="catalog-nav__toggle" data-catalog-toggle aria-expanded="true">
-                            Свернуть
-                        </button>
-                    </div>
-                    <ul class="catalog-nav__list">
-                        <li>
-                            <a href="#" class="catalog-nav__link catalog-nav__link--all catalog-nav__link--active">
-                                Все элементы
-                            </a>
-                        </li>
-                        @foreach ($categories as $category)
+                <aside class="catalog-nav" data-catalog-nav>
+                    <div class="catalog-nav__panel">
+                        <div class="catalog-nav__bar">
+                            <span class="catalog-nav__title">Категории</span>
+                            <button type="button" class="catalog-nav__toggle" data-catalog-toggle aria-expanded="true">
+                                Свернуть
+                            </button>
+                        </div>
+                        <ul class="catalog-nav__list">
                             <li>
-                                <a href="#" class="catalog-nav__link">{{ $category['label'] }}</a>
+                                <a href="#" class="catalog-nav__link catalog-nav__link--all catalog-nav__link--active">
+                                    Все элементы
+                                </a>
                             </li>
-                        @endforeach
-                    </ul>
-                </div>
-            </aside>
+                            @foreach ($categories as $category)
+                                <li>
+                                    <a href="#" class="catalog-nav__link">{{ $category['label'] }}</a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                </aside>
+            </div>
 
             <ul class="products">
                 @foreach ($products as $product)

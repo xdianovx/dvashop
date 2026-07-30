@@ -92,8 +92,14 @@
 
 // ── Sidebar category nav ────────────────────────────────
 // Panel is transparent in flow on desktop/tablet; becomes a card in the
-// mobile overlay (< 768px).
+// mobile dropdown (< 768px).
 .catalog-nav__panel {
+    display: contents;
+}
+
+// Positioning context for the mobile dropdown. Above 768px it must not exist
+// as a box at all, or it would break the sidebar/grid columns.
+.catalog-dropdown {
     display: contents;
 }
 
@@ -219,6 +225,10 @@
 
     .catalog-nav__link--all {
         display: block;
+    }
+
+    // The outlined pill marks the active category, wherever it sits in the list.
+    .catalog-nav__link--active {
         border: 1px solid var(--color-primary);
         border-radius: var(--radius-md);
         color: var(--color-primary);
@@ -229,42 +239,52 @@
     }
 }
 
-// Mobile: sidebar becomes a centered popup overlay opened by the trigger.
+// Mobile: sidebar becomes a dropdown anchored under the trigger.
 @media (max-width: 768px) {
+    .catalog-dropdown {
+        display: block;
+        position: relative;
+        z-index: 20;
+    }
+
     .catalog-trigger {
         display: flex;
     }
 
+    .catalog-trigger svg {
+        transition: transform 0.15s ease;
+    }
+
+    .catalog-trigger[aria-expanded='true'] svg {
+        transform: translateY(-50%) rotate(180deg);
+    }
+
     .catalog-nav {
-        position: fixed;
-        inset: 0;
-        z-index: 1000;
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 0;
+        right: 0;
         display: none;
-        width: 100vw;
-        height: 100vh;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
+        padding: 0;
         border: none;
         border-radius: 0;
-        background: rgba(2, 34, 83, 0.4);
+        background: none;
         box-shadow: none;
     }
 
     .catalog-nav[data-open] {
-        display: flex;
+        display: block;
     }
 
     .catalog-nav__panel {
         display: block;
-        width: 100%;
-        max-width: 340px;
-        max-height: 80vh;
+        max-height: 60vh;
         overflow-y: auto;
-        padding: 24px;
+        padding: 16px;
+        border: 1px solid var(--color-border);
         border-radius: 20px;
         background-color: var(--color-surface);
-        box-shadow: 0 16px 48px rgba(2, 34, 83, 0.25);
+        box-shadow: 0 16px 48px rgba(2, 34, 83, 0.18);
     }
 }
 
