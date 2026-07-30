@@ -8,6 +8,7 @@ $color-bg: #ebebeb; // page background
 $color-surface: #ffffff; // cards, search bar
 $color-surface-muted: #f4f4f4; // review cards
 $color-primary: #1750b7; // brand blue (buttons, banners)
+$color-primary-light: #3b6fd9; // step labels, accents on white
 $color-primary-dark: #022253; // navy (banners, headings)
 $color-text: #000000; // default body text
 $color-ink: #1e2738; // dark UI text / footer bg
@@ -75,6 +76,7 @@ $header-height: 65px;
     --color-surface: #{$color-surface};
     --color-surface-muted: #{$color-surface-muted};
     --color-primary: #{$color-primary};
+    --color-primary-light: #{$color-primary-light};
     --color-primary-dark: #{$color-primary-dark};
     --color-text: #{$color-text};
     --color-ink: #{$color-ink};

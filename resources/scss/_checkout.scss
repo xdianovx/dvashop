@@ -9,20 +9,20 @@
 .checkout-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 506px;
-    gap: 24px;
+    gap: 15px;
     margin-bottom: var(--section-gap);
 }
 
 .checkout-main {
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 15px;
     min-width: 0;
 }
 
 // ── Card ────────────────────────────────────────────────
 .checkout-card {
-    padding: 25px 29px;
+    padding: 25px 28px;
     border: 1px solid var(--color-border);
     border-radius: 28px;
     background-color: var(--color-surface);
@@ -38,9 +38,11 @@
 }
 
 .checkout-card__title {
+    padding: 14.11px 0 14.5px;
     font-family: var(--font-display);
     font-weight: var(--fw-bold);
     font-size: 32px;
+    line-height: 26.4px;
     color: var(--color-primary-dark);
 }
 
@@ -48,9 +50,10 @@
     font-family: var(--font-display);
     font-weight: var(--fw-semibold);
     font-size: 12px;
+    line-height: 18px;
     letter-spacing: 0.72px;
     text-transform: uppercase;
-    color: #3b6fd9;
+    color: var(--color-primary-light);
 }
 
 // ── Form ────────────────────────────────────────────────
@@ -67,13 +70,14 @@
 .field {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 6.39px;
 }
 
 .field__label {
     font-family: var(--font-display);
     font-weight: var(--fw-semibold);
     font-size: 16px;
+    line-height: 19.68px;
     color: var(--color-ink);
 }
 
@@ -83,12 +87,13 @@
 
 .field__input {
     width: 100%;
-    padding: 15px 17px;
+    padding: 14.8px 17px 15.79px;
     border: 1px solid var(--color-border);
     border-radius: 12px;
     background-color: var(--color-surface);
     font-family: var(--font-body);
     font-size: 16px;
+    line-height: 19px;
     color: var(--color-ink);
 }
 
@@ -102,41 +107,76 @@
 }
 
 .field__input--area {
-    min-height: 116px;
+    min-height: 115.59px;
+    padding-top: 13.79px;
     resize: vertical;
 }
 
-// ── Payments ────────────────────────────────────────────
+// ── Shipping / payment tiles ────────────────────────────
+.checkout-shipping,
 .checkout-payments {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 16px;
 }
 
+.checkout-shipping {
+    gap: 20px;
+}
+
+.checkout-payments {
+    gap: 17.4px 20px;
+}
+
+.ship,
 .pay {
     cursor: pointer;
 }
 
+.ship input,
 .pay input {
     position: absolute;
     opacity: 0;
     pointer-events: none;
 }
 
+.ship__box,
 .pay__box {
     display: flex;
     align-items: center;
-    gap: 16px;
-    height: 108px;
-    padding: 18px 24px;
+    gap: 10px;
     border: 2px solid transparent;
     border-radius: 22px;
     background-color: var(--color-bg);
     transition: border-color 0.15s ease;
 }
 
+.ship input:checked+.ship__box,
 .pay input:checked+.pay__box {
     border-color: var(--color-primary);
+}
+
+// Figma tiles are 425px wide (main column 927px). The project container keeps
+// main at 679px, so the design's 36/55px side padding leaves no room for the
+// label — clamp it to the widest padding the narrower tile can carry.
+.ship__box {
+    height: 131px;
+    padding: 18px 20px;
+}
+
+.pay__box {
+    height: 108px;
+    padding: 18px 20px;
+}
+
+.ship__logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 97px;
+    height: 63px;
+    border-radius: 10px;
+    background-color: var(--color-surface);
 }
 
 .pay__icon {
@@ -148,55 +188,63 @@
     height: 40px;
     border-radius: 10px;
     background-color: var(--color-surface);
-    font-size: 18px;
+    font-size: 17.6px;
+    line-height: 26.4px;
 }
 
+.ship__text,
 .pay__text {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 5px;
+    min-width: 0;
 }
 
+.ship__title,
 .pay__title {
     font-family: var(--font-display);
     font-weight: var(--fw-semibold);
     font-size: 20px;
+    line-height: 1.15;
     color: var(--color-primary-dark);
 }
 
+.ship__desc,
 .pay__desc {
     font-family: var(--font-display);
     font-size: 16px;
+    line-height: 1.2;
     color: var(--color-primary-dark);
 }
 
 // ── Order summary ───────────────────────────────────────
 .checkout-order {
     align-self: start;
-    padding: 38px 24px;
+    padding: 38.6px 24px 59px;
     border: 1px solid var(--color-border);
     border-radius: 28px;
     background-color: var(--color-surface);
 }
 
 .checkout-order__title {
-    margin-bottom: 24px;
+    margin-bottom: 52px;
     font-family: var(--font-display);
     font-weight: var(--fw-bold);
     font-size: 32px;
+    line-height: 26.4px;
     color: var(--color-primary-dark);
 }
 
 .checkout-order__list {
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    margin-bottom: 24px;
+    gap: 9.44px;
+    margin-bottom: 81.44px;
 }
 
 .checkout-order__item {
     display: grid;
-    grid-template-columns: 56px minmax(0, 1fr) auto;
+    grid-template-columns: 58px minmax(0, 1fr) auto;
     align-items: center;
     gap: 12px;
 }
@@ -205,11 +253,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 56px;
+    overflow: hidden;
+    width: 58px;
     height: 50px;
     border: 1px solid var(--color-border);
     border-radius: 8px;
-    margin-bottom: auto;
     background-color: #f9fbfa;
 }
 
@@ -217,6 +265,14 @@
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
+}
+
+.checkout-order__info {
+    display: flex;
+    flex-direction: column;
+    gap: 11.5px;
+    padding: 12.33px 0 1.5px;
+    min-width: 0;
 }
 
 .checkout-order__name {
@@ -227,10 +283,15 @@
     color: var(--color-primary-dark);
 }
 
-.checkout-order__opts,
-.checkout-order__qty {
-    margin-top: 4px;
+.checkout-order__opts {
     font-size: 12px;
+    line-height: 17.28px;
+    color: var(--color-muted);
+}
+
+.checkout-order__qty {
+    font-size: 12px;
+    line-height: 18.72px;
     color: var(--color-muted);
 }
 
@@ -238,6 +299,7 @@
     font-family: var(--font-display);
     font-weight: var(--fw-bold);
     font-size: 16px;
+    line-height: 20.4px;
     color: var(--color-primary-dark);
     white-space: nowrap;
 }
@@ -249,6 +311,7 @@
     gap: 12px;
     padding: 8px 0;
     font-size: 16px;
+    line-height: 21.6px;
     color: var(--color-muted);
 }
 
@@ -264,28 +327,31 @@
     justify-content: space-between;
     gap: 12px;
     padding-top: 17px;
-    margin-top: 8px;
     border-top: 1px solid var(--color-border);
     font-family: var(--font-display);
     font-weight: var(--fw-bold);
     font-size: 20px;
+    line-height: 25.2px;
     color: var(--color-primary-dark);
 }
 
 .checkout-order__total-value {
     font-weight: 800;
     font-size: 32px;
+    line-height: 32.4px;
 }
 
 .checkout-order__submit {
-    width: 100%;
+    display: block;
+    width: 347px;
     height: 68px;
-    margin-top: 24px;
+    margin: 41.6px auto 0;
     border-radius: 48px;
     font-family: var(--font-body);
     font-size: 20px;
+    line-height: 1;
     color: var(--color-on-dark);
-    background-image: linear-gradient(-83deg, #1750b7 15%, #022253 143%);
+    background-image: linear-gradient(-82.82deg, #1750b7 15%, #022253 143.53%);
 }
 
 .checkout-order__submit:hover {
@@ -294,8 +360,9 @@
 
 .checkout-order__agree {
     display: flex;
-    gap: 10px;
-    margin-top: 16px;
+    gap: 9.59px;
+    max-width: 302px;
+    margin-top: 29px;
     cursor: pointer;
 }
 
@@ -320,8 +387,8 @@
 }
 
 .checkout-order__agree-text {
-    font-size: 16px;
-    line-height: 1.13;
+    font-size: 14px;
+    line-height: 18.1px;
     color: var(--color-muted);
 }
 
@@ -351,8 +418,13 @@
     }
 
     .checkout-form,
+    .checkout-shipping,
     .checkout-payments {
         grid-template-columns: 1fr;
+    }
+
+    .checkout-order__submit {
+        width: 100%;
     }
 
     .checkout-order__title {
