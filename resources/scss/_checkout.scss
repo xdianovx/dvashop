@@ -465,6 +465,7 @@
         line-height: normal;
         letter-spacing: 0;
         text-transform: lowercase;
+        flex-shrink: 0;
         color: var(--color-primary);
     }
 
@@ -602,11 +603,11 @@
 
     .checkout-order__submit {
         width: 206px;
-        height: 37px;
+        height: auto;
         margin: 20.8px auto 0;
         border-radius: 38px;
         font-size: 12px;
-        background-image: linear-gradient(to top, var(--color-primary-dark) 74.32%, var(--color-primary));
+
     }
 
     .checkout-order__agree {
