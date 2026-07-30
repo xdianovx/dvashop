@@ -16,3 +16,4 @@ Route::view('/about', 'about')->name('about');
 Route::view('/partners', 'partners')->name('partners');
 Route::view('/cart', 'cart')->name('cart.show');
 Route::view('/checkout', 'checkout')->name('checkout.show');
+Route::view('/thanks', 'thanks')->name('checkout.success');

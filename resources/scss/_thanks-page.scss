@@ -1,0 +1,337 @@
+// Order confirmation page — desktop node 3040:1789.
+.thanks {
+    padding-bottom: 102px;
+}
+
+.thanks__hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 29px;
+    text-align: center;
+}
+
+.thanks__check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 72px;
+    height: 72px;
+    border-radius: 36px;
+    background-image: linear-gradient(145deg, #3b6fd9 0%, #1a4fa8 100%);
+    box-shadow: 0 14px 18px rgba(59, 111, 217, 0.35);
+    font-size: 32px;
+    line-height: 48px;
+    color: var(--color-on-dark);
+}
+
+.thanks__status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 31.19px;
+    padding: 0 12px 0 8px;
+    margin-top: 20px;
+    border: 1px solid rgba(51, 92, 255, 0.35);
+    border-radius: var(--radius-pill);
+    background-color: rgba(45, 26, 154, 0.1);
+    font-family: var(--font-body);
+    font-weight: var(--fw-semibold);
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--color-primary);
+}
+
+.thanks__status::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 3.5px;
+    background-color: var(--color-primary);
+}
+
+.thanks__title {
+    margin-top: 28.81px;
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    font-size: 54px;
+    line-height: 1.2;
+    color: var(--color-primary-dark);
+}
+
+.thanks__lead {
+    max-width: 1097px;
+    font-family: var(--font-body);
+    font-size: 20px;
+    line-height: 1.4;
+    color: var(--color-primary-dark);
+}
+
+.thanks__layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 506px;
+    align-items: start;
+    gap: 15px;
+    margin-top: 29px;
+}
+
+// The design's aside is the same component as on checkout, minus the submit
+// button and the consent checkbox.
+.thanks__summary {
+    padding-bottom: 53px;
+}
+
+// ── Order details card ──────────────────────────────────
+.thanks-details {
+    display: flex;
+    flex-direction: column;
+    gap: 29px;
+    padding: 25px 29px;
+    border: 1px solid var(--color-border);
+    border-radius: 28px;
+    background-color: var(--color-surface);
+}
+
+.thanks-details__head {
+    padding-bottom: 17px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.thanks-details__title {
+    padding: 14.11px 0 14.5px;
+    font-family: var(--font-display);
+    font-weight: var(--fw-bold);
+    font-size: 32px;
+    line-height: 26.4px;
+    color: var(--color-primary-dark);
+}
+
+.thanks-details__number {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    height: 60px;
+    padding: 0 18px;
+    border: 1px solid rgba(59, 111, 217, 0.2);
+    border-radius: 12px;
+    background-color: #e8f0ff;
+}
+
+.thanks-details__number-label {
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 19.68px;
+    color: var(--color-primary-dark);
+}
+
+.thanks-details__number-value {
+    font-family: var(--font-display);
+    font-weight: var(--fw-bold);
+    font-size: 17.6px;
+    line-height: 26.4px;
+    letter-spacing: 0.352px;
+    color: #1a2d5a;
+}
+
+.thanks-details__list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 24px;
+    row-gap: 15.8px;
+}
+
+.thanks-details__row--full {
+    grid-column: 1 / -1;
+}
+
+.thanks-details__term {
+    font-family: var(--font-body);
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--color-primary);
+}
+
+.thanks-details__value {
+    margin: 3.22px 0 0 40px;
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    font-size: 14.7px;
+    line-height: 22.08px;
+    color: var(--color-primary-dark);
+}
+
+// ── "What happens next" steps ───────────────────────────
+// Figma spaces the circles 85.57px apart. Its text boxes are 18px tall while
+// ours are 21.12px (the design's line-height), so the gap absorbs the 6.24px
+// the two lines add — that keeps the circles on the design's rhythm.
+.thanks-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 32.53px;
+    list-style: none;
+}
+
+.thanks-steps__item {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    column-gap: 13.59px;
+}
+
+.thanks-steps__num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    grid-row: 1 / 3;
+    width: 28px;
+    height: 28px;
+    border-radius: 14px;
+    background-color: var(--color-border);
+    font-family: var(--font-display);
+    font-weight: var(--fw-bold);
+    font-size: 12.8px;
+    line-height: 19.2px;
+    color: var(--color-primary);
+}
+
+.thanks-steps__title {
+    margin-top: 5.8px;
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    font-size: 14.1px;
+    line-height: 21.12px;
+    color: var(--color-primary-dark);
+}
+
+.thanks-steps__text {
+    margin-top: 5px;
+    font-family: var(--font-body);
+    font-size: 14.1px;
+    line-height: 21.12px;
+    color: var(--color-primary-dark);
+}
+
+// ── Actions ─────────────────────────────────────────────
+.thanks__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 50px;
+}
+
+.thanks__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 347px;
+    height: 68px;
+    font-family: var(--font-body);
+    font-size: 20px;
+    line-height: 1;
+    text-align: center;
+    transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.thanks__btn--primary {
+    border-radius: 48px;
+    background-image: linear-gradient(-82.82deg, #1750b7 15%, #022253 143.53%);
+    color: var(--color-on-dark);
+}
+
+.thanks__btn--primary:hover {
+    opacity: 0.92;
+}
+
+.thanks__btn--outline {
+    border: 1.5px solid var(--color-primary-dark);
+    border-radius: 53px;
+    color: var(--color-primary-dark);
+}
+
+.thanks__btn--outline:hover {
+    background-color: var(--color-primary-dark);
+    color: var(--color-on-dark);
+}
+
+@media (max-width: 1024px) {
+    .thanks__layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .thanks {
+        padding-bottom: 40px;
+    }
+
+    .thanks__check {
+        width: 56px;
+        height: 56px;
+        border-radius: 28px;
+        font-size: 24px;
+        line-height: 36px;
+    }
+
+    .thanks__title {
+        margin-top: 16px;
+        font-size: 22px;
+        line-height: 1.2;
+    }
+
+    .thanks__lead {
+        font-size: 12px;
+    }
+
+    .thanks-details {
+        gap: 20px;
+        padding: 14px;
+        border-radius: 16px;
+    }
+
+    .thanks-details__title {
+        padding: 0;
+        font-size: 20px;
+        line-height: 25px;
+    }
+
+    .thanks-details__number {
+        height: auto;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        padding: 12px 14px;
+    }
+
+    .thanks-details__list {
+        grid-template-columns: minmax(0, 1fr);
+        row-gap: 12px;
+    }
+
+    .thanks-details__value {
+        margin-left: 0;
+        font-size: 14px;
+    }
+
+    .thanks-steps {
+        gap: 20px;
+    }
+
+    // The checkout summary hides its item list below 768px; here the list is
+    // the point of the block, so bring it back.
+    .thanks__summary .checkout-order__list {
+        display: flex;
+    }
+
+    .thanks__actions {
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 24px;
+    }
+
+    .thanks__btn {
+        width: 100%;
+        height: 48px;
+        font-size: 14px;
+    }
+}
