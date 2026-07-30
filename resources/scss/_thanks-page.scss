@@ -260,78 +260,221 @@
     }
 }
 
+// Mobile follows the PHONE frame (node 3040:1323, 320px board, 290px content).
 @media (max-width: 768px) {
     .thanks {
-        padding-bottom: 40px;
+        padding-bottom: 46px;
     }
 
     .thanks__check {
-        width: 56px;
-        height: 56px;
-        border-radius: 28px;
-        font-size: 24px;
-        line-height: 36px;
+        width: 45px;
+        height: 45px;
+        border-radius: 22.5px;
+        font-size: 20px;
+        line-height: 29px;
+    }
+
+    .thanks__status {
+        margin-top: 9px;
     }
 
     .thanks__title {
-        margin-top: 16px;
+        width: 290px;
+        margin-top: 16.81px;
         font-size: 22px;
-        line-height: 1.2;
+        line-height: 1;
     }
 
     .thanks__lead {
+        width: 288px;
+        max-width: 100%;
+        margin-top: 8px;
         font-size: 12px;
     }
 
+    .thanks__layout {
+        gap: 13px;
+    }
+
+    // ── Order details card ──────────────────────────────
     .thanks-details {
-        gap: 20px;
-        padding: 14px;
+        gap: 0;
+        padding: 14px 14px 15px;
+        border-color: var(--color-border-glass);
         border-radius: 16px;
+        background-color: var(--color-surface-glass);
+        box-shadow: var(--shadow-card);
+    }
+
+    .thanks-details__head {
+        padding-bottom: 0;
+        border-bottom: none;
     }
 
     .thanks-details__title {
         padding: 0;
         font-size: 20px;
-        line-height: 25px;
+        line-height: 34px;
+        color: var(--color-ink);
     }
 
     .thanks-details__number {
-        height: auto;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 4px;
-        padding: 12px 14px;
+        height: 34px;
+        margin-top: 8px;
+        padding: 0 11px 0 10px;
+    }
+
+    .thanks-details__number-label {
+        font-size: 10px;
+    }
+
+    .thanks-details__number-value {
+        font-size: 12px;
     }
 
     .thanks-details__list {
         grid-template-columns: minmax(0, 1fr);
-        row-gap: 12px;
+        width: 220px;
+        max-width: 100%;
+        margin-top: 18px;
+        row-gap: 0;
+    }
+
+    .thanks-details__term {
+        font-size: 10px;
     }
 
     .thanks-details__value {
-        margin-left: 0;
-        font-size: 14px;
+        margin: 3px 0 0;
+        font-size: 12px;
     }
 
+    // The PHONE frame reorders the fields: contacts split around the delivery
+    // block, with phone and city moved to the end.
+    .thanks-details__row:nth-child(2) {
+        order: 7;
+    }
+
+    .thanks-details__row:nth-child(3) {
+        order: 2;
+    }
+
+    .thanks-details__row:nth-child(4) {
+        order: 8;
+    }
+
+    .thanks-details__row:nth-child(5) {
+        order: 3;
+    }
+
+    .thanks-details__row:nth-child(6) {
+        order: 4;
+    }
+
+    .thanks-details__row:nth-child(7) {
+        order: 5;
+    }
+
+    .thanks-details__row:nth-child(8) {
+        order: 6;
+    }
+
+    // The PHONE frame drops the "what happens next" steps.
     .thanks-steps {
-        gap: 20px;
+        display: none;
+    }
+
+    // ── Summary card ────────────────────────────────────
+    // Matches the details card instead of the checkout aside it reuses.
+    .thanks__summary {
+        padding: 15px 14px;
+        border: 1px solid var(--color-border-glass);
+        border-radius: 16px;
+        background-color: var(--color-surface-glass);
+        box-shadow: var(--shadow-card);
+    }
+
+    .thanks__summary .checkout-order__title {
+        margin-bottom: 8px;
+        font-size: 20px;
+        line-height: 27px;
+        color: var(--color-ink);
     }
 
     // The checkout summary hides its item list below 768px; here the list is
     // the point of the block, so bring it back.
     .thanks__summary .checkout-order__list {
         display: flex;
+        gap: 12px;
+        margin-bottom: 12px;
     }
 
+    .thanks__summary .checkout-order__name {
+        font-size: 12px;
+    }
+
+    .thanks__summary .checkout-order__info {
+        gap: 3px;
+        padding: 0;
+    }
+
+    .thanks__summary .checkout-order__opts,
+    .thanks__summary .checkout-order__qty {
+        font-size: 10px;
+        line-height: 1.4;
+    }
+
+    .thanks__summary .checkout-order__sum {
+        font-size: 12px;
+        line-height: 21px;
+    }
+
+    .thanks__summary .checkout-order__row {
+        height: auto;
+        margin-bottom: 0;
+        padding: 8px 0;
+        font-size: 12px;
+    }
+
+    .thanks__summary .checkout-order__value {
+        font-size: 12px;
+    }
+
+    .thanks__summary .checkout-order__total {
+        height: auto;
+        padding-top: 10px;
+        font-size: 16px;
+    }
+
+    .thanks__summary .checkout-order__total-value {
+        font-size: 20px;
+        letter-spacing: 0;
+    }
+
+    // ── Actions ─────────────────────────────────────────
     .thanks__actions {
         flex-direction: column;
-        gap: 8px;
-        margin-top: 24px;
+        align-items: center;
+        gap: 5px;
+        margin-top: 33px;
     }
 
     .thanks__btn {
-        width: 100%;
-        height: 48px;
-        font-size: 14px;
+        width: 181px;
+        height: 34px;
+        font-size: 12px;
+    }
+
+    .thanks__btn--primary,
+    .thanks__btn--outline {
+        border: none;
+        border-radius: 30px;
+        background-image: linear-gradient(-82.82deg, #1750b7 15%, #022253 143.53%);
+        color: var(--color-on-dark);
+    }
+
+    .thanks__btn--outline:hover {
+        background-color: transparent;
+        color: var(--color-on-dark);
     }
 }
