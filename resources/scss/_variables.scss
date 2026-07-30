@@ -12,7 +12,9 @@ $color-primary-dark: #022253; // navy (banners, headings)
 $color-text: #000000; // default body text
 $color-ink: #1e2738; // dark UI text / footer bg
 $color-border: #dde3ec; // light card borders
+$color-border-soft: #dbe0e8; // hairline on filled controls (qty pill)
 $color-muted: #868686; // muted text (top nav, placeholders)
+$color-slate: #6b7a90; // secondary text on cards (specs line)
 $color-muted-2: #9c9c9c; // footer muted text
 $color-on-dark: #ffffff; // text on dark/colored backgrounds
 $color-on-primary: #ebebeb; // text on the blue button
@@ -77,7 +79,9 @@ $header-height: 65px;
     --color-text: #{$color-text};
     --color-ink: #{$color-ink};
     --color-border: #{$color-border};
+    --color-border-soft: #{$color-border-soft};
     --color-muted: #{$color-muted};
+    --color-slate: #{$color-slate};
     --color-muted-2: #{$color-muted-2};
     --color-on-dark: #{$color-on-dark};
     --color-on-primary: #{$color-on-primary};
