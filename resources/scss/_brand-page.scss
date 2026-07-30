@@ -8,6 +8,13 @@
     flex-direction: column;
 }
 
+// The shared breadcrumbs component adds its own vertical margins; the design
+// measures 52px from the crumbs straight to the heading, so drop them here.
+.brand-page__crumbs .breadcrumbs {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
 .brand-page__title {
     order: 1;
     margin-top: 52px;
@@ -32,7 +39,7 @@
 .brand-page__search-input {
     flex: 1 1 auto;
     height: 100%;
-    padding: 0 270px 0 47px;
+    padding: 0 270px 0 45px;
     border: none;
     background: none;
     font-family: 'Gilroy', system-ui, sans-serif;
@@ -56,6 +63,7 @@
     top: 1px;
     width: 253px;
     height: 63px;
+    border-radius: 60px;
     font-family: 'Gilroy', system-ui, sans-serif;
     font-size: var(--fs-lg);
 }
