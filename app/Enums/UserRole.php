@@ -12,11 +12,19 @@ enum UserRole: string
     public function label(): string
     {
         return match ($this) {
-            self::SuperAdmin => 'Super admin',
-            self::Admin => 'Admin',
-            self::Manager => 'Manager',
-            self::Customer => 'Customer',
+            self::SuperAdmin => 'Суперадминистратор',
+            self::Admin => 'Администратор',
+            self::Manager => 'Менеджер',
+            self::Customer => 'Покупатель',
         };
+    }
+
+    /** @return array<string, string> */
+    public static function options(): array
+    {
+        return collect(self::cases())
+            ->mapWithKeys(fn (self $role): array => [$role->value => $role->label()])
+            ->all();
     }
 
     public function canAccessAdminPanel(): bool
