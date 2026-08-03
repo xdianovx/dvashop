@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\AdminPermission;
 use App\Models\User;
 
 class UserPolicy
@@ -41,13 +42,33 @@ class UserPolicy
         return false;
     }
 
+    public function restoreAny(User $user): bool
+    {
+        return false;
+    }
+
     public function forceDelete(User $user, User $model): bool
+    {
+        return false;
+    }
+
+    public function forceDeleteAny(User $user): bool
+    {
+        return false;
+    }
+
+    public function replicate(User $user, User $model): bool
+    {
+        return false;
+    }
+
+    public function reorder(User $user): bool
     {
         return false;
     }
 
     private function canManageUsers(User $user): bool
     {
-        return $user->isSuperAdmin() && $user->canAccessAdminPanel();
+        return $user->canPerformAdminAction(AdminPermission::ManageUsers);
     }
 }

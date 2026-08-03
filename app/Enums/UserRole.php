@@ -29,6 +29,60 @@ enum UserRole: string
 
     public function canAccessAdminPanel(): bool
     {
-        return in_array($this, [self::SuperAdmin, self::Admin, self::Manager], true);
+        return $this->allows(AdminPermission::AccessPanel);
+    }
+
+    public function allows(AdminPermission $permission): bool
+    {
+        $permissions = match ($this) {
+            self::SuperAdmin => [
+                AdminPermission::AccessPanel,
+                AdminPermission::ManageUsers,
+                AdminPermission::ViewCatalog,
+                AdminPermission::CreateCatalog,
+                AdminPermission::UpdateCatalog,
+                AdminPermission::DeleteCatalog,
+                AdminPermission::RestoreCatalog,
+                AdminPermission::ViewProducts,
+                AdminPermission::CreateProducts,
+                AdminPermission::UpdateProducts,
+                AdminPermission::DeleteProducts,
+                AdminPermission::RestoreProducts,
+                AdminPermission::GenerateProductVariants,
+                AdminPermission::ResetProductGallery,
+                AdminPermission::ViewOrders,
+                AdminPermission::UpdateOrders,
+                AdminPermission::ManageCatalogImports,
+            ],
+            self::Admin => [
+                AdminPermission::AccessPanel,
+                AdminPermission::ViewCatalog,
+                AdminPermission::CreateCatalog,
+                AdminPermission::UpdateCatalog,
+                AdminPermission::DeleteCatalog,
+                AdminPermission::RestoreCatalog,
+                AdminPermission::ViewProducts,
+                AdminPermission::CreateProducts,
+                AdminPermission::UpdateProducts,
+                AdminPermission::DeleteProducts,
+                AdminPermission::RestoreProducts,
+                AdminPermission::GenerateProductVariants,
+                AdminPermission::ViewOrders,
+                AdminPermission::UpdateOrders,
+                AdminPermission::ManageCatalogImports,
+            ],
+            self::Manager => [
+                AdminPermission::AccessPanel,
+                AdminPermission::ViewCatalog,
+                AdminPermission::ViewProducts,
+                AdminPermission::CreateProducts,
+                AdminPermission::UpdateProducts,
+                AdminPermission::ViewOrders,
+                AdminPermission::UpdateOrders,
+            ],
+            self::Customer => [],
+        };
+
+        return in_array($permission, $permissions, true);
     }
 }

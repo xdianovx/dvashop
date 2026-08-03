@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\AdminPermission;
 use App\Models\Order;
 use App\Models\User;
 
@@ -9,12 +10,12 @@ class OrderPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $this->canManageOrders($user);
+        return $user->canPerformAdminAction(AdminPermission::ViewOrders);
     }
 
     public function view(User $user, Order $order): bool
     {
-        return $this->canManageOrders($user);
+        return $user->canPerformAdminAction(AdminPermission::ViewOrders);
     }
 
     public function create(User $user): bool
@@ -24,7 +25,7 @@ class OrderPolicy
 
     public function update(User $user, Order $order): bool
     {
-        return $this->canManageOrders($user);
+        return $user->canPerformAdminAction(AdminPermission::UpdateOrders);
     }
 
     public function delete(User $user, Order $order): bool
@@ -32,8 +33,38 @@ class OrderPolicy
         return false;
     }
 
-    private function canManageOrders(User $user): bool
+    public function deleteAny(User $user): bool
     {
-        return $user->role?->canAccessAdminPanel() ?? false;
+        return false;
+    }
+
+    public function restore(User $user, Order $order): bool
+    {
+        return false;
+    }
+
+    public function restoreAny(User $user): bool
+    {
+        return false;
+    }
+
+    public function forceDelete(User $user, Order $order): bool
+    {
+        return false;
+    }
+
+    public function forceDeleteAny(User $user): bool
+    {
+        return false;
+    }
+
+    public function replicate(User $user, Order $order): bool
+    {
+        return false;
+    }
+
+    public function reorder(User $user): bool
+    {
+        return false;
     }
 }
