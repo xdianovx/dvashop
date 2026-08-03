@@ -2,11 +2,13 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\AdminPermission;
 use App\Enums\ImportRunStatus;
 use App\Jobs\CatalogImportChunkJob;
 use App\Jobs\CatalogImportStartJob;
 use App\Models\ImportLog;
 use App\Models\ImportRun;
+use App\Models\User;
 use App\Services\Import\ImportProgress;
 use App\Services\Import\ImportProgressService;
 use App\Services\ImportLogger;
@@ -15,6 +17,7 @@ use App\Services\ImportStatusService;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\DatePicker;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -71,9 +74,10 @@ class CatalogImportPage extends Page implements HasTable
 
     public static function canAccess(): bool
     {
-        $user = auth()->user();
+        $user = Filament::auth()->user();
 
-        return $user?->role?->canAccessAdminPanel() ?? false;
+        return $user instanceof User
+            && $user->canPerformAdminAction(AdminPermission::ManageCatalogImports);
     }
 
     /** @return array<int, Action> */
@@ -83,6 +87,7 @@ class CatalogImportPage extends Page implements HasTable
             Action::make('import_help')
                 ->label('Как работает импорт?')
                 ->icon('heroicon-o-question-mark-circle')
+                ->authorize(fn (): bool => static::canAccess())
                 ->modalHeading('Как работает импорт каталога')
                 ->modalContent(fn () => view('filament.pages.catalog-import-help'))
                 ->modalSubmitAction(false)
@@ -170,6 +175,7 @@ class CatalogImportPage extends Page implements HasTable
                 Action::make('details')
                     ->label('Подробности')
                     ->icon('heroicon-o-eye')
+                    ->authorize(fn (): bool => static::canAccess())
                     ->button()
                     ->modalHeading(fn (ImportRun $record): string => 'Импорт #'.$record->getKey())
                     ->modalContent(fn (ImportRun $record) => view('filament.pages.catalog-import-details', [
@@ -182,6 +188,7 @@ class CatalogImportPage extends Page implements HasTable
                     Action::make('logs')
                         ->label('Логи')
                         ->icon('heroicon-o-list-bullet')
+                        ->authorize(fn (): bool => static::canAccess())
                         ->slideOver()
                         ->modalWidth('5xl')
                         ->modalHeading(fn (ImportRun $record): string => 'Логи импорта #'.$record->getKey())
@@ -194,23 +201,27 @@ class CatalogImportPage extends Page implements HasTable
                     Action::make('start')
                         ->label('Старт')
                         ->icon('heroicon-o-play')
+                        ->authorize(fn (): bool => static::canAccess())
                         ->visible(fn (ImportRun $record): bool => $record->status === ImportRunStatus::Ready)
                         ->action(fn (ImportRun $record): mixed => $this->start($record->getKey())),
                     Action::make('pause')
                         ->label('Пауза')
                         ->icon('heroicon-o-pause')
                         ->color('warning')
+                        ->authorize(fn (): bool => static::canAccess())
                         ->visible(fn (ImportRun $record): bool => $record->status?->isActive() && $record->status !== ImportRunStatus::Paused)
                         ->action(fn (ImportRun $record): mixed => $this->pause($record->getKey())),
                     Action::make('resume')
                         ->label('Продолжить')
                         ->icon('heroicon-o-arrow-path')
+                        ->authorize(fn (): bool => static::canAccess())
                         ->visible(fn (ImportRun $record): bool => $record->status === ImportRunStatus::Paused)
                         ->action(fn (ImportRun $record): mixed => $this->resume($record->getKey())),
                     Action::make('cancel')
                         ->label('Отменить')
                         ->icon('heroicon-o-x-mark')
                         ->color('danger')
+                        ->authorize(fn (): bool => static::canAccess())
                         ->requiresConfirmation()
                         ->modalDescription('Уже внесённые изменения сохранятся.')
                         ->visible(fn (ImportRun $record): bool => ! $record->isTerminal())
@@ -218,14 +229,17 @@ class CatalogImportPage extends Page implements HasTable
                     Action::make('download_original')
                         ->label('Скачать исходный файл')
                         ->icon('heroicon-o-arrow-down-tray')
+                        ->authorize(fn (): bool => static::canAccess())
                         ->action(fn (ImportRun $record): BinaryFileResponse => $this->downloadOriginal($record->getKey())),
                     Action::make('download_logs')
                         ->label('Скачать логи CSV')
                         ->icon('heroicon-o-document-arrow-down')
+                        ->authorize(fn (): bool => static::canAccess())
                         ->action(fn (ImportRun $record): StreamedResponse => $this->downloadLogs($record->getKey())),
                     Action::make('download_report')
                         ->label('Скачать отчёт CSV')
                         ->icon('heroicon-o-document-text')
+                        ->authorize(fn (): bool => static::canAccess())
                         ->action(fn (ImportRun $record): StreamedResponse => $this->downloadReport($record->getKey())),
                 ])
                     ->label('Ещё')
@@ -247,6 +261,8 @@ class CatalogImportPage extends Page implements HasTable
 
     public function submitImport(): void
     {
+        $this->authorizeImportAction();
+
         if ($this->uploadInProgress) {
             return;
         }
@@ -302,6 +318,8 @@ class CatalogImportPage extends Page implements HasTable
 
     public function start(int $runId, ?ImportStatusService $statusService = null, bool $notify = true): mixed
     {
+        $this->authorizeImportAction();
+
         $run = ImportRun::query()->findOrFail($runId);
 
         if ($run->status !== ImportRunStatus::Ready) {
@@ -327,6 +345,8 @@ class CatalogImportPage extends Page implements HasTable
 
     public function pause(int $runId, ?ImportStatusService $statusService = null): mixed
     {
+        $this->authorizeImportAction();
+
         ($statusService ?? app(ImportStatusService::class))->pause(ImportRun::query()->findOrFail($runId));
 
         Notification::make()->title('Импорт поставлен на паузу')->success()->send();
@@ -336,6 +356,8 @@ class CatalogImportPage extends Page implements HasTable
 
     public function resume(int $runId, ?ImportStatusService $statusService = null): mixed
     {
+        $this->authorizeImportAction();
+
         $existingRun = ImportRun::query()->findOrFail($runId);
         $wasPaused = $existingRun->status === ImportRunStatus::Paused;
         $run = ($statusService ?? app(ImportStatusService::class))->resume($existingRun);
@@ -351,6 +373,8 @@ class CatalogImportPage extends Page implements HasTable
 
     public function cancel(int $runId, ?ImportStatusService $statusService = null): mixed
     {
+        $this->authorizeImportAction();
+
         ($statusService ?? app(ImportStatusService::class))->cancel(ImportRun::query()->findOrFail($runId));
 
         Notification::make()->title('Импорт отменён')->warning()->send();
@@ -360,7 +384,7 @@ class CatalogImportPage extends Page implements HasTable
 
     public function downloadOriginal(int $runId): BinaryFileResponse
     {
-        abort_unless(static::canAccess(), 403);
+        $this->authorizeImportAction();
 
         $run = ImportRun::query()->findOrFail($runId);
         abort_unless(Storage::disk('local')->exists($run->stored_path), 404);
@@ -373,14 +397,14 @@ class CatalogImportPage extends Page implements HasTable
 
     public function downloadLogs(int $runId): StreamedResponse
     {
-        abort_unless(static::canAccess(), 403);
+        $this->authorizeImportAction();
 
         return app(ImportRunReportExporter::class)->logsCsv(ImportRun::query()->findOrFail($runId));
     }
 
     public function downloadReport(int $runId): StreamedResponse
     {
-        abort_unless(static::canAccess(), 403);
+        $this->authorizeImportAction();
 
         return app(ImportRunReportExporter::class)->summaryCsv(ImportRun::query()->findOrFail($runId));
     }
@@ -429,5 +453,10 @@ class CatalogImportPage extends Page implements HasTable
     public function statusLabel(ImportRun $run): string
     {
         return app(ImportProgressService::class)->statusLabel($run);
+    }
+
+    private function authorizeImportAction(): void
+    {
+        abort_unless(static::canAccess(), 403);
     }
 }

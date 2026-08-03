@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\AdminPermission;
 use App\Enums\UserRole;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
@@ -39,6 +40,17 @@ class User extends Authenticatable implements FilamentUser
 
     public function canAccessAdminPanel(): bool
     {
+        return $this->canPerformAdminAction(AdminPermission::AccessPanel);
+    }
+
+    public function canPerformAdminAction(AdminPermission $permission): bool
+    {
+        return $this->isActiveAdministrativeUser()
+            && ($this->resolvedRole()?->allows($permission) ?? false);
+    }
+
+    public function isActiveAdministrativeUser(): bool
+    {
         return $this->is_active
             && $this->blocked_at === null
             && ($this->resolvedRole()?->canAccessAdminPanel() ?? false);
@@ -52,8 +64,7 @@ class User extends Authenticatable implements FilamentUser
     public function isActiveSuperAdmin(): bool
     {
         return $this->isSuperAdmin()
-            && $this->is_active
-            && $this->blocked_at === null;
+            && $this->isActiveAdministrativeUser();
     }
 
     public function adminStatusLabel(): string

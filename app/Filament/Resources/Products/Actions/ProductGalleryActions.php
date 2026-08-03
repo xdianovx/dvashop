@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Services\Media\ProductGalleryService;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Component;
 use RuntimeException;
 
@@ -16,6 +17,7 @@ final class ProductGalleryActions
         return Action::make($name)
             ->label('Сделать дефолтное главным')
             ->icon('heroicon-o-star')
+            ->authorize('update')
             ->requiresConfirmation()
             ->modalHeading('Сделать дефолтное изображение главным?')
             ->modalDescription('Остальные изображения сохранятся в галерее.')
@@ -36,10 +38,13 @@ final class ProductGalleryActions
             ->label('Сбросить галерею к дефолтной')
             ->icon('heroicon-o-arrow-path')
             ->color('warning')
+            ->hidden(fn (Product $record): bool => Gate::denies('resetGallery', $record))
             ->requiresConfirmation()
             ->modalHeading('Сбросить галерею к дефолтному изображению?')
             ->modalDescription('Ручные и импортные изображения будут удалены вместе с физическими файлами. Файл из public/img/products_default останется на месте.')
             ->action(function (Product $record, Component $livewire): void {
+                Gate::authorize('resetGallery', $record);
+
                 $changed = self::run(
                     product: $record,
                     operation: fn (ProductGalleryService $gallery): mixed => $gallery->resetToDefault($record),

@@ -12,6 +12,7 @@ use Filament\Actions\ForceDeleteAction;
 use Filament\Actions\RestoreAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Illuminate\Support\Facades\Gate;
 
 class EditProduct extends EditRecord
 {
@@ -63,6 +64,7 @@ class EditProduct extends EditRecord
                 ->label('Создать варианты по шаблону')
                 ->icon('heroicon-o-squares-plus')
                 ->color('primary')
+                ->hidden(fn (): bool => Gate::denies('generateVariants', $this->record))
                 ->requiresConfirmation()
                 ->modalHeading('Создать недостающие варианты?')
                 ->modalDescription(function (): string {
@@ -74,6 +76,8 @@ class EditProduct extends EditRecord
                     return "Будет проверено комбинаций: {$count}. За один запуск обрабатывается не более 100 комбинаций; существующие варианты не дублируются.";
                 })
                 ->action(function (): void {
+                    Gate::authorize('generateVariants', $this->record);
+
                     $created = app(ProductVariantOptionGenerator::class)->createMissingVariants($this->record);
 
                     $this->record->refresh();
