@@ -45,6 +45,11 @@ class EditProduct extends EditRecord
         return $this->prepareProductData($data);
     }
 
+    protected function beforeSave(): void
+    {
+        $this->capturePersistedProductOptionSelections();
+    }
+
     protected function afterSave(): void
     {
         $this->finishProductOptionSave();

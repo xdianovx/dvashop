@@ -20,6 +20,7 @@ use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Models\VehicleModel;
+use App\Services\Catalog\ProductOptionTemplateResolver;
 use App\Services\Media\MediaUrlService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
@@ -179,36 +180,71 @@ final class ProductForm
     }
 
     /** @return array<int|string, string> */
-    public static function optionTemplateOptions(ProductType|string|null $productType): array
-    {
+    public static function optionTemplateOptions(
+        ProductType|string|null $productType,
+        mixed $partTypeId = null,
+        mixed $selectedId = null,
+    ): array {
         $scope = $productType instanceof ProductType ? $productType->value : (string) $productType;
 
         return ProductOptionTemplate::query()
-            ->where('is_active', true)
-            ->whereIn('applies_to', array_filter([ProductOptionGroup::APPLIES_ALL, $scope]))
+            ->where(function ($query) use ($partTypeId, $scope, $selectedId): void {
+                $query->where(function ($compatible) use ($partTypeId, $scope): void {
+                    $compatible
+                        ->where('is_active', true)
+                        ->whereIn('applies_to', array_filter([
+                            ProductOptionGroup::APPLIES_ALL,
+                            $scope,
+                        ]))
+                        ->where(function ($partType) use ($partTypeId): void {
+                            $partType->whereNull('part_type_id')
+                                ->when(filled($partTypeId), fn ($options) => $options->orWhere('part_type_id', $partTypeId));
+                        });
+                })->when(filled($selectedId), fn ($options) => $options->orWhere('id', $selectedId));
+            })
             ->orderBy('position')
             ->orderBy('title')
-            ->pluck('title', 'id')
+            ->get()
+            ->mapWithKeys(fn (ProductOptionTemplate $template): array => [
+                $template->getKey() => self::optionActiveLabel($template->title, $template->is_active),
+            ])
             ->all();
     }
 
     /** @return array<int|string, string> */
-    public static function optionGroupOptions(mixed $templateId = null): array
+    public static function optionGroupOptions(mixed $templateId = null, mixed $selectedId = null): array
     {
         return ProductOptionGroup::query()
-            ->where('is_active', true)
-            ->when(filled($templateId), fn ($query) => $query->whereHas(
-                'templateItems',
-                fn ($items) => $items->where('product_option_template_id', $templateId),
-            ))
+            ->where(function ($query) use ($selectedId, $templateId): void {
+                if (filled($selectedId)) {
+                    $query->whereKey($selectedId)->orWhere(function ($available) use ($templateId): void {
+                        $available->where('is_active', true)
+                            ->when(filled($templateId), fn ($groups) => $groups->whereHas(
+                                'templateItems',
+                                fn ($items) => $items->where('product_option_template_id', $templateId),
+                            ));
+                    });
+
+                    return;
+                }
+
+                $query->where('is_active', true)
+                    ->when(filled($templateId), fn ($groups) => $groups->whereHas(
+                        'templateItems',
+                        fn ($items) => $items->where('product_option_template_id', $templateId),
+                    ));
+            })
             ->orderBy('position')
             ->orderBy('title')
-            ->pluck('title', 'id')
+            ->get()
+            ->mapWithKeys(fn (ProductOptionGroup $group): array => [
+                $group->getKey() => self::optionActiveLabel($group->title, $group->is_active),
+            ])
             ->all();
     }
 
     /** @return array<int|string, string> */
-    public static function optionValueOptions(mixed $groupId, mixed $templateId = null): array
+    public static function optionValueOptions(mixed $groupId, mixed $templateId = null, mixed $selectedId = null): array
     {
         if (blank($groupId)) {
             return [];
@@ -216,14 +252,31 @@ final class ProductForm
 
         return ProductOptionValue::query()
             ->where('product_option_group_id', $groupId)
-            ->where('is_active', true)
-            ->when(filled($templateId), fn ($query) => $query->whereHas(
-                'templateItems',
-                fn ($items) => $items->where('product_option_template_id', $templateId),
-            ))
+            ->where(function ($query) use ($selectedId, $templateId): void {
+                if (filled($selectedId)) {
+                    $query->whereKey($selectedId)->orWhere(function ($available) use ($templateId): void {
+                        $available->where('is_active', true)
+                            ->when(filled($templateId), fn ($values) => $values->whereHas(
+                                'templateItems',
+                                fn ($items) => $items->where('product_option_template_id', $templateId),
+                            ));
+                    });
+
+                    return;
+                }
+
+                $query->where('is_active', true)
+                    ->when(filled($templateId), fn ($values) => $values->whereHas(
+                        'templateItems',
+                        fn ($items) => $items->where('product_option_template_id', $templateId),
+                    ));
+            })
             ->orderBy('position')
             ->orderBy('title')
-            ->pluck('title', 'id')
+            ->get()
+            ->mapWithKeys(fn (ProductOptionValue $value): array => [
+                $value->getKey() => self::optionActiveLabel($value->title, $value->is_active),
+            ])
             ->all();
     }
 
@@ -241,10 +294,19 @@ final class ProductForm
                     ->default(ProductType::AutoPart->value)
                     ->required()
                     ->live()
-                    ->afterStateUpdated(function (ProductType|string|null $state, Set $set): void {
+                    ->afterStateUpdated(function (ProductType|string|null $state, Get $get, Set $set): void {
                         if (! self::isAutoPartState($state)) {
                             $set('product_option_template_id', null);
+
+                            return;
                         }
+
+                        self::assignDefaultOptionTemplate(
+                            $state,
+                            $get('part_type_id'),
+                            $get('product_option_template_id'),
+                            $set,
+                        );
                     }),
                 TextInput::make('title')
                     ->label('Название')
@@ -267,23 +329,30 @@ final class ProductForm
                     ->searchable()
                     ->preload()
                     ->options(fn (Get $get): array => self::partTypeOptions($get('part_type_id')))
+                    ->live()
                     ->hidden(fn (Get $get): bool => ! self::isAutoPartState($get('product_type')))
                     ->dehydrated(fn (Get $get): bool => self::isAutoPartState($get('product_type')))
-                    ->required(fn (Get $get): bool => self::isAutoPartState($get('product_type'))),
+                    ->required(fn (Get $get): bool => self::isAutoPartState($get('product_type')))
+                    ->afterStateUpdated(fn (mixed $state, Get $get, Set $set) => self::assignDefaultOptionTemplate(
+                        $get('product_type'),
+                        $state,
+                        $get('product_option_template_id'),
+                        $set,
+                    )),
                 Select::make('product_option_template_id')
                     ->label('Шаблон опций')
                     ->searchable()
                     ->preload()
-                    ->options(fn (Get $get): array => self::optionTemplateOptions($get('product_type')))
+                    ->options(fn (Get $get): array => self::optionTemplateOptions(
+                        $get('product_type'),
+                        $get('part_type_id'),
+                        $get('product_option_template_id'),
+                    ))
                     ->hidden(fn (Get $get): bool => ! self::isAutoPartState($get('product_type')))
                     ->dehydrated(fn (Get $get): bool => self::isAutoPartState($get('product_type')))
                     ->live()
-                    ->default(fn (): mixed => ProductOptionTemplate::query()
-                        ->where('slug', 'default_auto_part')
-                        ->where('is_active', true)
-                        ->value('id'))
                     ->nullable()
-                    ->helperText('Шаблон определяет доступные группы и значения опций для вариантов товара.'),
+                    ->helperText('Изменение шаблона не изменяет уже созданные варианты товара. Генерация выполняется отдельным действием.'),
                 Select::make('status')
                     ->label('Статус')
                     ->options(ProductStatus::options())
@@ -307,6 +376,25 @@ final class ProductForm
                     ->columnSpanFull(),
             ])
             ->columns(2);
+    }
+
+    private static function assignDefaultOptionTemplate(
+        ProductType|string|null $productType,
+        mixed $partTypeId,
+        mixed $templateId,
+        Set $set,
+    ): void {
+        if (! self::isAutoPartState($productType) || blank($partTypeId) || filled($templateId)) {
+            return;
+        }
+
+        $defaultTemplateId = app(ProductOptionTemplateResolver::class)
+            ->resolveDefaultForAutoPart((int) $partTypeId)
+            ?->getKey();
+
+        if (filled($defaultTemplateId)) {
+            $set('product_option_template_id', $defaultTemplateId);
+        }
     }
 
     private static function priceAndStockTab(): Tab
@@ -406,6 +494,7 @@ final class ProductForm
                                             ->label('Группа')
                                             ->options(fn (Get $get): array => self::optionGroupOptions(
                                                 $get('data.product_option_template_id', isAbsolute: true),
+                                                $get('product_option_group_id'),
                                             ))
                                             ->searchable()
                                             ->preload()
@@ -418,6 +507,7 @@ final class ProductForm
                                             ->options(fn (Get $get): array => self::optionValueOptions(
                                                 $get('product_option_group_id'),
                                                 $get('data.product_option_template_id', isAbsolute: true),
+                                                $get('product_option_value_id'),
                                             ))
                                             ->searchable()
                                             ->preload()
@@ -803,6 +893,11 @@ final class ProductForm
             ! $isActive => $title.' (неактивно)',
             default => $title,
         };
+    }
+
+    private static function optionActiveLabel(string $title, bool $isActive): string
+    {
+        return $isActive ? $title : $title.' (Неактивно)';
     }
 
     /** @param array<string, mixed> $arguments */

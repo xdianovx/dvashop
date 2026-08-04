@@ -4,9 +4,9 @@ namespace App\Filament\Resources\Products\Pages\Concerns;
 
 use App\Enums\ProductType;
 use App\Models\Product;
-use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
 use App\Models\ProductVariant;
+use App\Services\Catalog\ProductOptionTemplateResolver;
 use App\Services\Media\ProductGalleryService;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Storage;
@@ -95,7 +95,11 @@ trait HandlesProductGalleryUploads
             $data['product_option_template_id'] = null;
             unset($data['fitments']);
         } else {
-            $this->validateAutoPartOptionTemplate($data['product_option_template_id'] ?? null);
+            $this->validateAutoPartOptionTemplate(
+                $data['product_option_template_id'] ?? null,
+                filled($data['part_type_id'] ?? null) ? (int) $data['part_type_id'] : null,
+                $record instanceof Product ? $record : null,
+            );
         }
 
         return $data;
@@ -199,23 +203,39 @@ trait HandlesProductGalleryUploads
         return ($state instanceof ProductType ? $state->value : $state) === ProductType::Generic->value;
     }
 
-    private function validateAutoPartOptionTemplate(mixed $templateId): void
-    {
+    private function validateAutoPartOptionTemplate(
+        mixed $templateId,
+        ?int $partTypeId,
+        ?Product $record,
+    ): void {
         if (! filled($templateId)) {
             return;
         }
 
-        $isCompatible = ProductOptionTemplate::query()
-            ->whereKey($templateId)
-            ->whereIn('applies_to', [
-                ProductOptionGroup::APPLIES_ALL,
-                ProductOptionGroup::APPLIES_AUTO_PART,
-            ])
-            ->exists();
+        $template = ProductOptionTemplate::query()->find($templateId);
 
-        if (! $isCompatible) {
+        if (! $template instanceof ProductOptionTemplate) {
             throw ValidationException::withMessages([
-                'data.product_option_template_id' => 'Шаблон опций не подходит для типа товара «Автодеталь».',
+                'data.product_option_template_id' => 'Выбранный шаблон опций не существует.',
+            ]);
+        }
+
+        if (! app(ProductOptionTemplateResolver::class)->isCompatible(
+            $template,
+            ProductType::AutoPart,
+            $partTypeId,
+        )) {
+            throw ValidationException::withMessages([
+                'data.product_option_template_id' => 'Шаблон опций не подходит для выбранного типа детали. Выберите совместимый шаблон или очистите поле.',
+            ]);
+        }
+
+        $isPersistedSelection = $record?->exists === true
+            && (int) $record->product_option_template_id === (int) $template->getKey();
+
+        if (! $template->is_active && ! $isPersistedSelection) {
+            throw ValidationException::withMessages([
+                'data.product_option_template_id' => 'Нельзя назначить товару неактивный шаблон опций.',
             ]);
         }
     }

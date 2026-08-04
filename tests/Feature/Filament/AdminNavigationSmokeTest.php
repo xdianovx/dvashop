@@ -4,6 +4,9 @@ use App\Filament\Pages\CatalogImportPage;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\PartTypes\PartTypeResource;
 use App\Filament\Resources\ProductCategories\ProductCategoryResource;
+use App\Filament\Resources\ProductOptionGroups\ProductOptionGroupResource;
+use App\Filament\Resources\ProductOptionGroups\RelationManagers\ValuesRelationManager;
+use App\Filament\Resources\ProductOptionTemplates\ProductOptionTemplateResource;
 use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Resources\VehicleGenerations\VehicleGenerationResource;
@@ -13,6 +16,8 @@ use App\Models\Order;
 use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
+use App\Models\ProductOptionGroup;
+use App\Models\ProductOptionTemplate;
 use App\Models\User;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
@@ -44,6 +49,8 @@ test('filament discovery inventory is complete and fails on an unclassified reso
         OrderResource::class,
         PartTypeResource::class,
         ProductCategoryResource::class,
+        ProductOptionGroupResource::class,
+        ProductOptionTemplateResource::class,
         ProductResource::class,
         UserResource::class,
         VehicleGenerationResource::class,
@@ -61,7 +68,10 @@ test('filament discovery inventory is complete and fails on an unclassified reso
         ->and($widgets)->toBe($expectedWidgets);
 
     foreach ($resources as $resource) {
-        expect($resource::getRelations(), $resource)->toBe([]);
+        expect($resource::getRelations(), $resource)->toBe(match ($resource) {
+            ProductOptionGroupResource::class => [ValuesRelationManager::class],
+            default => [],
+        });
     }
 });
 
@@ -131,6 +141,8 @@ test('every discovered resource page route follows the explicit role matrix', fu
         OrderResource::class => Order::factory()->create(),
         PartTypeResource::class => PartType::factory()->create(),
         ProductCategoryResource::class => ProductCategory::factory()->create(),
+        ProductOptionGroupResource::class => ProductOptionGroup::factory()->create(),
+        ProductOptionTemplateResource::class => ProductOptionTemplate::factory()->create(),
         ProductResource::class => Product::factory()->create(),
         UserResource::class => User::factory()->create(),
         VehicleGenerationResource::class => VehicleGeneration::factory()->create(),
@@ -150,7 +162,7 @@ test('every discovered resource page route follows the explicit role matrix', fu
                 'manager' => match ($resource) {
                     ProductResource::class, OrderResource::class => true,
                     UserResource::class => false,
-                    default => $page === 'index',
+                    default => in_array($page, ['index', 'view'], true),
                 },
                 default => false,
             };

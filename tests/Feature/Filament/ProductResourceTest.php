@@ -63,6 +63,28 @@ function productResourcePartType(ProductCategory $category): PartType
     ])->refresh();
 }
 
+/** @return array<string, mixed> */
+function productOptionHardeningData(
+    ProductCategory $category,
+    PartType $partType,
+    string $slug,
+    ?ProductOptionTemplate $template = null,
+): array {
+    return [
+        'product_type' => ProductType::AutoPart->value,
+        'title' => 'Товар '.$slug,
+        'slug' => $slug,
+        'product_category_id' => $category->getKey(),
+        'part_type_id' => $partType->getKey(),
+        'product_option_template_id' => $template?->getKey(),
+        'status' => ProductStatus::Active->value,
+        'position' => 0,
+        'is_featured' => false,
+        'price' => 1000,
+        'stock_status' => StockStatus::InStock->value,
+    ];
+}
+
 test('ProductResource limits option selectors to the selected template', function () {
     $this->seed(ProductOptionSeeder::class);
 
@@ -81,6 +103,324 @@ test('ProductResource limits option selectors to the selected template', functio
         ->and(ProductForm::optionValueOptions($profile->getKey(), $template->getKey()))
         ->toHaveKey($full->getKey())
         ->not->toHaveKey($outsideValue->getKey());
+});
+
+test('ProductResource preserves inactive assigned options and labels them on an ordinary save', function (): void {
+    $undoRepeaterFake = Repeater::fake();
+    $category = productResourceCategory();
+    $partType = productResourcePartType($category);
+    $group = ProductOptionGroup::factory()->create(['is_active' => false]);
+    $value = ProductOptionValue::factory()->forGroup($group)->create(['is_active' => false]);
+    $template = ProductOptionTemplate::factory()->create([
+        'applies_to' => ProductOptionGroup::APPLIES_AUTO_PART,
+        'is_active' => false,
+    ]);
+    $template->items()->create([
+        'product_option_group_id' => $group->getKey(),
+        'product_option_value_id' => $value->getKey(),
+        'position' => 10,
+    ]);
+    $product = Product::factory()
+        ->forCategory($category)
+        ->forPartType($partType)
+        ->withDefaultVariant()
+        ->create(['product_option_template_id' => $template->getKey()]);
+    $variant = $product->defaultVariant()->firstOrFail();
+    $selection = $variant->variantOptionValues()->create([
+        'product_option_group_id' => $group->getKey(),
+        'product_option_value_id' => $value->getKey(),
+    ]);
+
+    expect(ProductForm::optionTemplateOptions($product->product_type, $partType->getKey()))
+        ->not->toHaveKey($template->getKey())
+        ->and(ProductForm::optionGroupOptions($template->getKey()))
+        ->not->toHaveKey($group->getKey())
+        ->and(ProductForm::optionValueOptions($group->getKey(), $template->getKey()))
+        ->not->toHaveKey($value->getKey())
+        ->and(ProductForm::optionTemplateOptions(
+            $product->product_type,
+            $partType->getKey(),
+            $template->getKey(),
+        ))
+        ->toHaveKey($template->getKey(), $template->title.' (Неактивно)')
+        ->and(ProductForm::optionGroupOptions($template->getKey(), $group->getKey()))
+        ->toHaveKey($group->getKey(), $group->title.' (Неактивно)')
+        ->and(ProductForm::optionValueOptions($group->getKey(), $template->getKey(), $value->getKey()))
+        ->toHaveKey($value->getKey(), $value->title.' (Неактивно)');
+
+    try {
+        Livewire::test(EditProduct::class, ['record' => $product->getKey()])
+            ->call('save')
+            ->assertHasNoFormErrors();
+    } finally {
+        $undoRepeaterFake();
+    }
+
+    expect($product->refresh()->product_option_template_id)->toBe($template->getKey())
+        ->and($selection->refresh()->exists)->toBeTrue()
+        ->and($selection->product_option_value_id)->toBe($value->getKey());
+});
+
+test('ProductResource filters templates by part type while retaining the selected historical template', function (): void {
+    $category = productResourceCategory();
+    $firstPartType = productResourcePartType($category);
+    $secondPartType = PartType::factory()->forCategory($category)->create();
+    $global = ProductOptionTemplate::factory()->create(['part_type_id' => null]);
+    $specific = ProductOptionTemplate::factory()->create(['part_type_id' => $firstPartType->getKey()]);
+    $otherSpecific = ProductOptionTemplate::factory()->create(['part_type_id' => $secondPartType->getKey()]);
+    $inactiveHistorical = ProductOptionTemplate::factory()->create([
+        'part_type_id' => $secondPartType->getKey(),
+        'is_active' => false,
+    ]);
+
+    expect(ProductForm::optionTemplateOptions(ProductType::AutoPart, $firstPartType->getKey()))
+        ->toHaveKeys([$global->getKey(), $specific->getKey()])
+        ->not->toHaveKeys([$otherSpecific->getKey(), $inactiveHistorical->getKey()])
+        ->and(ProductForm::optionTemplateOptions(
+            ProductType::AutoPart,
+            $firstPartType->getKey(),
+            $inactiveHistorical->getKey(),
+        ))
+        ->toHaveKey($inactiveHistorical->getKey(), $inactiveHistorical->title.' (Неактивно)');
+});
+
+test('CreateProduct reactively assigns a specific default after part type selection', function (): void {
+    $category = productResourceCategory();
+    $partType = productResourcePartType($category);
+    $globalDefault = ProductOptionTemplate::factory()->default()->create();
+    $specificDefault = ProductOptionTemplate::factory()->default()->create([
+        'part_type_id' => $partType->getKey(),
+    ]);
+
+    Livewire::test(CreateProduct::class)
+        ->assertSet('data.product_option_template_id', null)
+        ->set('data.part_type_id', $partType->getKey())
+        ->assertSet('data.product_option_template_id', $specificDefault->getKey())
+        ->assertSet('data.product_option_template_id', fn (mixed $state): bool => (int) $state !== (int) $globalDefault->getKey());
+});
+
+test('CreateProduct reactively uses the global fallback without overwriting a manual selection', function (): void {
+    $category = productResourceCategory();
+    $firstPartType = productResourcePartType($category);
+    $secondPartType = PartType::factory()->forCategory($category)->create();
+    $globalDefault = ProductOptionTemplate::factory()->default()->create();
+    $manual = ProductOptionTemplate::factory()->create();
+
+    Livewire::test(CreateProduct::class)
+        ->assertSet('data.product_option_template_id', null)
+        ->set('data.part_type_id', $firstPartType->getKey())
+        ->assertSet('data.product_option_template_id', $globalDefault->getKey())
+        ->set('data.product_option_template_id', $manual->getKey())
+        ->set('data.part_type_id', $secondPartType->getKey())
+        ->assertSet('data.product_option_template_id', $manual->getKey())
+        ->set('data.product_type', ProductType::Generic->value)
+        ->assertSet('data.product_option_template_id', null)
+        ->set('data.product_type', ProductType::AutoPart->value)
+        ->assertSet('data.product_option_template_id', $globalDefault->getKey());
+});
+
+test('ProductResource rejects forged inactive and incompatible template assignments before create', function (): void {
+    $category = productResourceCategory();
+    $partType = productResourcePartType($category);
+    $otherPartType = PartType::factory()->forCategory($category)->create();
+    $inactive = ProductOptionTemplate::factory()->create(['is_active' => false]);
+    $wrongPartType = ProductOptionTemplate::factory()->create([
+        'part_type_id' => $otherPartType->getKey(),
+    ]);
+
+    foreach ([
+        'inactive-template-forged' => $inactive,
+        'wrong-part-template-forged' => $wrongPartType,
+    ] as $slug => $template) {
+        Livewire::test(CreateProduct::class)
+            ->fillForm(productOptionHardeningData($category, $partType, $slug, $template), 'form')
+            ->call('create')
+            ->assertHasFormErrors(['product_option_template_id']);
+
+        expect(Product::query()->where('slug', $slug)->exists())->toBeFalse();
+    }
+});
+
+test('ProductResource preserves only the assigned inactive template and rejects another inactive template', function (): void {
+    $category = productResourceCategory();
+    $partType = productResourcePartType($category);
+    $assigned = ProductOptionTemplate::factory()->create(['is_active' => false]);
+    $other = ProductOptionTemplate::factory()->create(['is_active' => false]);
+    $product = Product::factory()
+        ->forCategory($category)
+        ->forPartType($partType)
+        ->withDefaultVariant()
+        ->create(['product_option_template_id' => $assigned->getKey()]);
+
+    Livewire::test(EditProduct::class, ['record' => $product->getKey()])
+        ->set('data.product_option_template_id', $other->getKey())
+        ->call('save')
+        ->assertHasFormErrors(['product_option_template_id']);
+
+    expect($product->refresh()->product_option_template_id)->toBe($assigned->getKey());
+});
+
+test('ProductResource rejects a selected template after part type becomes incompatible and accepts a compatible one', function (): void {
+    $category = productResourceCategory();
+    $firstPartType = productResourcePartType($category);
+    $secondPartType = PartType::factory()->forCategory($category)->create();
+    $specific = ProductOptionTemplate::factory()->create([
+        'part_type_id' => $firstPartType->getKey(),
+    ]);
+    $product = Product::factory()
+        ->forCategory($category)
+        ->forPartType($firstPartType)
+        ->withDefaultVariant()
+        ->create(['product_option_template_id' => $specific->getKey()]);
+
+    Livewire::test(EditProduct::class, ['record' => $product->getKey()])
+        ->set('data.part_type_id', $secondPartType->getKey())
+        ->assertSet('data.product_option_template_id', $specific->getKey())
+        ->call('save')
+        ->assertHasFormErrors(['product_option_template_id']);
+
+    expect($product->refresh()->part_type_id)->toBe($firstPartType->getKey())
+        ->and($product->product_option_template_id)->toBe($specific->getKey());
+
+    $compatible = ProductOptionTemplate::factory()->create([
+        'part_type_id' => $firstPartType->getKey(),
+    ]);
+
+    Livewire::test(EditProduct::class, ['record' => $product->getKey()])
+        ->set('data.product_option_template_id', $compatible->getKey())
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($product->refresh()->product_option_template_id)->toBe($compatible->getKey());
+});
+
+test('ProductResource preserves a historical option pair removed from the current template', function (): void {
+    $undoRepeaterFake = Repeater::fake();
+    $category = productResourceCategory();
+    $partType = productResourcePartType($category);
+    $group = ProductOptionGroup::factory()->create(['title' => 'Историческая группа']);
+    $value = ProductOptionValue::factory()->forGroup($group)->create(['title' => 'Историческое значение']);
+    $template = ProductOptionTemplate::factory()->create();
+    $item = $template->items()->create([
+        'product_option_group_id' => $group->getKey(),
+        'product_option_value_id' => $value->getKey(),
+        'position' => 10,
+    ]);
+    $product = Product::factory()
+        ->forCategory($category)
+        ->forPartType($partType)
+        ->withDefaultVariant()
+        ->create(['product_option_template_id' => $template->getKey()]);
+    $variant = $product->defaultVariant()->firstOrFail();
+    $selection = $variant->variantOptionValues()->create([
+        'product_option_group_id' => $group->getKey(),
+        'product_option_value_id' => $value->getKey(),
+    ]);
+    $variant->syncOptionsSnapshotFromValues();
+    $snapshot = $variant->refresh()->options;
+    $item->delete();
+
+    expect(ProductForm::optionGroupOptions($template->getKey()))
+        ->not->toHaveKey($group->getKey())
+        ->and(ProductForm::optionValueOptions($group->getKey(), $template->getKey()))
+        ->not->toHaveKey($value->getKey())
+        ->and(ProductForm::optionGroupOptions($template->getKey(), $group->getKey()))
+        ->toHaveKey($group->getKey(), $group->title)
+        ->and(ProductForm::optionValueOptions($group->getKey(), $template->getKey(), $value->getKey()))
+        ->toHaveKey($value->getKey(), $value->title);
+
+    try {
+        $component = Livewire::test(EditProduct::class, ['record' => $product->getKey()]);
+        $variantStates = array_values($component->get('data')['variants']);
+        $selectionStates = array_values($variantStates[0]['variantOptionValues']);
+
+        expect((int) $selectionStates[0]['product_option_group_id'])->toBe((int) $group->getKey())
+            ->and((int) $selectionStates[0]['product_option_value_id'])->toBe((int) $value->getKey());
+
+        $component
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        expect($selection->refresh()->product_option_group_id)->toBe($group->getKey())
+            ->and($selection->product_option_value_id)->toBe($value->getKey())
+            ->and($variant->refresh()->options)->toBe($snapshot);
+
+        $variantStates = array_values($component->get('data')['variants']);
+        $variantStates[] = [
+            'sku' => 'FORGED-HISTORICAL-PAIR',
+            'title' => 'Новый вариант с исторической парой',
+            'price' => 1000,
+            'stock_quantity' => 1,
+            'stock_status' => StockStatus::InStock->value,
+            'is_default' => false,
+            'is_active' => true,
+            'options' => [],
+            'variantOptionValues' => [[
+                'product_option_group_id' => $group->getKey(),
+                'product_option_value_id' => $value->getKey(),
+            ]],
+        ];
+
+        $component
+            ->set('data.variants', $variantStates)
+            ->call('save')
+            ->assertHasFormErrors();
+    } finally {
+        $undoRepeaterFake();
+    }
+
+    expect($product->variants()->count())->toBe(1)
+        ->and(ProductVariant::query()->where('sku', 'FORGED-HISTORICAL-PAIR')->exists())->toBeFalse()
+        ->and($selection->refresh()->exists)->toBeTrue()
+        ->and($variant->refresh()->options)->toBe($snapshot);
+});
+
+test('ProductResource rejects forged inactive groups and values for new variants atomically', function (): void {
+    $undoRepeaterFake = Repeater::fake();
+    $category = productResourceCategory();
+    $partType = productResourcePartType($category);
+
+    try {
+        foreach ([
+            'inactive-group' => [false, true],
+            'inactive-value' => [true, false],
+        ] as $slug => [$groupActive, $valueActive]) {
+            $group = ProductOptionGroup::factory()->create(['is_active' => $groupActive]);
+            $value = ProductOptionValue::factory()->forGroup($group)->create(['is_active' => $valueActive]);
+            $template = ProductOptionTemplate::factory()->create();
+            $template->items()->create([
+                'product_option_group_id' => $group->getKey(),
+                'product_option_value_id' => $value->getKey(),
+                'position' => 0,
+            ]);
+
+            Livewire::test(CreateProduct::class)
+                ->fillForm([
+                    ...productOptionHardeningData($category, $partType, $slug, $template),
+                    'variants' => [[
+                        'sku' => strtoupper($slug),
+                        'title' => 'Подделанный вариант',
+                        'price' => 1000,
+                        'stock_quantity' => 1,
+                        'stock_status' => StockStatus::InStock->value,
+                        'is_default' => true,
+                        'is_active' => true,
+                        'options' => ['legacy' => 'не сохранять'],
+                        'variantOptionValues' => [[
+                            'product_option_group_id' => $group->getKey(),
+                            'product_option_value_id' => $value->getKey(),
+                        ]],
+                    ]],
+                ], 'form')
+                ->call('create')
+                ->assertHasFormErrors();
+
+            expect(Product::query()->where('slug', $slug)->exists())->toBeFalse()
+                ->and(ProductVariant::query()->where('sku', strtoupper($slug))->exists())->toBeFalse();
+        }
+    } finally {
+        $undoRepeaterFake();
+    }
 });
 
 test('ProductResource SEO tab validates canonical URL and saves extended metadata', function () {

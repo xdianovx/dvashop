@@ -4,7 +4,7 @@ namespace App\Console\Commands;
 
 use App\Enums\ProductType;
 use App\Models\Product;
-use App\Models\ProductOptionTemplate;
+use App\Services\Catalog\ProductOptionTemplateResolver;
 use Illuminate\Console\Command;
 
 class AssignDefaultProductOptionTemplate extends Command
@@ -14,19 +14,8 @@ class AssignDefaultProductOptionTemplate extends Command
 
     protected $description = 'Назначить стандартный шаблон автодеталям, у которых шаблон ещё не выбран';
 
-    public function handle(): int
+    public function handle(ProductOptionTemplateResolver $resolver): int
     {
-        $template = ProductOptionTemplate::query()
-            ->where('slug', 'default_auto_part')
-            ->where('is_active', true)
-            ->first();
-
-        if (! $template instanceof ProductOptionTemplate) {
-            $this->error('Активный шаблон default_auto_part не найден. Сначала запустите ProductOptionSeeder.');
-
-            return self::FAILURE;
-        }
-
         $query = Product::query()
             ->where('product_type', ProductType::AutoPart->value)
             ->whereNull('product_option_template_id');
@@ -34,13 +23,39 @@ class AssignDefaultProductOptionTemplate extends Command
 
         $this->line('Автодеталей без шаблона: '.$count);
 
-        if (! $this->option('apply')) {
+        $apply = (bool) $this->option('apply');
+        $updated = 0;
+
+        $query->select(['id', 'part_type_id'])->chunkById(200, function ($products) use ($resolver, $apply, &$updated): void {
+            foreach ($products as $product) {
+                $template = $resolver->resolveDefaultForAutoPart(
+                    $product->part_type_id === null ? null : (int) $product->part_type_id,
+                );
+
+                if ($template === null) {
+                    continue;
+                }
+
+                if (! $apply) {
+                    $updated++;
+
+                    continue;
+                }
+
+                $updated += Product::query()
+                    ->whereKey($product->getKey())
+                    ->whereNull('product_option_template_id')
+                    ->update(['product_option_template_id' => $template->getKey()]);
+            }
+        });
+
+        if (! $apply) {
+            $this->line('Подходящий шаблон по умолчанию найден для товаров: '.$updated);
             $this->components->info('Dry-run завершён. База данных не изменялась.');
 
             return self::SUCCESS;
         }
 
-        $updated = $query->update(['product_option_template_id' => $template->getKey()]);
         $this->components->info('Шаблон назначен товарам: '.$updated);
         $this->warn('Варианты автоматически не создавались.');
 
