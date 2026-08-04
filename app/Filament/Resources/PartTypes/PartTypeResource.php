@@ -2,12 +2,14 @@
 
 namespace App\Filament\Resources\PartTypes;
 
+use App\Filament\Actions\CatalogLifecycleActions;
 use App\Filament\Resources\PartTypes\Pages\CreatePartType;
 use App\Filament\Resources\PartTypes\Pages\EditPartType;
 use App\Filament\Resources\PartTypes\Pages\ListPartTypes;
 use App\Filament\Schemas\SeoSchema;
 use App\Models\PartType;
 use App\Models\ProductCategory;
+use App\Services\Catalog\CatalogStructureAdminService;
 use App\Services\Catalog\PartTypeTreeService;
 use BackedEnum;
 use Filament\Actions\BulkActionGroup;
@@ -103,7 +105,10 @@ class PartTypeResource extends Resource
                 ->required(),
             Toggle::make('is_active')
                 ->label('Активен')
-                ->default(true),
+                ->default(true)
+                ->disabled(fn (?PartType $record): bool => $record?->exists === true)
+                ->dehydrated(fn (?PartType $record): bool => $record?->exists !== true)
+                ->helperText('Для существующего типа используйте подтверждаемое действие в таблице.'),
             SeoSchema::section(),
         ]);
     }
@@ -218,13 +223,14 @@ class PartTypeResource extends Resource
             ])
             ->recordActions([
                 EditAction::make(),
-                DeleteAction::make(),
-                RestoreAction::make(),
+                CatalogLifecycleActions::toggleActive(),
+                DeleteAction::make()->using(fn (PartType $record) => app(CatalogStructureAdminService::class)->deletePartType($record)),
+                RestoreAction::make()->using(fn (PartType $record) => app(CatalogStructureAdminService::class)->restorePartType($record)),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                    RestoreBulkAction::make(),
+                    DeleteBulkAction::make()->hidden(),
+                    RestoreBulkAction::make()->hidden(),
                 ]),
             ]);
     }
@@ -236,7 +242,7 @@ class PartTypeResource extends Resource
                 SoftDeletingScope::class,
             ])
             ->with('productCategory')
-            ->withCount('products');
+            ->withCount(['products', 'children', 'optionTemplates']);
     }
 
     public static function getPages(): array

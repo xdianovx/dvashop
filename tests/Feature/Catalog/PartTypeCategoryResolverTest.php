@@ -52,7 +52,7 @@ test('resolver does not create a missing required category', function () {
     $category = ProductCategory::query()
         ->where('full_slug', 'kuzovnye-detali/remontnye-elementy-kuzova/porogi')
         ->firstOrFail();
-    $category->forceDelete();
+    $category->forceDeleteQuietly();
     $countBefore = ProductCategory::withTrashed()->count();
 
     try {

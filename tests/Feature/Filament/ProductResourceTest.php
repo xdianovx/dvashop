@@ -19,6 +19,8 @@ use App\Models\ProductOptionValue;
 use App\Models\ProductVariant;
 use App\Models\User;
 use App\Models\VehicleGeneration;
+use App\Models\VehicleMake;
+use App\Models\VehicleModel;
 use Database\Seeders\ProductOptionSeeder;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Repeater;
@@ -105,15 +107,93 @@ test('ProductResource limits option selectors to the selected template', functio
         ->not->toHaveKey($outsideValue->getKey());
 });
 
+test('ProductForm relation options reject forged state without unsafe query bindings', function (): void {
+    $category = productResourceCategory();
+    $partType = productResourcePartType($category);
+    $make = VehicleMake::factory()->create();
+    $model = VehicleModel::factory()->forMake($make)->create();
+    $generation = VehicleGeneration::factory()->forVehicleModel($model)->create();
+    $template = ProductOptionTemplate::factory()->create(['part_type_id' => $partType->getKey()]);
+
+    expect(ProductForm::productCategoryOptions([]))->toBe([])
+        ->and(ProductForm::partTypeOptions('1abc'))->toBe([])
+        ->and(ProductForm::vehicleMakeOptions([]))->toBe([])
+        ->and(ProductForm::vehicleModelOptions([], null))->toBe([])
+        ->and(ProductForm::vehicleGenerationOptions('1abc', null))->toBe([])
+        ->and(ProductForm::optionTemplateOptions(ProductType::AutoPart, [], null))->toBe([])
+        ->and(ProductForm::productCategoryOptions((string) $category->getKey()))->toHaveKey($category->getKey())
+        ->and(ProductForm::partTypeOptions((string) $partType->getKey()))->toHaveKey($partType->getKey())
+        ->and(ProductForm::vehicleMakeOptions((string) $make->getKey()))->toHaveKey($make->getKey())
+        ->and(ProductForm::vehicleModelOptions((string) $make->getKey(), (string) $model->getKey()))->toHaveKey($model->getKey())
+        ->and(ProductForm::vehicleGenerationOptions((string) $model->getKey(), (string) $generation->getKey()))->toHaveKey($generation->getKey())
+        ->and(ProductForm::optionTemplateOptions(
+            ProductType::AutoPart,
+            (string) $partType->getKey(),
+            (string) $template->getKey(),
+        ))->toHaveKey($template->getKey());
+});
+
+test('ProductResource forged relation state returns validation without changing the product', function (string $path, mixed $value): void {
+    $undoRepeaterFake = Repeater::fake();
+    $category = productResourceCategory();
+    $partType = productResourcePartType($category);
+    $make = VehicleMake::factory()->create();
+    $model = VehicleModel::factory()->forMake($make)->create();
+    $generation = VehicleGeneration::factory()->forVehicleModel($model)->create();
+    $template = ProductOptionTemplate::factory()->create(['part_type_id' => $partType->getKey()]);
+    $product = Product::factory()
+        ->forCategory($category)
+        ->forPartType($partType)
+        ->withDefaultVariant()
+        ->create([
+            'title' => 'Неизменяемый товар forged state',
+            'product_option_template_id' => $template->getKey(),
+        ]);
+    $value = is_callable($value) ? $value($make, $model, $generation) : $value;
+
+    try {
+        Livewire::test(EditProduct::class, ['record' => $product->getKey()])
+            ->set($path, $value)
+            ->call('save')
+            ->assertStatus(200)
+            ->assertHasFormErrors();
+
+        expect($product->refresh()->title)->toBe('Неизменяемый товар forged state')
+            ->and($product->part_type_id)->toBe($partType->getKey())
+            ->and($product->product_option_template_id)->toBe($template->getKey())
+            ->and($product->fitments()->count())->toBe(0);
+    } finally {
+        $undoRepeaterFake();
+    }
+})->with([
+    'part type array' => ['data.part_type_id', []],
+    'part type mixed string' => ['data.part_type_id', '1abc'],
+    'template array' => ['data.product_option_template_id', []],
+    'vehicle make array' => ['data.fitments', fn (VehicleMake $make, VehicleModel $model, VehicleGeneration $generation): array => [[
+        'vehicle_make_id' => [],
+        'vehicle_model_id' => $model->getKey(),
+        'vehicle_generation_id' => $generation->getKey(),
+        'note' => null,
+        'is_primary' => false,
+    ]]],
+    'vehicle model mixed string' => ['data.fitments', fn (VehicleMake $make, VehicleModel $model, VehicleGeneration $generation): array => [[
+        'vehicle_make_id' => $make->getKey(),
+        'vehicle_model_id' => '1abc',
+        'vehicle_generation_id' => $generation->getKey(),
+        'note' => null,
+        'is_primary' => false,
+    ]]],
+]);
+
 test('ProductResource preserves inactive assigned options and labels them on an ordinary save', function (): void {
     $undoRepeaterFake = Repeater::fake();
     $category = productResourceCategory();
     $partType = productResourcePartType($category);
-    $group = ProductOptionGroup::factory()->create(['is_active' => false]);
-    $value = ProductOptionValue::factory()->forGroup($group)->create(['is_active' => false]);
+    $group = ProductOptionGroup::factory()->create(['is_active' => true]);
+    $value = ProductOptionValue::factory()->forGroup($group)->create(['is_active' => true]);
     $template = ProductOptionTemplate::factory()->create([
         'applies_to' => ProductOptionGroup::APPLIES_AUTO_PART,
-        'is_active' => false,
+        'is_active' => true,
     ]);
     $template->items()->create([
         'product_option_group_id' => $group->getKey(),
@@ -130,6 +210,9 @@ test('ProductResource preserves inactive assigned options and labels them on an 
         'product_option_group_id' => $group->getKey(),
         'product_option_value_id' => $value->getKey(),
     ]);
+    $template->update(['is_active' => false]);
+    $group->update(['is_active' => false]);
+    $value->update(['is_active' => false]);
 
     expect(ProductForm::optionTemplateOptions($product->product_type, $partType->getKey()))
         ->not->toHaveKey($template->getKey())
@@ -244,13 +327,14 @@ test('ProductResource rejects forged inactive and incompatible template assignme
 test('ProductResource preserves only the assigned inactive template and rejects another inactive template', function (): void {
     $category = productResourceCategory();
     $partType = productResourcePartType($category);
-    $assigned = ProductOptionTemplate::factory()->create(['is_active' => false]);
+    $assigned = ProductOptionTemplate::factory()->create(['is_active' => true]);
     $other = ProductOptionTemplate::factory()->create(['is_active' => false]);
     $product = Product::factory()
         ->forCategory($category)
         ->forPartType($partType)
         ->withDefaultVariant()
         ->create(['product_option_template_id' => $assigned->getKey()]);
+    $assigned->update(['is_active' => false]);
 
     Livewire::test(EditProduct::class, ['record' => $product->getKey()])
         ->set('data.product_option_template_id', $other->getKey())

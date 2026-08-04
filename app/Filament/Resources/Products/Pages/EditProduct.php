@@ -5,6 +5,8 @@ namespace App\Filament\Resources\Products\Pages;
 use App\Filament\Resources\Products\Pages\Concerns\HandlesProductGalleryUploads;
 use App\Filament\Resources\Products\Pages\Concerns\HandlesProductOptionValues;
 use App\Filament\Resources\Products\ProductResource;
+use App\Models\Product;
+use App\Services\Catalog\ProductAdminService;
 use App\Services\Catalog\ProductVariantOptionGenerator;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -12,6 +14,7 @@ use Filament\Actions\ForceDeleteAction;
 use Filament\Actions\RestoreAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
 
 class EditProduct extends EditRecord
@@ -48,6 +51,12 @@ class EditProduct extends EditRecord
     protected function beforeSave(): void
     {
         $this->capturePersistedProductOptionSelections();
+    }
+
+    protected function handleRecordUpdate(Model $record, array $data): Model
+    {
+        /** @var Product $record */
+        return app(ProductAdminService::class)->save($record, $data);
     }
 
     protected function afterSave(): void

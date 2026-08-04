@@ -153,11 +153,6 @@ class ProductSeeder extends Seeder
             ],
         ];
 
-        $product->variants()
-            ->whereNotIn('sku', array_keys($definitions))
-            ->get()
-            ->each->delete();
-
         foreach ($definitions as $sku => $definition) {
             $variant = ProductVariant::query()->updateOrCreate(
                 ['sku' => $sku],
@@ -190,15 +185,15 @@ class ProductSeeder extends Seeder
 
             $variant->syncOptionsSnapshotFromValues();
         }
+
+        $product->variants()
+            ->whereNotIn('sku', array_keys($definitions))
+            ->get()
+            ->each->delete();
     }
 
     private function syncTechnicalVariant(Product $product, string $sku, int $price, ?int $oldPrice = null): void
     {
-        $product->variants()
-            ->where(fn ($variants) => $variants->whereNull('sku')->orWhere('sku', '!=', $sku))
-            ->get()
-            ->each->delete();
-
         $variant = ProductVariant::query()->updateOrCreate(
             ['sku' => $sku],
             [
@@ -215,5 +210,10 @@ class ProductSeeder extends Seeder
         );
 
         $variant->variantOptionValues()->delete();
+
+        $product->variants()
+            ->whereKeyNot($variant->getKey())
+            ->get()
+            ->each->delete();
     }
 }

@@ -4,9 +4,9 @@ use App\Exceptions\Catalog\PartTypeCycleException;
 use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
-use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 uses(RefreshDatabase::class);
 
@@ -126,33 +126,34 @@ test('part type category and product relationships work in both directions', fun
         ->and($category->partTypes->first()->is($partType))->toBeTrue();
 });
 
-test('soft deleting a part type keeps its product assigned and intact', function () {
+test('soft deleting a used part type is rejected and keeps its product assigned', function () {
     $partType = PartType::factory()->create(['title' => 'Порог']);
     $product = Product::factory()->forPartType($partType)->create();
 
-    $partType->delete();
+    expect(fn () => $partType->delete())->toThrow(ValidationException::class, 'используемый тип детали');
 
-    expect(Product::query()->find($product->id))->not->toBeNull()
+    expect($partType->refresh()->trashed())->toBeFalse()
+        ->and(Product::query()->find($product->id))->not->toBeNull()
         ->and($product->fresh()->part_type_id)->toBe($partType->id);
 });
 
-test('soft deleting a parent preserves its descendants and denormalized paths', function () {
+test('soft deleting a parent is rejected and preserves its descendants and paths', function () {
     $root = PartType::factory()->create(['title' => 'Арка']);
     $child = PartType::factory()->childOf($root)->create(['title' => 'Задняя']);
     $grandchild = PartType::factory()->childOf($child)->create(['title' => 'Внутренняя']);
     $childPath = $child->only(['parent_id', 'full_slug', 'full_title', 'depth']);
     $grandchildPath = $grandchild->only(['parent_id', 'full_slug', 'full_title', 'depth']);
 
-    $root->delete();
+    expect(fn () => $root->delete())->toThrow(ValidationException::class, 'дочерними типами');
 
     $freshChild = $child->fresh();
     $freshGrandchild = $grandchild->fresh();
 
-    expect(PartType::withTrashed()->findOrFail($root->id)->trashed())->toBeTrue()
+    expect(PartType::withTrashed()->findOrFail($root->id)->trashed())->toBeFalse()
         ->and($freshChild)->not->toBeNull()
         ->and($freshChild->only(['parent_id', 'full_slug', 'full_title', 'depth']))->toBe($childPath)
         ->and($freshChild->parent->is($root))->toBeTrue()
-        ->and($freshChild->parent->trashed())->toBeTrue()
+        ->and($freshChild->parent->trashed())->toBeFalse()
         ->and($freshGrandchild)->not->toBeNull()
         ->and($freshGrandchild->only(['parent_id', 'full_slug', 'full_title', 'depth']))->toBe($grandchildPath)
         ->and($freshGrandchild->parent->is($freshChild))->toBeTrue();
@@ -165,7 +166,7 @@ test('force deleting a parent with children is restricted without changing the t
     $childPath = $child->only(['parent_id', 'full_slug', 'full_title', 'depth']);
     $grandchildPath = $grandchild->only(['parent_id', 'full_slug', 'full_title', 'depth']);
 
-    expect(fn () => $root->forceDelete())->toThrow(QueryException::class);
+    expect(fn () => $root->forceDelete())->toThrow(ValidationException::class);
 
     expect(PartType::query()->find($root->id))->not->toBeNull()
         ->and($child->fresh())->not->toBeNull()
@@ -174,21 +175,21 @@ test('force deleting a parent with children is restricted without changing the t
         ->and($grandchild->fresh()->only(['parent_id', 'full_slug', 'full_title', 'depth']))->toBe($grandchildPath);
 });
 
-test('force deleting a leaf nulls the product foreign key without deleting the product', function () {
+test('force deleting a used leaf is rejected without changing its product', function () {
     $partType = PartType::factory()->create(['title' => 'Порог']);
     $product = Product::factory()->forPartType($partType)->create();
 
-    $partType->forceDelete();
+    expect(fn () => $partType->forceDelete())->toThrow(ValidationException::class);
 
-    expect(PartType::withTrashed()->find($partType->id))->toBeNull()
+    expect(PartType::withTrashed()->find($partType->id))->not->toBeNull()
         ->and(Product::query()->find($product->id))->not->toBeNull()
-        ->and($product->fresh()->part_type_id)->toBeNull();
+        ->and($product->fresh()->part_type_id)->toBe($partType->id);
 });
 
 test('full slug is unique', function () {
     PartType::factory()->create(['title' => 'Порог']);
     PartType::factory()->create(['title' => 'Порог']);
-})->throws(QueryException::class);
+})->throws(ValidationException::class, 'Полный путь типа детали уже используется');
 
 test('local slug can repeat below different parents', function () {
     $firstParent = PartType::factory()->create(['title' => 'Арка']);
@@ -211,3 +212,73 @@ test('part type factory supports root child activity and category states', funct
         ->and($child->parent_id)->toBe($root->id)
         ->and($child->is_active)->toBeTrue();
 });
+
+test('part type rejects a missing and soft deleted parent before insert', function (): void {
+    $missing = PartType::factory()->make([
+        'title' => 'С отсутствующим родителем',
+        'parent_id' => 999999,
+    ]);
+
+    expect(fn () => $missing->save())
+        ->toThrow(ValidationException::class, 'Выбранный родительский тип детали не существует.');
+
+    $deletedParent = PartType::factory()->create(['title' => 'Удалённый родитель']);
+    $deletedParent->delete();
+    $deleted = PartType::factory()->make([
+        'title' => 'С удалённым родителем',
+        'parent_id' => $deletedParent->getKey(),
+    ]);
+
+    expect(fn () => $deleted->save())
+        ->toThrow(ValidationException::class, 'Удалённый тип детали не может быть родительским.');
+
+    expect(PartType::query()->whereIn('title', [
+        'С отсутствующим родителем',
+        'С удалённым родителем',
+    ])->exists())->toBeFalse();
+});
+
+test('part type validates category lifecycle and preserves an unchanged inactive assignment', function (): void {
+    $active = ProductCategory::factory()->create();
+    $partType = PartType::factory()->forCategory($active)->create(['title' => 'Исторический тип']);
+    $active->update(['is_active' => false]);
+
+    $partType->update(['title' => 'Исторический тип обновлён']);
+
+    expect($partType->refresh()->product_category_id)->toBe($active->getKey());
+
+    $newWithInactive = PartType::factory()->make([
+        'title' => 'Новый с неактивной категорией',
+        'product_category_id' => $active->getKey(),
+    ]);
+
+    expect(fn () => $newWithInactive->save())
+        ->toThrow(ValidationException::class, 'Нельзя назначить типу детали неактивную категорию.');
+
+    $deleted = ProductCategory::factory()->create();
+    $deleted->delete();
+    $withDeleted = PartType::factory()->make([
+        'title' => 'Новый с удалённой категорией',
+        'product_category_id' => $deleted->getKey(),
+    ]);
+
+    expect(fn () => $withDeleted->save())
+        ->toThrow(ValidationException::class, 'Удалённая категория не может быть назначена типу детали.');
+});
+
+test('part type rejects forged parent and category identifiers without partial changes', function (string $field, mixed $value): void {
+    $partType = PartType::factory()->create(['title' => 'Исходный тип']);
+
+    expect(fn () => $partType->fill([
+        'title' => 'Не должно сохраниться',
+        $field => $value,
+    ])->save())->toThrow(ValidationException::class, 'положительным целым числом');
+
+    expect($partType->refresh()->title)->toBe('Исходный тип')
+        ->and($partType->{$field})->toBeNull();
+})->with([
+    'parent zero' => ['parent_id', 0],
+    'parent garbage' => ['parent_id', '1abc'],
+    'category negative' => ['product_category_id', -1],
+    'category array' => ['product_category_id', ['invalid']],
+]);

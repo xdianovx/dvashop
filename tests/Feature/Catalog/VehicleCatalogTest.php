@@ -3,8 +3,8 @@
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Models\VehicleModel;
-use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 
 uses(RefreshDatabase::class);
 
@@ -12,7 +12,7 @@ test('vehicle make norm key is unique', function () {
     VehicleMake::factory()->create(['title' => 'Lada', 'norm_key' => 'lada']);
 
     VehicleMake::factory()->create(['title' => 'Lada duplicate', 'norm_key' => 'lada']);
-})->throws(QueryException::class);
+})->throws(ValidationException::class, 'Марка с таким нормализованным ключом');
 
 test('vehicle model slug and norm key are unique inside make', function () {
     $make = VehicleMake::factory()->create();
@@ -28,7 +28,7 @@ test('vehicle model slug and norm key are unique inside make', function () {
         'slug' => 'vesta',
         'norm_key' => 'vesta-2',
     ]);
-})->throws(QueryException::class);
+})->throws(ValidationException::class, 'модель с таким slug');
 
 test('vehicle generation slug and norm key are unique inside model', function () {
     $model = VehicleModel::factory()->create();
@@ -44,7 +44,7 @@ test('vehicle generation slug and norm key are unique inside model', function ()
         'slug' => 'i',
         'norm_key' => 'i-2',
     ]);
-})->throws(QueryException::class);
+})->throws(ValidationException::class, 'поколение с таким slug');
 
 test('vehicle relationships make model generation are linked', function () {
     $make = VehicleMake::factory()->create(['title' => 'Lada']);

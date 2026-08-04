@@ -36,7 +36,7 @@ test('parent options exclude current type descendants and soft deleted types', f
     $root = PartType::factory()->create(['title' => 'Арка']);
     $child = PartType::factory()->childOf($root)->create(['title' => 'Задняя']);
     $grandchild = PartType::factory()->childOf($child)->create(['title' => 'Внутренняя']);
-    $child->delete();
+    $child->deleteQuietly();
     $other = PartType::factory()->create(['title' => 'Порог']);
     $trashed = PartType::factory()->create(['title' => 'Удалённый тип']);
     $trashed->delete();
@@ -86,7 +86,7 @@ test('part type resource has no force delete actions and readonly path fields ar
         ->toContain("Toggle::make('is_active')")
         ->toContain('SeoSchema::section()')
         ->toContain('->dehydrated(false)')
-        ->toContain("->withCount('products')")
+        ->toContain("->withCount(['products', 'children', 'optionTemplates'])")
         ->not->toContain('ForceDeleteAction')
         ->not->toContain('ForceDeleteBulkAction')
         ->and($seoSchemaSource)->toContain("TextInput::make('meta_title')")

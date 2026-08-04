@@ -3,12 +3,14 @@
 namespace App\Services\Catalog;
 
 use App\Enums\AdminPermission;
+use App\Models\Product;
 use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
 use App\Models\ProductOptionTemplateItem;
 use App\Models\ProductOptionValue;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -140,11 +142,24 @@ final class ProductOptionAdminService
         $this->authorize($actor, AdminPermission::UpdateCatalog);
 
         return DB::transaction(function () use ($template, $data, $items): ProductOptionTemplate {
+            $productIds = Product::query()
+                ->where('product_option_template_id', $template->getKey())
+                ->orderBy('id')
+                ->pluck('id');
+            Product::query()
+                ->whereKey($productIds->all())
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
             $locked = ProductOptionTemplate::query()->lockForUpdate()->findOrFail($template->getKey());
             $validated = $this->validatedTemplateData($data, $locked);
             $validatedItems = $this->validatedTemplateItems($items, $validated['applies_to'], $locked);
             $this->ensureCombinationLimit($validated, $validatedItems);
-            $this->ensureTemplateScopeCompatibleWithProducts($locked, $validated);
+            $actualProducts = Product::query()
+                ->where('product_option_template_id', $locked->getKey())
+                ->orderBy('id')
+                ->get(['id', 'product_type', 'part_type_id']);
+            $this->ensureTemplateScopeCompatibleWithProducts($locked, $validated, $actualProducts);
             $this->clearOtherDefaultTemplates($validated, $locked);
 
             $locked->update($validated);
@@ -435,6 +450,7 @@ final class ProductOptionAdminService
     private function ensureTemplateScopeCompatibleWithProducts(
         ProductOptionTemplate $template,
         array $data,
+        Collection $products,
     ): void {
         if ((string) $template->applies_to === (string) $data['applies_to']
             && (int) ($template->part_type_id ?? 0) === (int) ($data['part_type_id'] ?? 0)) {
@@ -442,9 +458,6 @@ final class ProductOptionAdminService
         }
 
         $candidate = $template->replicate()->forceFill($data);
-        $products = $template->products()
-            ->lockForUpdate()
-            ->get(['id', 'product_type', 'part_type_id']);
 
         foreach ($products as $product) {
             if (! $this->templateResolver->isCompatible(

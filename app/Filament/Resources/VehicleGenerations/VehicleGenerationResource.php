@@ -2,11 +2,13 @@
 
 namespace App\Filament\Resources\VehicleGenerations;
 
+use App\Filament\Actions\CatalogLifecycleActions;
 use App\Filament\Resources\VehicleGenerations\Pages\CreateVehicleGeneration;
 use App\Filament\Resources\VehicleGenerations\Pages\EditVehicleGeneration;
 use App\Filament\Resources\VehicleGenerations\Pages\ListVehicleGenerations;
 use App\Filament\Schemas\SeoSchema;
 use App\Models\VehicleGeneration;
+use App\Services\Catalog\CatalogStructureAdminService;
 use BackedEnum;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
@@ -105,7 +107,10 @@ class VehicleGenerationResource extends Resource
                 ->required(),
             Toggle::make('is_active')
                 ->label('Активна')
-                ->default(true),
+                ->default(true)
+                ->disabled(fn (?VehicleGeneration $record): bool => $record?->exists === true)
+                ->dehydrated(fn (?VehicleGeneration $record): bool => $record?->exists !== true)
+                ->helperText('Для существующего поколения используйте подтверждаемое действие в таблице.'),
             SeoSchema::section(),
         ]);
     }
@@ -182,15 +187,16 @@ class VehicleGenerationResource extends Resource
             ])
             ->recordActions([
                 EditAction::make(),
-                DeleteAction::make(),
-                RestoreAction::make(),
+                CatalogLifecycleActions::toggleActive(),
+                DeleteAction::make()->using(fn (VehicleGeneration $record) => app(CatalogStructureAdminService::class)->deleteVehicle($record)),
+                RestoreAction::make()->using(fn (VehicleGeneration $record) => app(CatalogStructureAdminService::class)->restoreVehicle($record)),
                 ForceDeleteAction::make(),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                    RestoreBulkAction::make(),
-                    ForceDeleteBulkAction::make(),
+                    DeleteBulkAction::make()->hidden(),
+                    RestoreBulkAction::make()->hidden(),
+                    ForceDeleteBulkAction::make()->hidden(),
                 ]),
             ]);
     }
@@ -199,6 +205,7 @@ class VehicleGenerationResource extends Resource
     {
         return parent::getEloquentQuery()
             ->with('model.make')
+            ->withCount('fitments')
             ->withoutGlobalScopes([
                 SoftDeletingScope::class,
             ]);

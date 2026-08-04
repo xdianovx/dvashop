@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\StockStatus;
+use App\Services\Catalog\ProductVariantAdminService;
 use Database\Factories\ProductVariantFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -10,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 #[Fillable([
     'product_id',
@@ -33,6 +35,12 @@ class ProductVariant extends Model
 
     /** @use HasFactory<ProductVariantFactory> */
     use HasFactory;
+
+    public function save(array $options = []): bool
+    {
+        return DB::transaction(fn (): bool => app(ProductVariantAdminService::class)
+            ->guardVariantSkuSave(fn (): bool => parent::save($options)));
+    }
 
     public function product(): BelongsTo
     {
@@ -174,21 +182,10 @@ class ProductVariant extends Model
             $variant->is_active ??= true;
             $variant->is_default ??= false;
 
-            if (! $variant->exists && $variant->product_id && ! self::query()->where('product_id', $variant->product_id)->exists()) {
-                $variant->is_default = true;
-            }
+            app(ProductVariantAdminService::class)->prepareForSave($variant);
         });
 
-        static::saved(function (self $variant): void {
-            if (! $variant->is_default) {
-                return;
-            }
-
-            self::query()
-                ->where('product_id', $variant->product_id)
-                ->whereKeyNot($variant->getKey())
-                ->update(['is_default' => false]);
-        });
+        static::deleting(fn (self $variant) => app(ProductVariantAdminService::class)->assertCanDelete($variant));
     }
 
     protected function casts(): array

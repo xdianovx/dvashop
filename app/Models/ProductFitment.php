@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Catalog\ProductAdminService;
 use Database\Factories\ProductFitmentFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,6 +19,17 @@ class ProductFitment extends Model
 {
     /** @use HasFactory<ProductFitmentFactory> */
     use HasFactory;
+
+    public function save(array $options = []): bool
+    {
+        return app(ProductAdminService::class)
+            ->saveFitment($this, fn (): bool => parent::save($options));
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(fn (self $fitment) => app(ProductAdminService::class)->validateFitment($fitment));
+    }
 
     public function product(): BelongsTo
     {

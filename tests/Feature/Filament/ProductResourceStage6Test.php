@@ -254,7 +254,7 @@ test('Stage 6 inactive or deleted current part type remains labelled and saveabl
     if ($state === 'inactive') {
         $partType->update(['is_active' => false]);
     } else {
-        $partType->delete();
+        $partType->deleteQuietly();
     }
 
     expect(ProductForm::partTypeOptions())->not->toHaveKey($partType->getKey())
@@ -281,9 +281,9 @@ test('Stage 6 soft deleted vehicle hierarchy remains visible and saveable for an
         ->forVehicleGeneration($vehicle['generations'][0])
         ->create();
 
-    $vehicle['generations'][0]->delete();
-    $vehicle['model']->delete();
-    $vehicle['make']->delete();
+    $vehicle['generations'][0]->deleteQuietly();
+    $vehicle['model']->deleteQuietly();
+    $vehicle['make']->deleteQuietly();
 
     try {
         Livewire::test(EditProduct::class, ['record' => $product->getKey()])

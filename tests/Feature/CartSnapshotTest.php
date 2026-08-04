@@ -97,7 +97,7 @@ test('CartSnapshot remains readable after product and variant are deleted', func
     $item = app(CartManager::class)->addItem(requestForCart($cart), $variant->getKey());
     $title = $item->title_snapshot;
 
-    $product->forceDelete();
+    $product->forceDeleteQuietly();
     $item->refresh();
 
     expect($item->product_id)->toBeNull()

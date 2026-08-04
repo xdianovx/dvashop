@@ -47,6 +47,27 @@ class ProductImage extends Model
     /** @use HasFactory<ProductImageFactory> */
     use HasFactory;
 
+    public function save(array $options = []): bool
+    {
+        return DB::transaction(fn (): bool => parent::save($options));
+    }
+
+    public function delete(): ?bool
+    {
+        if (! $this->exists) {
+            return null;
+        }
+
+        app(ProductGalleryService::class)->deleteImage($this);
+
+        return true;
+    }
+
+    public function deleteFromGalleryWorkflow(): ?bool
+    {
+        return static::withoutEvents(fn (): ?bool => parent::delete());
+    }
+
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
@@ -78,6 +99,8 @@ class ProductImage extends Model
             if ($image->is_main) {
                 $image->is_visible = true;
             }
+
+            app(ProductGalleryService::class)->prepareImageForSave($image);
         });
 
         static::saved(function (self $image): void {
@@ -85,17 +108,6 @@ class ProductImage extends Model
             $image->ensureSingleMainImage();
         });
 
-        static::deleted(function (self $image): void {
-            $product = $image->product;
-            $wasMain = (bool) $image->is_main;
-            $deletedImage = clone $image;
-
-            DB::afterCommit(fn (): mixed => $deletedImage->deleteFiles());
-
-            if ($wasMain && $product instanceof Product) {
-                app(ProductGalleryService::class)->promoteMainImage($product->refresh());
-            }
-        });
     }
 
     public function processManualUploadIfNeeded(): void
@@ -125,6 +137,7 @@ class ProductImage extends Model
         $oldPath = $this->getOriginal('path');
         $oldConversions = $this->getOriginal('conversions');
         $oldDisk = $this->getOriginal('disk') ?: 'public';
+        $sourcePath = $this->path;
 
         try {
             $processed = app(ImageProcessingService::class)->processStoredPublicImage(
@@ -132,10 +145,20 @@ class ProductImage extends Model
                 profile: 'product_gallery',
                 directory: 'uploads/products/'.$this->product_id,
                 originalUrl: $this->source_url,
+                deleteSource: false,
             );
         } catch (Throwable $e) {
             throw $e;
         }
+
+        $cleanup = app(MediaFileCleanupService::class);
+        $cleanup->scheduleReplacementCleanup(
+            processed: $processed,
+            sourcePath: $sourcePath,
+            oldPath: is_string($oldPath) ? $oldPath : null,
+            oldConversions: is_array($oldConversions) ? $oldConversions : null,
+            oldDisk: is_string($oldDisk) && $oldDisk !== '' ? $oldDisk : 'public',
+        );
 
         $duplicate = self::query()
             ->where('product_id', $this->product_id)
@@ -144,7 +167,7 @@ class ProductImage extends Model
             ->first();
 
         if ($duplicate instanceof self) {
-            app(MediaFileCleanupService::class)->deleteProcessedImage($processed);
+            $cleanup->deleteProcessedImage($processed);
             $this->forceFill(['checksum' => $processed->checksum]);
             $this->deleteQuietly();
 
@@ -157,11 +180,6 @@ class ProductImage extends Model
 
         $this->forceFill($processed->toProductImageAttributes())->saveQuietly();
 
-        if (is_string($oldPath) && $oldPath !== '' && $oldPath !== $processed->path) {
-            $cleanup = app(MediaFileCleanupService::class);
-            $cleanup->deletePath($oldPath, is_string($oldDisk) && $oldDisk !== '' ? $oldDisk : 'public');
-            $cleanup->deleteConversions(is_array($oldConversions) ? $oldConversions : null, is_string($oldDisk) && $oldDisk !== '' ? $oldDisk : 'public');
-        }
     }
 
     public function deleteFiles(): void

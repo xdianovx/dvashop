@@ -2,11 +2,13 @@
 
 namespace App\Filament\Resources\VehicleModels;
 
+use App\Filament\Actions\CatalogLifecycleActions;
 use App\Filament\Resources\VehicleModels\Pages\CreateVehicleModel;
 use App\Filament\Resources\VehicleModels\Pages\EditVehicleModel;
 use App\Filament\Resources\VehicleModels\Pages\ListVehicleModels;
 use App\Filament\Schemas\SeoSchema;
 use App\Models\VehicleModel;
+use App\Services\Catalog\CatalogStructureAdminService;
 use BackedEnum;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
@@ -83,7 +85,10 @@ class VehicleModelResource extends Resource
                 ->required(),
             Toggle::make('is_active')
                 ->label('Активна')
-                ->default(true),
+                ->default(true)
+                ->disabled(fn (?VehicleModel $record): bool => $record?->exists === true)
+                ->dehydrated(fn (?VehicleModel $record): bool => $record?->exists !== true)
+                ->helperText('Для существующей модели используйте подтверждаемое действие в таблице.'),
             SeoSchema::section(),
         ]);
     }
@@ -151,15 +156,16 @@ class VehicleModelResource extends Resource
             ])
             ->recordActions([
                 EditAction::make(),
-                DeleteAction::make(),
-                RestoreAction::make(),
+                CatalogLifecycleActions::toggleActive(),
+                DeleteAction::make()->using(fn (VehicleModel $record) => app(CatalogStructureAdminService::class)->deleteVehicle($record)),
+                RestoreAction::make()->using(fn (VehicleModel $record) => app(CatalogStructureAdminService::class)->restoreVehicle($record)),
                 ForceDeleteAction::make(),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                    RestoreBulkAction::make(),
-                    ForceDeleteBulkAction::make(),
+                    DeleteBulkAction::make()->hidden(),
+                    RestoreBulkAction::make()->hidden(),
+                    ForceDeleteBulkAction::make()->hidden(),
                 ]),
             ]);
     }
@@ -167,6 +173,8 @@ class VehicleModelResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
+            ->with('make')
+            ->withCount('generations')
             ->withoutGlobalScopes([
                 SoftDeletingScope::class,
             ]);

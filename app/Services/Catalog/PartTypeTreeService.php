@@ -4,17 +4,24 @@ namespace App\Services\Catalog;
 
 use App\Exceptions\Catalog\PartTypeCycleException;
 use App\Models\PartType;
+use App\Models\ProductCategory;
 use App\Support\CatalogText;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class PartTypeTreeService
 {
+    public function __construct(
+        private readonly CatalogRelationIdNormalizer $relationIds,
+    ) {}
+
     public function save(PartType $partType): PartType
     {
         return DB::transaction(function () use ($partType): PartType {
             $shouldRecalculateDescendants = $partType->exists && $partType->isDirty(['title', 'parent_id']);
 
             $this->prepareForSave($partType);
+            app(CatalogStructureAdminService::class)->assertPartTypeIdentityAvailable($partType);
             $partType->saveQuietly();
 
             if ($shouldRecalculateDescendants) {
@@ -28,9 +35,15 @@ class PartTypeTreeService
     public function prepareForSave(PartType $partType): void
     {
         $title = CatalogText::plain($partType->title, 255);
-        $this->ensureAcyclic($partType);
+        $parentId = $this->relationIds->nullablePositive($partType->parent_id, 'parent_id');
+        $categoryId = $this->relationIds->nullablePositive($partType->product_category_id, 'product_category_id');
+        $partType->forceFill([
+            'parent_id' => $parentId,
+            'product_category_id' => $categoryId,
+        ]);
 
-        $parent = $this->findParent($partType);
+        $parent = $this->ensureAcyclic($partType, $parentId);
+        $this->validateProductCategory($partType, $categoryId);
         $slug = $this->slugForTitle($title);
 
         $partType->forceFill([
@@ -102,35 +115,75 @@ class PartTypeTreeService
         return CatalogText::slug($source, 'part-type', 120);
     }
 
-    private function ensureAcyclic(PartType $partType): void
+    private function ensureAcyclic(PartType $partType, ?int $parentId): ?PartType
     {
         $partTypeId = $partType->getKey();
-        $parentId = $partType->parent_id;
 
-        if ($partTypeId === null || $parentId === null) {
-            return;
+        if ($parentId === null) {
+            return null;
         }
 
-        $visited = [(int) $partTypeId => true];
-        $currentId = (int) $parentId;
+        $visited = $partTypeId === null ? [] : [(int) $partTypeId => true];
+        $currentId = $parentId;
+        $selectedParent = null;
 
-        while ($currentId > 0) {
+        while ($currentId !== null) {
             if (isset($visited[$currentId])) {
                 throw PartTypeCycleException::forPartType((string) $partType->title);
             }
 
             $visited[$currentId] = true;
-            $currentId = (int) (PartType::withTrashed()->whereKey($currentId)->value('parent_id') ?? 0);
+            $parent = PartType::withTrashed()
+                ->whereKey($currentId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $parent instanceof PartType) {
+                $this->fail('parent_id', 'Выбранный родительский тип детали не существует.');
+            }
+
+            if ($parent->trashed()) {
+                $this->fail('parent_id', 'Удалённый тип детали не может быть родительским.');
+            }
+
+            $selectedParent ??= $parent;
+            $currentId = $this->relationIds->nullablePositive($parent->parent_id, 'parent_id');
+        }
+
+        return $selectedParent;
+    }
+
+    private function validateProductCategory(PartType $partType, ?int $categoryId): void
+    {
+        if ($categoryId === null) {
+            return;
+        }
+
+        $category = ProductCategory::withTrashed()
+            ->whereKey($categoryId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $category instanceof ProductCategory) {
+            $this->fail('product_category_id', 'Выбранная категория не существует.');
+        }
+
+        if ($category->trashed()) {
+            $this->fail('product_category_id', 'Удалённая категория не может быть назначена типу детали.');
+        }
+
+        $originalId = $partType->exists
+            ? $this->relationIds->nullablePositive($partType->getRawOriginal('product_category_id'), 'product_category_id')
+            : null;
+
+        if (! $category->is_active && (! $partType->exists || $originalId !== $categoryId)) {
+            $this->fail('product_category_id', 'Нельзя назначить типу детали неактивную категорию.');
         }
     }
 
-    private function findParent(PartType $partType): ?PartType
+    private function fail(string $field, string $message): never
     {
-        if ($partType->parent_id === null) {
-            return null;
-        }
-
-        return PartType::withTrashed()->find($partType->parent_id);
+        throw ValidationException::withMessages([$field => $message]);
     }
 
     /** @param array<int, bool> $visited */
@@ -159,7 +212,9 @@ class PartTypeTreeService
                 'full_slug' => CatalogText::slugPath([$parent->full_slug, $slug], 255),
                 'full_title' => CatalogText::plain($parent->full_title.' / '.$title, 255),
                 'depth' => $parent->depth + 1,
-            ])->saveQuietly();
+            ]);
+            app(CatalogStructureAdminService::class)->assertPartTypeIdentityAvailable($child);
+            $child->saveQuietly();
 
             $this->recalculateChildren($child, $visited);
         }

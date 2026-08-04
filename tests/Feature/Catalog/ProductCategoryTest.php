@@ -1,8 +1,8 @@
 <?php
 
 use App\Models\ProductCategory;
-use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 
 uses(RefreshDatabase::class);
 
@@ -38,4 +38,4 @@ test('product category full slug is unique', function () {
     ProductCategory::factory()->create(['title' => 'Пороги', 'slug' => 'porogi']);
 
     ProductCategory::factory()->create(['title' => 'Пороги дубль', 'slug' => 'porogi']);
-})->throws(QueryException::class);
+})->throws(ValidationException::class, 'Полный путь категории уже используется');

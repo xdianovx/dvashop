@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Catalog\CatalogStructureAdminService;
 use App\Services\Media\ImageProcessingService;
 use App\Services\Media\MediaFileCleanupService;
 use App\Services\Media\MediaUrlService;
@@ -41,6 +42,12 @@ class VehicleMake extends Model
     /** @use HasFactory<VehicleMakeFactory> */
     use HasFactory, SoftDeletes;
 
+    public function save(array $options = []): bool
+    {
+        return app(CatalogStructureAdminService::class)
+            ->guardUniqueIdentitySave($this, fn (): bool => parent::save($options));
+    }
+
     public function models(): HasMany
     {
         return $this->hasMany(VehicleModel::class);
@@ -59,20 +66,25 @@ class VehicleMake extends Model
             $make->norm_key = CatalogText::normKey($make->norm_key ?: $make->title, 'make', 100);
             $make->position ??= 0;
             $make->is_active ??= true;
+            app(CatalogStructureAdminService::class)->assertVehicleMakeIdentityAvailable($make);
         });
 
         static::saved(function (self $make): void {
             $make->processManualImageIfNeeded();
         });
+
+        static::deleting(fn (self $make) => app(CatalogStructureAdminService::class)->assertVehicleCanBeDeleted($make));
+        static::restoring(fn (self $make) => app(CatalogStructureAdminService::class)->assertVehicleCanBeRestored($make));
     }
 
     public function processManualImageIfNeeded(): void
     {
         if (! $this->image) {
             if ($this->wasChanged('image')) {
-                $cleanup = app(MediaFileCleanupService::class);
-                $cleanup->deletePath($this->getOriginal('image'), 'public');
-                $cleanup->deleteConversions(is_array($this->getOriginal('image_conversions')) ? $this->getOriginal('image_conversions') : null, 'public');
+                app(MediaFileCleanupService::class)->deleteAfterCommit(
+                    is_string($this->getOriginal('image')) ? $this->getOriginal('image') : null,
+                    is_array($this->getOriginal('image_conversions')) ? $this->getOriginal('image_conversions') : null,
+                );
             }
 
             return;
@@ -93,12 +105,14 @@ class VehicleMake extends Model
 
         $oldPath = $this->getOriginal('image');
         $oldConversions = $this->getOriginal('image_conversions');
+        $sourcePath = $this->image;
 
         try {
             $processed = app(ImageProcessingService::class)->processStoredPublicImage(
                 path: $this->image,
                 profile: 'brand_image',
                 directory: 'uploads/vehicles/makes/'.$this->getKey(),
+                deleteSource: false,
             );
         } catch (Throwable $e) {
             throw $e;
@@ -110,11 +124,12 @@ class VehicleMake extends Model
             'image_conversions' => $processed->conversions,
         ])->saveQuietly();
 
-        if (is_string($oldPath) && $oldPath !== '' && $oldPath !== $processed->path) {
-            $cleanup = app(MediaFileCleanupService::class);
-            $cleanup->deletePath($oldPath, 'public');
-            $cleanup->deleteConversions(is_array($oldConversions) ? $oldConversions : null, 'public');
-        }
+        app(MediaFileCleanupService::class)->scheduleReplacementCleanup(
+            processed: $processed,
+            sourcePath: $sourcePath,
+            oldPath: is_string($oldPath) ? $oldPath : null,
+            oldConversions: is_array($oldConversions) ? $oldConversions : null,
+        );
     }
 
     public function getImageUrlAttribute(): string
