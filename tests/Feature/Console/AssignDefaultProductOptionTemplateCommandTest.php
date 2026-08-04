@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductOptionTemplate;
 use App\Models\ProductVariant;
@@ -36,4 +37,26 @@ test('ProductOption backfill command supports dry run and preserves generic and 
         ->and($generic->fresh()->product_option_template_id)->toBeNull()
         ->and($manual->fresh()->product_option_template_id)->toBe($manualTemplate->getKey())
         ->and(ProductVariant::query()->count())->toBe($variantCount);
+});
+
+test('ProductOption backfill command uses the shared part specific default resolver', function (): void {
+    $this->seed(ProductOptionSeeder::class);
+    $partType = PartType::factory()->create();
+    $specific = ProductOptionTemplate::factory()->default()->create([
+        'part_type_id' => $partType->getKey(),
+    ]);
+    $specificProduct = Product::factory()->forPartType($partType)->create([
+        'product_option_template_id' => null,
+    ]);
+    $fallbackProduct = Product::factory()->create([
+        'part_type_id' => null,
+        'product_option_template_id' => null,
+    ]);
+    $fallback = ProductOptionTemplate::query()->where('slug', 'default_auto_part')->firstOrFail();
+
+    $this->artisan('products:assign-default-option-template --apply')
+        ->assertExitCode(0);
+
+    expect($specificProduct->refresh()->product_option_template_id)->toBe($specific->getKey())
+        ->and($fallbackProduct->refresh()->product_option_template_id)->toBe($fallback->getKey());
 });

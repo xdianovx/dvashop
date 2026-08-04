@@ -10,7 +10,11 @@ use Illuminate\Support\Facades\DB;
 
 final class ProductVariantOptionGenerator
 {
-    public const MAX_COMBINATIONS = 100;
+    public const MAX_COMBINATIONS = ProductOptionCombinationCalculator::MAX_COMBINATIONS;
+
+    public function __construct(
+        private readonly ProductOptionCombinationCalculator $combinationCalculator,
+    ) {}
 
     /** @return array<int, int> group id => default value id */
     public function defaultOptionValues(Product $product): array
@@ -22,9 +26,11 @@ final class ProductVariantOptionGenerator
         }
 
         return $template->items()
-            ->with('value')
+            ->with(['group', 'value'])
             ->get()
-            ->filter(fn ($item): bool => (bool) $item->value?->is_active && (bool) $item->value?->is_default)
+            ->filter(fn ($item): bool => (bool) $item->group?->is_active
+                && (bool) $item->value?->is_active
+                && (bool) $item->value?->is_default)
             ->sortBy('position')
             ->mapWithKeys(fn ($item): array => [
                 (int) $item->product_option_group_id => (int) $item->product_option_value_id,
@@ -35,44 +41,7 @@ final class ProductVariantOptionGenerator
     /** @return array<int, array<int, ProductOptionValue>> */
     public function combinationsForTemplate(ProductOptionTemplate $template): array
     {
-        $valuesByGroup = $template->items()
-            ->with(['group', 'value.group'])
-            ->get()
-            ->filter(fn ($item): bool => (bool) $item->group?->is_active && (bool) $item->value?->is_active)
-            ->sortBy(fn ($item): string => sprintf(
-                '%010d:%010d:%010d',
-                (int) $item->group?->position,
-                (int) $item->value?->position,
-                (int) $item->getKey(),
-            ))
-            ->groupBy('product_option_group_id')
-            ->map(fn ($items): array => $items->pluck('value')->filter()->values()->all())
-            ->filter(fn (array $values): bool => $values !== [])
-            ->values();
-
-        if ($valuesByGroup->isEmpty()) {
-            return [];
-        }
-
-        $combinations = [[]];
-
-        foreach ($valuesByGroup as $values) {
-            $next = [];
-
-            foreach ($combinations as $combination) {
-                foreach ($values as $value) {
-                    $next[] = [...$combination, $value];
-
-                    if (count($next) >= self::MAX_COMBINATIONS) {
-                        break 2;
-                    }
-                }
-            }
-
-            $combinations = $next;
-        }
-
-        return $combinations;
+        return $this->combinationCalculator->combinationsForTemplate($template);
     }
 
     public function createMissingVariants(Product $product, int $limit = self::MAX_COMBINATIONS): int

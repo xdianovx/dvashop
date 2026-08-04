@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Products\Pages\Concerns;
 
 use App\Models\Product;
+use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
 use App\Models\ProductOptionValue;
 use App\Models\ProductVariant;
@@ -11,6 +12,24 @@ use Illuminate\Validation\ValidationException;
 
 trait HandlesProductOptionValues
 {
+    /** @var array<int, array<string, bool>> */
+    protected array $persistedVariantOptionPairs = [];
+
+    protected function capturePersistedProductOptionSelections(): void
+    {
+        $this->persistedVariantOptionPairs = $this->record->variants()
+            ->with('variantOptionValues')
+            ->get()
+            ->mapWithKeys(fn (ProductVariant $variant): array => [
+                (int) $variant->getKey() => $variant->variantOptionValues
+                    ->mapWithKeys(fn (ProductVariantOptionValue $selection): array => [
+                        ((int) $selection->product_option_group_id).':'.((int) $selection->product_option_value_id) => true,
+                    ])
+                    ->all(),
+            ])
+            ->all();
+    }
+
     protected function finishProductOptionSave(): void
     {
         /** @var Product $product */
@@ -28,7 +47,7 @@ trait HandlesProductOptionValues
         $signatures = [];
 
         $product->variants()
-            ->with(['optionValues.group', 'variantOptionValues.value'])
+            ->with(['optionValues.group', 'variantOptionValues.group', 'variantOptionValues.value'])
             ->each(function (ProductVariant $variant) use (&$signatures, $template, $allowedGroupIds, $allowedPairs): void {
                 $this->validateVariantOptionSelections(
                     $variant,
@@ -77,6 +96,7 @@ trait HandlesProductOptionValues
 
             $groupId = (int) $selection->product_option_group_id;
             $valueId = (int) $selection->product_option_value_id;
+            $group = $selection->group;
             $value = $selection->value;
 
             if (isset($seenGroupIds[$groupId])) {
@@ -99,13 +119,34 @@ trait HandlesProductOptionValues
                 ]);
             }
 
-            if (! in_array($groupId, $allowedGroupIds, true)) {
+            $pair = $groupId.':'.$valueId;
+            $wasPersisted = isset($this->persistedVariantOptionPairs[(int) $variant->getKey()][$pair]);
+
+            if (! $wasPersisted && ! $template->is_active) {
+                throw ValidationException::withMessages([
+                    'data.variants' => 'Новые значения опций можно добавлять только из активного шаблона товара.',
+                ]);
+            }
+
+            if (! $wasPersisted && (! $group instanceof ProductOptionGroup || ! $group->is_active)) {
+                throw ValidationException::withMessages([
+                    'data.variants' => 'Нельзя добавить значение из неактивной группы опций.',
+                ]);
+            }
+
+            if (! $wasPersisted && ! $value->is_active) {
+                throw ValidationException::withMessages([
+                    'data.variants' => 'Нельзя добавить неактивное значение опции.',
+                ]);
+            }
+
+            if (! $wasPersisted && ! in_array($groupId, $allowedGroupIds, true)) {
                 throw ValidationException::withMessages([
                     'data.variants' => 'Выбранная группа опций не разрешена шаблоном товара.',
                 ]);
             }
 
-            if (! isset($allowedPairs[$groupId.':'.$valueId])) {
+            if (! $wasPersisted && ! isset($allowedPairs[$pair])) {
                 throw ValidationException::withMessages([
                     'data.variants' => 'Выбранное значение опции не разрешено шаблоном товара.',
                 ]);

@@ -7,6 +7,10 @@ use App\Models\Order;
 use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
+use App\Models\ProductOptionGroup;
+use App\Models\ProductOptionTemplate;
+use App\Models\ProductOptionTemplateItem;
+use App\Models\ProductOptionValue;
 use App\Models\User;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
@@ -120,6 +124,45 @@ test('product order and user policies match the complete role matrix', function 
             ->and($actor->can('forceDeleteAny', User::class), "{$label}:user:forceDeleteAny")->toBeFalse()
             ->and($actor->can('replicate', $targetUser), "{$label}:user:replicate")->toBeFalse()
             ->and($actor->can('reorder', User::class), "{$label}:user:reorder")->toBeFalse();
+    }
+});
+
+test('option catalog policies allow privileged management but never destructive actions', function (): void {
+    $models = [
+        ProductOptionGroup::factory()->create(),
+        ProductOptionValue::factory()->create(),
+        ProductOptionTemplate::factory()->create(),
+        ProductOptionTemplateItem::factory()->create(),
+    ];
+    $actors = [
+        'super_admin' => User::factory()->superAdmin()->create(),
+        'admin' => User::factory()->admin()->create(),
+        'manager' => User::factory()->manager()->create(),
+        'customer' => User::factory()->create(),
+        'inactive' => User::factory()->superAdmin()->inactive()->create(),
+        'blocked' => User::factory()->superAdmin()->blocked()->create(),
+    ];
+
+    foreach ($actors as $label => $actor) {
+        $mayView = in_array($label, ['super_admin', 'admin', 'manager'], true);
+        $mayMutate = in_array($label, ['super_admin', 'admin'], true);
+
+        foreach ($models as $model) {
+            $modelClass = $model::class;
+
+            expect($actor->can('viewAny', $modelClass), "{$label}:{$modelClass}:viewAny")->toBe($mayView)
+                ->and($actor->can('view', $model), "{$label}:{$modelClass}:view")->toBe($mayView)
+                ->and($actor->can('create', $modelClass), "{$label}:{$modelClass}:create")->toBe($mayMutate)
+                ->and($actor->can('update', $model), "{$label}:{$modelClass}:update")->toBe($mayMutate)
+                ->and($actor->can('reorder', $modelClass), "{$label}:{$modelClass}:reorder")->toBe($mayMutate)
+                ->and($actor->can('delete', $model))->toBeFalse()
+                ->and($actor->can('deleteAny', $modelClass))->toBeFalse()
+                ->and($actor->can('restore', $model))->toBeFalse()
+                ->and($actor->can('restoreAny', $modelClass))->toBeFalse()
+                ->and($actor->can('forceDelete', $model))->toBeFalse()
+                ->and($actor->can('forceDeleteAny', $modelClass))->toBeFalse()
+                ->and($actor->can('replicate', $model))->toBeFalse();
+        }
     }
 });
 

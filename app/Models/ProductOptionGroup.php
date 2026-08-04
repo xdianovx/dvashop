@@ -40,6 +40,11 @@ class ProductOptionGroup extends Model
         return $this->hasMany(ProductOptionTemplateItem::class)->orderBy('position')->orderBy('id');
     }
 
+    public function variantOptionValues(): HasMany
+    {
+        return $this->hasMany(ProductVariantOptionValue::class);
+    }
+
     protected function casts(): array
     {
         return [
