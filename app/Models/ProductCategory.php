@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Catalog\CatalogStructureAdminService;
 use App\Support\CatalogText;
 use Database\Factories\ProductCategoryFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -13,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 #[Fillable([
     'parent_id',
@@ -36,6 +38,12 @@ class ProductCategory extends Model
 {
     /** @use HasFactory<ProductCategoryFactory> */
     use HasFactory, SoftDeletes;
+
+    public function save(array $options = []): bool
+    {
+        return DB::transaction(fn (): bool => app(CatalogStructureAdminService::class)
+            ->guardUniqueIdentitySave($this, fn (): bool => parent::save($options)));
+    }
 
     public function parent(): BelongsTo
     {
@@ -103,7 +111,10 @@ class ProductCategory extends Model
             $category->slug = CatalogText::slug($category->slug ?: $category->title, 'category', 80);
             $category->position ??= 0;
             $category->is_active ??= true;
+            app(CatalogStructureAdminService::class)->prepareCategoryForSave($category);
+            $category->unsetRelation('parent');
             $category->rebuildPathFields();
+            app(CatalogStructureAdminService::class)->assertCategoryIdentityAvailable($category);
         });
 
         static::saved(function (self $category): void {
@@ -111,6 +122,9 @@ class ProductCategory extends Model
                 $category->children()->get()->each->save();
             }
         });
+
+        static::deleting(fn (self $category) => app(CatalogStructureAdminService::class)->assertCategoryCanBeDeleted($category));
+        static::restoring(fn (self $category) => app(CatalogStructureAdminService::class)->assertCategoryCanBeRestored($category));
     }
 
     public function rebuildPathFields(): void

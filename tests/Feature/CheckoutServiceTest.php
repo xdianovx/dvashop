@@ -124,7 +124,7 @@ test('CheckoutService excludes technical variant management metadata from cart a
 test('CheckoutService can create an order from valid snapshots after catalog deletion', function () {
     Event::fake([OrderCreated::class]);
     [$cart, $variant] = cartWithSnapshotItem(1800, 1);
-    $variant->product->forceDelete();
+    $variant->product->forceDeleteQuietly();
 
     $order = app(CheckoutService::class)->createOrderFromCart(checkoutRequest($cart), validCheckoutData());
 

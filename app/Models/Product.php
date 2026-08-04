@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\ProductStatus;
 use App\Enums\ProductType;
 use App\Enums\StockStatus;
+use App\Services\Catalog\ProductAdminService;
 use App\Services\Media\MediaUrlService;
 use App\Support\CatalogText;
 use Database\Factories\ProductFactory;
@@ -18,6 +19,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 #[Fillable([
     'product_category_id',
@@ -52,6 +55,22 @@ class Product extends Model
 {
     /** @use HasFactory<ProductFactory> */
     use HasFactory, SoftDeletes;
+
+    public function save(array $options = []): bool
+    {
+        return DB::transaction(function () use ($options): bool {
+            if ($this->exists) {
+                (new self)->newQuery()
+                    ->withTrashed()
+                    ->whereKey($this->getKey())
+                    ->lockForUpdate()
+                    ->firstOrFail();
+            }
+
+            return (bool) app(ProductAdminService::class)
+                ->guardProductSkuSave(fn (): bool => parent::save($options));
+        });
+    }
 
     public function category(): BelongsTo
     {
@@ -199,6 +218,17 @@ class Product extends Model
             $product->stock_status ??= StockStatus::InStock;
             $product->position ??= 0;
             $product->is_featured ??= false;
+            app(ProductAdminService::class)->prepareForSave($product);
+        });
+
+        static::deleting(function (self $product): void {
+            if ($product->isForceDeleting()) {
+                $product->forceDeleting = false;
+
+                throw ValidationException::withMessages([
+                    'product' => 'Безвозвратное удаление товаров запрещено.',
+                ]);
+            }
         });
     }
 

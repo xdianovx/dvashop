@@ -2,11 +2,13 @@
 
 namespace App\Filament\Resources\ProductCategories;
 
+use App\Filament\Actions\CatalogLifecycleActions;
 use App\Filament\Resources\ProductCategories\Pages\CreateProductCategory;
 use App\Filament\Resources\ProductCategories\Pages\EditProductCategory;
 use App\Filament\Resources\ProductCategories\Pages\ListProductCategories;
 use App\Filament\Schemas\SeoSchema;
 use App\Models\ProductCategory;
+use App\Services\Catalog\CatalogStructureAdminService;
 use BackedEnum;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
@@ -61,16 +63,7 @@ class ProductCategoryResource extends Resource
                 ->label('Родительская категория')
                 ->searchable()
                 ->preload()
-                ->options(fn (?ProductCategory $record): array => ProductCategory::query()
-                    ->when($record?->exists, fn (Builder $query): Builder => $query
-                        ->whereKeyNot($record->getKey())
-                        ->whereNotIn('id', $record->descendantIds()))
-                    ->orderBy('full_slug')
-                    ->get()
-                    ->mapWithKeys(fn (ProductCategory $category): array => [
-                        $category->getKey() => $category->display_title.' · '.$category->full_slug,
-                    ])
-                    ->all())
+                ->options(self::parentOptions(...))
                 ->nullable(),
             TextInput::make('title')
                 ->label('Название')
@@ -95,7 +88,10 @@ class ProductCategoryResource extends Resource
                 ->required(),
             Toggle::make('is_active')
                 ->label('Активна')
-                ->default(true),
+                ->default(true)
+                ->disabled(fn (?ProductCategory $record): bool => $record?->exists === true)
+                ->dehydrated(fn (?ProductCategory $record): bool => $record?->exists !== true)
+                ->helperText('Для существующей категории используйте подтверждаемое действие в таблице.'),
             SeoSchema::section(),
         ]);
     }
@@ -150,15 +146,16 @@ class ProductCategoryResource extends Resource
             ])
             ->recordActions([
                 EditAction::make(),
-                DeleteAction::make(),
-                RestoreAction::make(),
+                CatalogLifecycleActions::toggleActive(),
+                DeleteAction::make()->using(fn (ProductCategory $record) => app(CatalogStructureAdminService::class)->deleteCategory($record)),
+                RestoreAction::make()->using(fn (ProductCategory $record) => app(CatalogStructureAdminService::class)->restoreCategory($record)),
                 ForceDeleteAction::make(),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                    RestoreBulkAction::make(),
-                    ForceDeleteBulkAction::make(),
+                    DeleteBulkAction::make()->hidden(),
+                    RestoreBulkAction::make()->hidden(),
+                    ForceDeleteBulkAction::make()->hidden(),
                 ]),
             ]);
     }
@@ -166,9 +163,26 @@ class ProductCategoryResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
+            ->with('parent')
+            ->withCount(['children', 'products', 'partTypes'])
             ->withoutGlobalScopes([
                 SoftDeletingScope::class,
             ]);
+    }
+
+    /** @return array<int|string, string> */
+    public static function parentOptions(?ProductCategory $record = null): array
+    {
+        return ProductCategory::query()
+            ->when($record?->exists, fn (Builder $query): Builder => $query
+                ->whereKeyNot($record->getKey())
+                ->whereNotIn('id', $record->descendantIds()))
+            ->orderBy('full_slug')
+            ->get()
+            ->mapWithKeys(fn (ProductCategory $category): array => [
+                $category->getKey() => $category->display_title.' · '.$category->full_slug,
+            ])
+            ->all();
     }
 
     public static function getPages(): array

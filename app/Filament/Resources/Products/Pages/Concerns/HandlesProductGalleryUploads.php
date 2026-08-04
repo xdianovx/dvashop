@@ -6,7 +6,10 @@ use App\Enums\ProductType;
 use App\Models\Product;
 use App\Models\ProductOptionTemplate;
 use App\Models\ProductVariant;
+use App\Services\Catalog\CatalogRelationIdNormalizer;
+use App\Services\Catalog\ProductAdminService;
 use App\Services\Catalog\ProductOptionTemplateResolver;
+use App\Services\Catalog\ProductVariantAdminService;
 use App\Services\Media\ProductGalleryService;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Storage;
@@ -90,14 +93,32 @@ trait HandlesProductGalleryUploads
         ];
         unset($data['default_stock_quantity']);
 
+        $relationIds = app(CatalogRelationIdNormalizer::class);
+        $data['part_type_id'] = $relationIds->nullablePositive(
+            array_key_exists('part_type_id', $rawState)
+                ? $rawState['part_type_id']
+                : ($data['part_type_id'] ?? null),
+            'data.part_type_id',
+        );
+        $data['product_option_template_id'] = $relationIds->nullablePositive(
+            array_key_exists('product_option_template_id', $rawState)
+                ? $rawState['product_option_template_id']
+                : ($data['product_option_template_id'] ?? null),
+            'data.product_option_template_id',
+        );
+
         if ($this->isGenericProductType($data['product_type'] ?? null)) {
+            if ($record instanceof Product && $record->exists && ! $record->isGeneric()) {
+                app(ProductAdminService::class)->clearAutoPartRelationsForGenericTransition($record);
+            }
+
             $data['part_type_id'] = null;
             $data['product_option_template_id'] = null;
             unset($data['fitments']);
         } else {
             $this->validateAutoPartOptionTemplate(
-                $data['product_option_template_id'] ?? null,
-                filled($data['part_type_id'] ?? null) ? (int) $data['part_type_id'] : null,
+                $data['product_option_template_id'],
+                $data['part_type_id'],
                 $record instanceof Product ? $record : null,
             );
         }
@@ -142,10 +163,10 @@ trait HandlesProductGalleryUploads
             ]);
         }
 
-        $variant->forceFill([
+        app(ProductVariantAdminService::class)->save($variant, [
             'product_id' => $product->getKey(),
             'is_default' => true,
-        ])->save();
+        ]);
 
         $product->forceFill([
             'price' => $variant->price,
@@ -204,11 +225,11 @@ trait HandlesProductGalleryUploads
     }
 
     private function validateAutoPartOptionTemplate(
-        mixed $templateId,
+        ?int $templateId,
         ?int $partTypeId,
         ?Product $record,
     ): void {
-        if (! filled($templateId)) {
+        if ($templateId === null) {
             return;
         }
 
@@ -231,7 +252,10 @@ trait HandlesProductGalleryUploads
         }
 
         $isPersistedSelection = $record?->exists === true
-            && (int) $record->product_option_template_id === (int) $template->getKey();
+            && app(CatalogRelationIdNormalizer::class)->nullablePositive(
+                $record->product_option_template_id,
+                'data.product_option_template_id',
+            ) === $templateId;
 
         if (! $template->is_active && ! $isPersistedSelection) {
             throw ValidationException::withMessages([

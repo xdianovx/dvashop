@@ -20,6 +20,8 @@ use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Models\VehicleModel;
+use App\Services\Catalog\CatalogRelationIdNormalizer;
+use App\Services\Catalog\ProductAdminService;
 use App\Services\Catalog\ProductOptionTemplateResolver;
 use App\Services\Media\MediaUrlService;
 use Filament\Actions\Action;
@@ -40,6 +42,7 @@ use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 final class ProductForm
 {
@@ -74,14 +77,33 @@ final class ProductForm
     }
 
     /** @return array<int|string, string> */
-    public static function productCategoryOptions(): array
+    public static function productCategoryOptions(mixed $selectedId = null): array
     {
-        return ProductCategory::query()
+        $selected = self::safeOptionId($selectedId);
+
+        if (! $selected['valid']) {
+            return [];
+        }
+
+        $selectedId = $selected['id'];
+
+        return ProductCategory::withTrashed()
+            ->where(function ($query) use ($selectedId): void {
+                $query
+                    ->where(function ($active): void {
+                        $active->where('is_active', true)->whereNull('deleted_at');
+                    })
+                    ->when($selectedId !== null, fn ($options) => $options->orWhere('id', $selectedId));
+            })
             ->with('parent.parent')
             ->orderBy('full_slug')
             ->get()
             ->mapWithKeys(fn (ProductCategory $category): array => [
-                $category->getKey() => $category->full_title.' · '.$category->full_slug,
+                $category->getKey() => self::vehicleLabel(
+                    $category->full_title.' · '.$category->full_slug,
+                    $category->is_active,
+                    $category->trashed(),
+                ),
             ])
             ->all();
     }
@@ -89,13 +111,21 @@ final class ProductForm
     /** @return array<int|string, string> */
     public static function partTypeOptions(mixed $selectedId = null): array
     {
+        $selected = self::safeOptionId($selectedId);
+
+        if (! $selected['valid']) {
+            return [];
+        }
+
+        $selectedId = $selected['id'];
+
         return PartType::withTrashed()
             ->where(function ($query) use ($selectedId): void {
                 $query
                     ->where(function ($active): void {
                         $active->where('is_active', true)->whereNull('deleted_at');
                     })
-                    ->when(filled($selectedId), fn ($options) => $options->orWhere('id', $selectedId));
+                    ->when($selectedId !== null, fn ($options) => $options->orWhere('id', $selectedId));
             })
             ->orderBy('full_slug')
             ->get()
@@ -108,13 +138,21 @@ final class ProductForm
     /** @return array<int|string, string> */
     public static function vehicleMakeOptions(mixed $selectedId = null): array
     {
+        $selected = self::safeOptionId($selectedId);
+
+        if (! $selected['valid']) {
+            return [];
+        }
+
+        $selectedId = $selected['id'];
+
         return VehicleMake::withTrashed()
             ->where(function ($query) use ($selectedId): void {
                 $query
                     ->where(function ($active): void {
                         $active->where('is_active', true)->whereNull('deleted_at');
                     })
-                    ->when(filled($selectedId), fn ($options) => $options->orWhere('id', $selectedId));
+                    ->when($selectedId !== null, fn ($options) => $options->orWhere('id', $selectedId));
             })
             ->orderBy('position')
             ->orderBy('title')
@@ -128,9 +166,15 @@ final class ProductForm
     /** @return array<int|string, string> */
     public static function vehicleModelOptions(mixed $makeId, mixed $selectedId = null): array
     {
-        if (blank($makeId)) {
+        $make = self::safeOptionId($makeId);
+        $selected = self::safeOptionId($selectedId);
+
+        if (! $make['valid'] || $make['id'] === null || ! $selected['valid']) {
             return [];
         }
+
+        $makeId = $make['id'];
+        $selectedId = $selected['id'];
 
         return VehicleModel::withTrashed()
             ->where('vehicle_make_id', $makeId)
@@ -139,7 +183,7 @@ final class ProductForm
                     ->where(function ($active): void {
                         $active->where('is_active', true)->whereNull('deleted_at');
                     })
-                    ->when(filled($selectedId), fn ($options) => $options->orWhere('id', $selectedId));
+                    ->when($selectedId !== null, fn ($options) => $options->orWhere('id', $selectedId));
             })
             ->orderBy('position')
             ->orderBy('title')
@@ -153,9 +197,15 @@ final class ProductForm
     /** @return array<int|string, string> */
     public static function vehicleGenerationOptions(mixed $modelId, mixed $selectedId = null): array
     {
-        if (blank($modelId)) {
+        $model = self::safeOptionId($modelId);
+        $selected = self::safeOptionId($selectedId);
+
+        if (! $model['valid'] || $model['id'] === null || ! $selected['valid']) {
             return [];
         }
+
+        $modelId = $model['id'];
+        $selectedId = $selected['id'];
 
         return VehicleGeneration::withTrashed()
             ->where('vehicle_model_id', $modelId)
@@ -164,7 +214,7 @@ final class ProductForm
                     ->where(function ($active): void {
                         $active->where('is_active', true)->whereNull('deleted_at');
                     })
-                    ->when(filled($selectedId), fn ($options) => $options->orWhere('id', $selectedId));
+                    ->when($selectedId !== null, fn ($options) => $options->orWhere('id', $selectedId));
             })
             ->orderBy('position')
             ->orderBy('title')
@@ -186,6 +236,15 @@ final class ProductForm
         mixed $selectedId = null,
     ): array {
         $scope = $productType instanceof ProductType ? $productType->value : (string) $productType;
+        $partType = self::safeOptionId($partTypeId);
+        $selected = self::safeOptionId($selectedId);
+
+        if (! $partType['valid'] || ! $selected['valid']) {
+            return [];
+        }
+
+        $partTypeId = $partType['id'];
+        $selectedId = $selected['id'];
 
         return ProductOptionTemplate::query()
             ->where(function ($query) use ($partTypeId, $scope, $selectedId): void {
@@ -198,9 +257,9 @@ final class ProductForm
                         ]))
                         ->where(function ($partType) use ($partTypeId): void {
                             $partType->whereNull('part_type_id')
-                                ->when(filled($partTypeId), fn ($options) => $options->orWhere('part_type_id', $partTypeId));
+                                ->when($partTypeId !== null, fn ($options) => $options->orWhere('part_type_id', $partTypeId));
                         });
-                })->when(filled($selectedId), fn ($options) => $options->orWhere('id', $selectedId));
+                })->when($selectedId !== null, fn ($options) => $options->orWhere('id', $selectedId));
             })
             ->orderBy('position')
             ->orderBy('title')
@@ -209,6 +268,19 @@ final class ProductForm
                 $template->getKey() => self::optionActiveLabel($template->title, $template->is_active),
             ])
             ->all();
+    }
+
+    /** @return array{valid: bool, id: ?int} */
+    private static function safeOptionId(mixed $value): array
+    {
+        try {
+            return [
+                'valid' => true,
+                'id' => app(CatalogRelationIdNormalizer::class)->nullablePositive($value, 'id'),
+            ];
+        } catch (ValidationException) {
+            return ['valid' => false, 'id' => null];
+        }
     }
 
     /** @return array<int|string, string> */
@@ -321,7 +393,7 @@ final class ProductForm
                     ->label('Категория магазина')
                     ->searchable()
                     ->preload()
-                    ->options(self::productCategoryOptions(...))
+                    ->options(fn (Get $get): array => self::productCategoryOptions($get('product_category_id')))
                     ->nullable()
                     ->helperText('Категория витрины. Тип конкретной детали выбирается отдельно.'),
                 Select::make('part_type_id')
@@ -731,6 +803,21 @@ final class ProductForm
                         Repeater::make('fitments')
                             ->label('Поколения авто')
                             ->relationship()
+                            ->saveRelationshipsUsing(function (Repeater $component): void {
+                                $product = $component->getRecord();
+
+                                if (! $product instanceof Product) {
+                                    return;
+                                }
+
+                                $fitments = collect($component->getItems())
+                                    ->map(fn ($item): array => $item->getState(shouldCallHooksBefore: false))
+                                    ->values()
+                                    ->all();
+
+                                app(ProductAdminService::class)->syncFitments($product, $fitments);
+                                $product->unsetRelation('fitments');
+                            })
                             ->hidden(fn (Get $get): bool => ! self::isAutoPartState($get('product_type')))
                             ->saveRelationshipsWhenHidden(false)
                             ->defaultItems(0)
@@ -759,8 +846,12 @@ final class ProductForm
                                     ->afterStateUpdated(fn (Set $set): mixed => $set('vehicle_generation_id', null))
                                     ->required()
                                     ->disabled(fn (Get $get): bool => blank($get('vehicle_make_id')))
-                                    ->rule(fn (Get $get) => Rule::exists('vehicle_models', 'id')
-                                        ->where('vehicle_make_id', $get('vehicle_make_id')))
+                                    ->rule(function (Get $get): mixed {
+                                        $make = self::safeOptionId($get('vehicle_make_id'));
+
+                                        return Rule::exists('vehicle_models', 'id')
+                                            ->where('vehicle_make_id', $make['valid'] ? ($make['id'] ?? 0) : 0);
+                                    })
                                     ->dehydrated(false),
                                 Select::make('vehicle_generation_id')
                                     ->label('Поколение')
@@ -789,8 +880,12 @@ final class ProductForm
                                     })
                                     ->required()
                                     ->disabled(fn (Get $get): bool => blank($get('vehicle_model_id')))
-                                    ->rule(fn (Get $get) => Rule::exists('vehicle_generations', 'id')
-                                        ->where('vehicle_model_id', $get('vehicle_model_id')))
+                                    ->rule(function (Get $get): mixed {
+                                        $model = self::safeOptionId($get('vehicle_model_id'));
+
+                                        return Rule::exists('vehicle_generations', 'id')
+                                            ->where('vehicle_model_id', $model['valid'] ? ($model['id'] ?? 0) : 0);
+                                    })
                                     ->disableOptionsWhenSelectedInSiblingRepeaterItems(),
                                 TextInput::make('note')
                                     ->label('Примечание')

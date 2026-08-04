@@ -4,7 +4,11 @@ namespace App\Services\Media;
 
 use App\Models\Product;
 use App\Models\ProductImage;
+use App\Models\ProductVariant;
+use App\Services\Catalog\CatalogRelationIdNormalizer;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use LogicException;
 use RuntimeException;
 use Throwable;
@@ -76,7 +80,7 @@ class ProductGalleryService
             'alt' => $alt ?: $product->title,
         ]);
 
-        if ($image->exists) {
+        if ($image->exists && ProductImage::query()->whereKey($image->getKey())->exists()) {
             return $image->refresh();
         }
 
@@ -98,6 +102,57 @@ class ProductGalleryService
         throw new RuntimeException('Не удалось сохранить загруженное изображение товара.');
     }
 
+    public function prepareImageForSave(ProductImage $image): void
+    {
+        $relationIds = app(CatalogRelationIdNormalizer::class);
+        $productId = $relationIds->positive($image->product_id, 'product_id');
+        $variantId = $relationIds->nullablePositive($image->product_variant_id, 'product_variant_id');
+        $image->product_id = $productId;
+        $image->product_variant_id = $variantId;
+
+        if ($image->exists && $image->isDirty('product_id')) {
+            throw ValidationException::withMessages([
+                'product_id' => 'Нельзя переносить существующее изображение между товарами.',
+            ]);
+        }
+
+        $product = Product::query()->whereKey($productId)->lockForUpdate()->first();
+
+        if (! $product instanceof Product) {
+            throw ValidationException::withMessages([
+                'product_id' => 'Товар изображения не существует.',
+            ]);
+        }
+
+        if ($variantId !== null) {
+            $variant = ProductVariant::query()->whereKey($variantId)->lockForUpdate()->first();
+
+            if (! $variant instanceof ProductVariant
+                || $relationIds->positive($variant->product_id, 'product_id') !== $productId) {
+                throw ValidationException::withMessages([
+                    'product_variant_id' => 'Вариант изображения должен принадлежать тому же товару.',
+                ]);
+            }
+        }
+
+        $images = $product->images()->orderBy('id')->lockForUpdate()->get();
+
+        if ($image->exists && ! $images->contains('id', $image->getKey())) {
+            throw ValidationException::withMessages([
+                'image' => 'Изображение товара было изменено или удалено. Обновите страницу.',
+            ]);
+        }
+
+        if (! $image->is_main) {
+            return;
+        }
+
+        $product->images()
+            ->when($image->exists, fn ($query) => $query->whereKeyNot($image->getKey()))
+            ->where('is_main', true)
+            ->update(['is_main' => false]);
+    }
+
     /**
      * @param  Collection<int|string, ProductImage>  $originalImages
      * @param  Collection<int, string>  $sourcePaths
@@ -117,7 +172,7 @@ class ProductGalleryService
                 $image->deleteFiles();
             }
 
-            $image->deleteQuietly();
+            $image->deleteFromGalleryWorkflow();
         }
 
         foreach ($originalImages as $originalImage) {
@@ -196,94 +251,150 @@ class ProductGalleryService
 
     public function resetToDefault(Product $product): ProductImage
     {
-        $product->loadMissing(['partType', 'category']);
+        return DB::transaction(function () use ($product): ProductImage {
+            $lockedProduct = Product::query()->whereKey($product)->lockForUpdate()->firstOrFail();
+            $defaultVariant = $lockedProduct->variants()
+                ->where('is_default', true)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->first();
+            $lockedProduct->setRelation('defaultVariant', $defaultVariant);
+            $lockedProduct->load(['partType', 'category']);
+            $lockedImages = $lockedProduct->images()->orderBy('id')->lockForUpdate()->get();
+            $defaultSource = $this->defaultImages->forProduct($lockedProduct);
 
-        if ($this->defaultImages->forProduct($product) === null) {
-            throw new RuntimeException('Для товара не найдено дефолтное изображение. Галерея не изменена.');
+            if ($defaultSource === null) {
+                throw new RuntimeException('Для товара не найдено дефолтное изображение. Галерея не изменена.');
+            }
+
+            $existingDefault = $lockedImages->first(fn (ProductImage $image): bool => $image->path === $defaultSource['path']
+                && ($image->source_type === ProductImage::SOURCE_DEFAULT
+                    || $image->is_default
+                    || $image->disk === DefaultProductImageService::DISK));
+
+            foreach ($lockedImages as $image) {
+                if ($existingDefault instanceof ProductImage && $image->is($existingDefault)) {
+                    continue;
+                }
+
+                $deletedImage = clone $image;
+                $image->deleteFromGalleryWorkflow();
+                DB::afterCommit(fn (): mixed => $deletedImage->deleteFiles());
+            }
+
+            $default = $this->persistResetDefault($lockedProduct, $defaultSource, $existingDefault);
+            $remaining = $lockedProduct->images()->orderBy('id')->lockForUpdate()->get();
+
+            if ($remaining->count() !== 1
+                || ! $remaining->first()?->is($default)
+                || $remaining->where('is_main', true)->count() !== 1
+                || ! $default->is_visible) {
+                throw new RuntimeException('Не удалось атомарно восстановить единственное главное изображение товара.');
+            }
+
+            return $default->refresh();
+        });
+    }
+
+    /**
+     * @param  array{key:string,path:string,url:string,absolute_path:string}  $defaultSource
+     */
+    protected function persistResetDefault(
+        Product $product,
+        array $defaultSource,
+        ?ProductImage $existingDefault,
+    ): ProductImage {
+        $attributes = [
+            'product_id' => $product->getKey(),
+            'product_variant_id' => $product->defaultVariant?->getKey(),
+            'disk' => DefaultProductImageService::DISK,
+            'path' => $defaultSource['path'],
+            'source_url' => null,
+            'source_type' => ProductImage::SOURCE_DEFAULT,
+            'is_default' => true,
+            'is_visible' => true,
+            'is_main' => true,
+            'position' => 0,
+            'alt' => $existingDefault?->alt ?: $product->title,
+        ];
+
+        if ($existingDefault instanceof ProductImage) {
+            $existingDefault->forceFill($attributes)->saveQuietly();
+
+            return $existingDefault->refresh();
         }
 
-        $product->images()
-            ->where(function ($query): void {
-                $query
-                    ->where('source_type', '!=', ProductImage::SOURCE_DEFAULT)
-                    ->orWhereNull('source_type')
-                    ->orWhere('is_default', false);
-            })
-            ->get()
-            ->each(fn (ProductImage $image): ?bool => $image->delete());
+        $image = new ProductImage;
+        $image->forceFill($attributes)->saveQuietly();
 
-        $default = $this->ensureDefaultImage($product->refresh(), true);
-
-        if (! $default instanceof ProductImage) {
-            throw new RuntimeException('Не удалось создать дефолтное изображение товара.');
-        }
-
-        $product->images()
-            ->whereKeyNot($default->getKey())
-            ->where(function ($query): void {
-                $query
-                    ->where('source_type', ProductImage::SOURCE_DEFAULT)
-                    ->orWhere('is_default', true)
-                    ->orWhere('disk', DefaultProductImageService::DISK);
-            })
-            ->get()
-            ->each(fn (ProductImage $image): ?bool => $image->delete());
-
-        return $this->makeMain($default->refresh());
+        return $image->refresh();
     }
 
     public function makeMain(ProductImage $image): ProductImage
     {
-        $image->forceFill([
-            'is_main' => true,
-            'is_visible' => true,
-        ])->save();
+        return DB::transaction(function () use ($image): ProductImage {
+            [$product, , $target] = $this->lockGalleryForImage($image);
+            $product->images()
+                ->whereKeyNot($target->getKey())
+                ->where('is_main', true)
+                ->update(['is_main' => false]);
+            $target->forceFill([
+                'is_main' => true,
+                'is_visible' => true,
+            ])->saveQuietly();
 
-        return $image->refresh();
+            return $target->refresh();
+        });
     }
 
     public function setVisible(ProductImage $image, bool $visible): ProductImage
     {
-        if (! $visible && $image->is_main) {
-            throw new LogicException('Главное изображение нельзя скрыть. Сначала выберите другое главное изображение или удалите текущее.');
-        }
+        return DB::transaction(function () use ($image, $visible): ProductImage {
+            [, , $target] = $this->lockGalleryForImage($image);
 
-        $image->forceFill(['is_visible' => $visible])->save();
+            if (! $visible && $target->is_main) {
+                throw new LogicException('Главное изображение нельзя скрыть. Сначала выберите другое главное изображение или удалите текущее.');
+            }
 
-        return $image->refresh();
+            $target->forceFill(['is_visible' => $visible])->saveQuietly();
+
+            return $target->refresh();
+        });
     }
 
     public function deleteImage(ProductImage $image): void
     {
-        $product = $image->product;
-        $wasMain = (bool) $image->is_main;
+        DB::transaction(function () use ($image): void {
+            [$product, $images, $target] = $this->lockGalleryForImage($image);
+            $deletedImage = clone $target;
+            $wasMain = (bool) $target->is_main;
+            $target->deleteFromGalleryWorkflow();
 
-        $image->delete();
+            if ($wasMain) {
+                $product->images()->where('is_main', true)->update(['is_main' => false]);
+                $fallback = $images
+                    ->reject(fn (ProductImage $candidate): bool => $candidate->is($target))
+                    ->filter(fn (ProductImage $candidate): bool => $candidate->is_visible)
+                    ->sortBy(fn (ProductImage $candidate): string => sprintf(
+                        '%02d:%010d:%010d',
+                        match ($candidate->source_type) {
+                            ProductImage::SOURCE_MANUAL => 0,
+                            ProductImage::SOURCE_IMPORT => 1,
+                            ProductImage::SOURCE_DEFAULT => 2,
+                            default => 3,
+                        },
+                        (int) $candidate->position,
+                        (int) $candidate->getKey(),
+                    ))
+                    ->first();
 
-        if ($wasMain && $product instanceof Product) {
-            $this->promoteMainImage($product->refresh());
-        }
-    }
+                if ($fallback instanceof ProductImage) {
+                    $fallback->forceFill(['is_main' => true, 'is_visible' => true])->saveQuietly();
+                }
+            }
 
-    public function promoteMainImage(Product $product): ?ProductImage
-    {
-        if ($this->productHasMainImage($product)) {
-            return $product->images()->where('is_main', true)->where('is_visible', true)->first();
-        }
-
-        /** @var ProductImage|null $candidate */
-        $candidate = $product->images()
-            ->where('is_visible', true)
-            ->orderByRaw("case source_type when 'manual' then 0 when 'import' then 1 when 'default' then 2 else 3 end")
-            ->orderBy('position')
-            ->orderBy('id')
-            ->first();
-
-        if (! $candidate instanceof ProductImage) {
-            return null;
-        }
-
-        return $this->makeMain($candidate);
+            DB::afterCommit(fn (): mixed => $deletedImage->deleteFiles());
+        });
     }
 
     public function nextPosition(Product $product): int
@@ -302,5 +413,48 @@ class ProductGalleryService
             ->where('is_main', true)
             ->where('is_visible', true)
             ->exists();
+    }
+
+    /** @return array{Product, Collection<int, ProductImage>, ProductImage} */
+    private function lockGalleryForImage(ProductImage $image): array
+    {
+        $relationIds = app(CatalogRelationIdNormalizer::class);
+        $productId = $relationIds->positive(
+            $image->getRawOriginal('product_id') ?? $image->product_id,
+            'product_id',
+        );
+        $variantId = $relationIds->nullablePositive(
+            $image->getRawOriginal('product_variant_id') ?? $image->product_variant_id,
+            'product_variant_id',
+        );
+        $product = Product::query()->whereKey($productId)->lockForUpdate()->first();
+
+        if (! $product instanceof Product) {
+            throw ValidationException::withMessages([
+                'product_id' => 'Товар изображения не существует.',
+            ]);
+        }
+
+        if ($variantId !== null) {
+            $variant = ProductVariant::query()->whereKey($variantId)->lockForUpdate()->first();
+
+            if (! $variant instanceof ProductVariant
+                || $relationIds->positive($variant->product_id, 'product_id') !== $productId) {
+                throw ValidationException::withMessages([
+                    'product_variant_id' => 'Вариант изображения должен принадлежать тому же товару.',
+                ]);
+            }
+        }
+
+        $images = $product->images()->orderBy('id')->lockForUpdate()->get();
+        $target = $images->firstWhere('id', $image->getKey());
+
+        if (! $target instanceof ProductImage) {
+            throw ValidationException::withMessages([
+                'image' => 'Изображение товара было изменено или удалено. Обновите страницу.',
+            ]);
+        }
+
+        return [$product, $images, $target];
     }
 }

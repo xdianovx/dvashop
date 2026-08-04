@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Catalog\CatalogStructureAdminService;
 use App\Services\Media\ImageProcessingService;
 use App\Services\Media\MediaFileCleanupService;
 use App\Services\Media\MediaUrlService;
@@ -47,6 +48,12 @@ class VehicleGeneration extends Model
     /** @use HasFactory<VehicleGenerationFactory> */
     use HasFactory, SoftDeletes;
 
+    public function save(array $options = []): bool
+    {
+        return app(CatalogStructureAdminService::class)
+            ->guardUniqueIdentitySave($this, fn (): bool => parent::save($options));
+    }
+
     public function model(): BelongsTo
     {
         return $this->belongsTo(VehicleModel::class, 'vehicle_model_id');
@@ -82,11 +89,16 @@ class VehicleGeneration extends Model
             $generation->norm_key = CatalogText::normKey($generation->norm_key ?: $generation->title, 'generation', 120);
             $generation->position ??= 0;
             $generation->is_active ??= true;
+            app(CatalogStructureAdminService::class)->prepareVehicleGenerationForSave($generation);
+            app(CatalogStructureAdminService::class)->assertVehicleGenerationIdentityAvailable($generation);
         });
 
         static::saved(function (self $generation): void {
             $generation->processManualImageIfNeeded();
         });
+
+        static::deleting(fn (self $generation) => app(CatalogStructureAdminService::class)->assertVehicleCanBeDeleted($generation));
+        static::restoring(fn (self $generation) => app(CatalogStructureAdminService::class)->assertVehicleCanBeRestored($generation));
     }
 
     public function processManualImageIfNeeded(): void
@@ -96,9 +108,10 @@ class VehicleGeneration extends Model
         }
 
         if (! $this->image) {
-            $cleanup = app(MediaFileCleanupService::class);
-            $cleanup->deletePath($this->getOriginal('image'), 'public');
-            $cleanup->deleteConversions(is_array($this->getOriginal('image_conversions')) ? $this->getOriginal('image_conversions') : null, 'public');
+            app(MediaFileCleanupService::class)->deleteAfterCommit(
+                is_string($this->getOriginal('image')) ? $this->getOriginal('image') : null,
+                is_array($this->getOriginal('image_conversions')) ? $this->getOriginal('image_conversions') : null,
+            );
 
             return;
         }
@@ -118,6 +131,7 @@ class VehicleGeneration extends Model
 
         $oldPath = $this->getOriginal('image');
         $oldConversions = $this->getOriginal('image_conversions');
+        $sourcePath = $this->image;
 
         try {
             $processed = app(ImageProcessingService::class)->processStoredPublicImage(
@@ -125,6 +139,7 @@ class VehicleGeneration extends Model
                 profile: 'vehicle_image',
                 directory: 'uploads/vehicles/generations/'.$this->getKey(),
                 originalUrl: $this->image_source_url,
+                deleteSource: false,
             );
         } catch (Throwable $e) {
             throw $e;
@@ -136,11 +151,12 @@ class VehicleGeneration extends Model
             'image_conversions' => $processed->conversions,
         ])->saveQuietly();
 
-        if (is_string($oldPath) && $oldPath !== '' && $oldPath !== $processed->path) {
-            $cleanup = app(MediaFileCleanupService::class);
-            $cleanup->deletePath($oldPath, 'public');
-            $cleanup->deleteConversions(is_array($oldConversions) ? $oldConversions : null, 'public');
-        }
+        app(MediaFileCleanupService::class)->scheduleReplacementCleanup(
+            processed: $processed,
+            sourcePath: $sourcePath,
+            oldPath: is_string($oldPath) ? $oldPath : null,
+            oldConversions: is_array($oldConversions) ? $oldConversions : null,
+        );
     }
 
     public function getImageUrlAttribute(): string

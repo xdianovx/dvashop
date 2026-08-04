@@ -9,6 +9,7 @@ use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 
 uses(RefreshDatabase::class);
 
@@ -105,7 +106,7 @@ test('variant sku is unique', function () {
     ProductVariant::factory()->create(['sku' => 'VAR-UNIQUE']);
 
     ProductVariant::factory()->create(['sku' => 'VAR-UNIQUE']);
-})->throws(QueryException::class);
+})->throws(ValidationException::class, 'Такой SKU уже используется другим вариантом.');
 
 test('product has images and vehicle generation fitments', function () {
     $category = ProductCategory::factory()->create();
@@ -137,4 +138,4 @@ test('product fitment is unique per vehicle generation', function () {
 
     ProductFitment::factory()->forProduct($product)->forVehicleGeneration($generation)->create();
     ProductFitment::factory()->forProduct($product)->forVehicleGeneration($generation)->create();
-})->throws(QueryException::class);
+})->throws(ValidationException::class, 'Такая применяемость уже добавлена товару');

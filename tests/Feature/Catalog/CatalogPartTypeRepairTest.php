@@ -57,7 +57,7 @@ function keep_product_in_current_category_after_grouped_update(Product $product)
 test('dry run recognizes hierarchical and flat technical categories without mutating database', function () {
     $arka = legacy_category('Арка', 'legacy-arka');
     $hierarchical = legacy_category("  Внутренняя\n универсальная ", 'legacy-inner', $arka);
-    $flat = legacy_category(" Арка  /  Внутренняя универсальная ", 'legacy-flat');
+    $flat = legacy_category(' Арка  /  Внутренняя универсальная ', 'legacy-flat');
     Product::factory()->forCategory($hierarchical)->create();
     Product::factory()->forCategory($flat)->create();
 
@@ -229,7 +229,7 @@ test('manual product keeps all business fields variants fitments and images', fu
         'last_import_run_id' => null,
     ])->fresh();
     $variant = ProductVariant::factory()->forProduct($product)->create();
-    $fitment = ProductFitment::factory()->forProduct($product)->create();
+    $fitment = ProductFitment::withoutEvents(fn () => ProductFitment::factory()->forProduct($product)->create());
     $image = ProductImage::factory()->forProduct($product)->create(['source_type' => ProductImage::SOURCE_MANUAL]);
 
     $protectedFields = [
@@ -264,7 +264,7 @@ test('imported product keeps import metadata and related records', function () {
         'last_import_run_id' => 'run-20260717',
     ]);
     $variant = ProductVariant::factory()->forProduct($product)->create();
-    $fitment = ProductFitment::factory()->forProduct($product)->create();
+    $fitment = ProductFitment::withoutEvents(fn () => ProductFitment::factory()->forProduct($product)->create());
     $image = ProductImage::factory()->forProduct($product)->create(['source_type' => ProductImage::SOURCE_IMPORT]);
 
     $result = repair_service()->apply(repair_service()->inspect());
@@ -624,7 +624,7 @@ test('soft deleted known part type is restored with the same id and manual metad
 test('soft deleted technical category with products is migrated without restoring the legacy category', function () {
     $legacy = legacy_category('Порог', 'legacy-porog');
     $product = Product::factory()->forCategory($legacy)->generic()->create();
-    $legacy->delete();
+    $legacy->deleteQuietly();
 
     repair_service()->apply(repair_service()->inspect());
     $stored = ProductCategory::withTrashed()->findOrFail($legacy->id);

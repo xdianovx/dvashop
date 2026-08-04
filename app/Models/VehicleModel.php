@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Catalog\CatalogStructureAdminService;
 use App\Support\CatalogText;
 use Database\Factories\VehicleModelFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -35,6 +36,12 @@ class VehicleModel extends Model
     /** @use HasFactory<VehicleModelFactory> */
     use HasFactory, SoftDeletes;
 
+    public function save(array $options = []): bool
+    {
+        return app(CatalogStructureAdminService::class)
+            ->guardUniqueIdentitySave($this, fn (): bool => parent::save($options));
+    }
+
     public function make(): BelongsTo
     {
         return $this->belongsTo(VehicleMake::class, 'vehicle_make_id');
@@ -63,7 +70,12 @@ class VehicleModel extends Model
             $model->norm_key = CatalogText::normKey($model->norm_key ?: $model->title, 'model', 100);
             $model->position ??= 0;
             $model->is_active ??= true;
+            app(CatalogStructureAdminService::class)->prepareVehicleModelForSave($model);
+            app(CatalogStructureAdminService::class)->assertVehicleModelIdentityAvailable($model);
         });
+
+        static::deleting(fn (self $model) => app(CatalogStructureAdminService::class)->assertVehicleCanBeDeleted($model));
+        static::restoring(fn (self $model) => app(CatalogStructureAdminService::class)->assertVehicleCanBeRestored($model));
     }
 
     protected function casts(): array

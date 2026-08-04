@@ -22,6 +22,8 @@ use App\Models\VehicleModel;
 use App\Services\Import\ImportImageDownloader;
 use App\Services\Import\ImportProductFactory;
 use App\Services\Import\ImportRowProcessor;
+use App\Services\ImportLogger;
+use App\Services\ImportStatusService;
 use App\Services\Media\DefaultProductImageService;
 use App\Services\SpreadsheetReader;
 use App\Support\CatalogText;
@@ -112,8 +114,8 @@ function catalogTestCellXml(int $columnIndex, int $rowIndex, mixed $value): stri
 }
 
 /**
- * @param array<int, array<int, mixed>> $rows
- * @param array<int, string> $mergedRanges
+ * @param  array<int, array<int, mixed>>  $rows
+ * @param  array<int, string>  $mergedRanges
  */
 function writeCatalogTestXlsx(string $path, array $rows, array $mergedRanges = []): void
 {
@@ -150,7 +152,7 @@ function writeCatalogTestXlsx(string $path, array $rows, array $mergedRanges = [
         .'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
         .'<dimension ref="'.$dimension.'"/><sheetData>'.$sheetRows.'</sheetData>'.$mergeXml.'</worksheet>';
 
-    $zip = new ZipArchive();
+    $zip = new ZipArchive;
     $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
     $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         .'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
@@ -489,8 +491,8 @@ test('catalog chunk archives missing products after successful import', function
 
     (new CatalogImportChunkJob($run->getKey()))->handle(
         app(SpreadsheetReader::class),
-        app(\App\Services\ImportStatusService::class),
-        app(\App\Services\ImportLogger::class),
+        app(ImportStatusService::class),
+        app(ImportLogger::class),
         app(ImportRowProcessor::class),
         app(ImportProductFactory::class),
     );
@@ -546,7 +548,6 @@ test('fake http vehicle generation image download saves image path on generation
     expect($generation->image)->toStartWith('uploads/vehicles/generations/'.$generation->getKey().'/')
         ->and($generation->image)->toEndWith('.webp');
 });
-
 
 test('import counters are not inflated by repeated unchanged rows', function () {
     $run = catalogImportRun();
@@ -616,7 +617,7 @@ test('excel text normalization removes line breaks and duplicate spaces from cat
         ->and(PartType::query()->where('title', "Задней\nдвери")->exists())->toBeFalse()
         ->and(PartType::query()->where('full_slug', 'penka/zadnei-dveri')->exists())->toBeTrue()
         ->and(Product::query()->where('title', 'like', "%\n%")->exists())->toBeFalse()
-        ->and(Product::query()->where('title', 'like', "%  %")->exists())->toBeFalse()
+        ->and(Product::query()->where('title', 'like', '%  %')->exists())->toBeFalse()
         ->and(Product::query()->where('title', 'like', 'Пенка задней двери для%')->exists())->toBeTrue()
         ->and(Product::query()->where('title', 'like', 'Пенка передней двери для%')->exists())->toBeTrue()
         ->and(Product::query()->where('title', 'like', 'Усилитель соединитель порогов для%')->exists())->toBeTrue();
@@ -653,8 +654,8 @@ test('chunk skips auto archive when row errors were logged', function () {
 
     (new CatalogImportChunkJob($run->getKey()))->handle(
         app(SpreadsheetReader::class),
-        app(\App\Services\ImportStatusService::class),
-        app(\App\Services\ImportLogger::class),
+        app(ImportStatusService::class),
+        app(ImportLogger::class),
         app(ImportRowProcessor::class),
         app(ImportProductFactory::class),
     );
@@ -728,7 +729,7 @@ test('product image source url is not queued again when existing file is present
         imageUrl: 'https://example.test/part.jpg',
     );
 
-    Queue::assertNotPushed(\App\Jobs\DownloadProductImageJob::class);
+    Queue::assertNotPushed(DownloadProductImageJob::class);
 });
 
 test('product image source url is queued again when existing record file is missing', function () {
@@ -756,7 +757,7 @@ test('product image source url is queued again when existing record file is miss
         imageUrl: 'https://example.test/part.jpg',
     );
 
-    Queue::assertPushed(\App\Jobs\DownloadProductImageJob::class);
+    Queue::assertPushed(DownloadProductImageJob::class);
 });
 
 test('vehicle image column availability and garbage values never create product images', function () {
@@ -796,7 +797,6 @@ test('vehicle image url is not queued again when source file exists', function (
     Queue::assertNotPushed(DownloadVehicleGenerationImageJob::class);
 });
 
-
 test('grouped detail title is used in product title while category remains nested', function () {
     $run = catalogImportRun([
         'detail_columns' => [
@@ -832,8 +832,8 @@ test('penka root and root-only detail titles are reflected in product titles', f
                 'index' => 12,
                 'group' => 'Пенка',
                 'parent_title' => 'Пенка',
-                'title' => "Задней
-двери",
+                'title' => 'Задней
+двери',
                 'detail_title' => 'Задней двери',
                 'full_detail_title' => 'Пенка задней двери',
                 'category_title' => 'Задней двери',
@@ -1111,7 +1111,7 @@ test('repeated import preserves manual product fields variants fitments and defa
         'stock_status' => StockStatus::OutOfStock,
         'position' => 77,
         'is_featured' => true,
-    ])->save();
+    ])->saveQuietly();
 
     $variant->forceFill([
         'sku' => 'MANUAL-VARIANT-SKU',
@@ -1121,11 +1121,11 @@ test('repeated import preserves manual product fields variants fitments and defa
     ])->save();
 
     $primaryFitment = ProductFitment::query()->firstOrFail();
-    $primaryFitment->forceFill(['note' => 'Ручная заметка', 'is_primary' => false])->save();
-    $additionalFitment = ProductFitment::factory()->forProduct($product)->create([
+    $primaryFitment->forceFill(['note' => 'Ручная заметка', 'is_primary' => false])->saveQuietly();
+    $additionalFitment = ProductFitment::withoutEvents(fn () => ProductFitment::factory()->forProduct($product)->create([
         'note' => 'Дополнительная применимость',
         'is_primary' => false,
-    ]);
+    ]));
     $importImage = ProductImage::factory()->forProduct($product)->create([
         'source_type' => ProductImage::SOURCE_IMPORT,
         'source_url' => 'https://example.test/existing-import.jpg',

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Catalog\CatalogStructureAdminService;
 use App\Services\Catalog\PartTypeTreeService;
 use Database\Factories\PartTypeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -40,7 +41,8 @@ class PartType extends Model
 
     public function save(array $options = []): bool
     {
-        return DB::transaction(fn (): bool => parent::save($options));
+        return DB::transaction(fn (): bool => app(CatalogStructureAdminService::class)
+            ->guardUniqueIdentitySave($this, fn (): bool => parent::save($options)));
     }
 
     public function parent(): BelongsTo
@@ -72,6 +74,7 @@ class PartType extends Model
     {
         static::saving(function (self $partType): void {
             app(PartTypeTreeService::class)->prepareForSave($partType);
+            app(CatalogStructureAdminService::class)->assertPartTypeIdentityAvailable($partType);
         });
 
         static::saved(function (self $partType): void {
@@ -79,6 +82,9 @@ class PartType extends Model
                 app(PartTypeTreeService::class)->recalculateDescendants($partType);
             }
         });
+
+        static::deleting(fn (self $partType) => app(CatalogStructureAdminService::class)->assertPartTypeCanBeDeleted($partType));
+        static::restoring(fn (self $partType) => app(CatalogStructureAdminService::class)->assertPartTypeCanBeRestored($partType));
     }
 
     protected function casts(): array
