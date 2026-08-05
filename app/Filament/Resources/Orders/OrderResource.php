@@ -10,9 +10,11 @@ use App\Filament\Resources\Orders\Pages\EditOrder;
 use App\Filament\Resources\Orders\Pages\ListOrders;
 use App\Filament\Resources\Orders\Pages\ViewOrder;
 use App\Models\Order;
+use App\Models\User;
 use BackedEnum;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Repeater;
@@ -21,7 +23,6 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
-use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -65,7 +66,7 @@ class OrderResource extends Resource
                         ->disabled(),
                     Select::make('status')
                         ->label('Статус')
-                        ->options(OrderStatus::options())
+                        ->options(fn (?Order $record): array => $record?->status->transitionOptions() ?? OrderStatus::options())
                         ->required(),
                     DateTimePicker::make('placed_at')
                         ->label('Оформлен')
@@ -85,6 +86,7 @@ class OrderResource extends Resource
                     Textarea::make('manager_comment')
                         ->label('Комментарий менеджера')
                         ->rows(3)
+                        ->maxLength(5000)
                         ->columnSpanFull(),
                 ])
                 ->columns(2),
@@ -120,15 +122,12 @@ class OrderResource extends Resource
                         ->disabled(),
                     Select::make('payment_status')
                         ->label('Статус оплаты')
-                        ->options(PaymentStatus::options())
+                        ->options(fn (?Order $record): array => $record?->payment_status->transitionOptions() ?? PaymentStatus::options())
                         ->required()
                         ->live(),
                     DateTimePicker::make('paid_at')
                         ->label('Оплачен')
-                        ->disabled()
-                        ->visible(fn (Get $get): bool => ($get('payment_status') instanceof PaymentStatus
-                            ? $get('payment_status')->value
-                            : $get('payment_status')) === PaymentStatus::Paid->value),
+                        ->disabled(),
                     Select::make('delivery_method')
                         ->label('Способ доставки')
                         ->options(DeliveryMethod::options())
@@ -273,6 +272,15 @@ class OrderResource extends Resource
             'view' => ViewOrder::route('/{record}'),
             'edit' => EditOrder::route('/{record}/edit'),
         ];
+    }
+
+    public static function actor(): User
+    {
+        $actor = Filament::auth()->user();
+
+        abort_unless($actor instanceof User, 403);
+
+        return $actor;
     }
 
     private static function optionSummary(mixed $options): string

@@ -25,4 +25,8 @@ enum AdminPermission: string
     case UpdateStoreSettings = 'update_store_settings';
     case ViewSiteNavigation = 'view_site_navigation';
     case ManageSiteNavigation = 'manage_site_navigation';
+    case ViewDeliveryMethods = 'view_delivery_methods';
+    case ManageDeliveryMethods = 'manage_delivery_methods';
+    case ViewPaymentMethods = 'view_payment_methods';
+    case ManagePaymentMethods = 'manage_payment_methods';
 }

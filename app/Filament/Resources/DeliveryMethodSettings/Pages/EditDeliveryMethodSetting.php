@@ -1,29 +1,28 @@
 <?php
 
-namespace App\Filament\Resources\Orders\Pages;
+namespace App\Filament\Resources\DeliveryMethodSettings\Pages;
 
-use App\Filament\Resources\Orders\OrderResource;
-use App\Models\Order;
-use App\Services\Orders\OrderOperationsService;
+use App\Filament\Resources\DeliveryMethodSettings\DeliveryMethodSettingResource;
+use App\Models\DeliveryMethodSetting;
+use App\Services\Orders\DeliveryMethodSettingsAdminService;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Arr;
 use Illuminate\Validation\ValidationException;
 
-class EditOrder extends EditRecord
+class EditDeliveryMethodSetting extends EditRecord
 {
-    protected static string $resource = OrderResource::class;
+    protected static string $resource = DeliveryMethodSettingResource::class;
 
     protected ?bool $hasDatabaseTransactions = true;
 
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
-        /** @var Order $record */
+        /** @var DeliveryMethodSetting $record */
         try {
-            return app(OrderOperationsService::class)->update(
-                OrderResource::actor(),
+            return app(DeliveryMethodSettingsAdminService::class)->update(
+                DeliveryMethodSettingResource::actor(),
                 $record,
-                Arr::only($data, ['status', 'payment_status', 'manager_comment']),
+                $data,
             );
         } catch (ValidationException $exception) {
             throw ValidationException::withMessages(collect($exception->errors())

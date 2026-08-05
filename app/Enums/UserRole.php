@@ -57,6 +57,10 @@ enum UserRole: string
                 AdminPermission::UpdateStoreSettings,
                 AdminPermission::ViewSiteNavigation,
                 AdminPermission::ManageSiteNavigation,
+                AdminPermission::ViewDeliveryMethods,
+                AdminPermission::ManageDeliveryMethods,
+                AdminPermission::ViewPaymentMethods,
+                AdminPermission::ManagePaymentMethods,
             ],
             self::Admin => [
                 AdminPermission::AccessPanel,
@@ -78,6 +82,10 @@ enum UserRole: string
                 AdminPermission::UpdateStoreSettings,
                 AdminPermission::ViewSiteNavigation,
                 AdminPermission::ManageSiteNavigation,
+                AdminPermission::ViewDeliveryMethods,
+                AdminPermission::ManageDeliveryMethods,
+                AdminPermission::ViewPaymentMethods,
+                AdminPermission::ManagePaymentMethods,
             ],
             self::Manager => [
                 AdminPermission::AccessPanel,
@@ -89,6 +97,8 @@ enum UserRole: string
                 AdminPermission::UpdateOrders,
                 AdminPermission::ViewStoreSettings,
                 AdminPermission::ViewSiteNavigation,
+                AdminPermission::ViewDeliveryMethods,
+                AdminPermission::ViewPaymentMethods,
             ],
             self::Customer => [],
         };

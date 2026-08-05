@@ -26,4 +26,28 @@ enum PaymentStatus: string
             ->mapWithKeys(fn (self $status): array => [$status->value => $status->label()])
             ->all();
     }
+
+    /** @return list<self> */
+    public function allowedTransitions(): array
+    {
+        return match ($this) {
+            self::Pending => [self::Paid, self::Failed],
+            self::Failed => [self::Pending, self::Paid],
+            self::Paid => [self::Refunded],
+            self::Refunded => [],
+        };
+    }
+
+    public function canTransitionTo(self $target): bool
+    {
+        return $target === $this || in_array($target, $this->allowedTransitions(), true);
+    }
+
+    /** @return array<string, string> */
+    public function transitionOptions(): array
+    {
+        return collect([$this, ...$this->allowedTransitions()])
+            ->mapWithKeys(fn (self $status): array => [$status->value => $status->label()])
+            ->all();
+    }
 }

@@ -1,29 +1,28 @@
 <?php
 
-namespace App\Filament\Resources\Orders\Pages;
+namespace App\Filament\Resources\PaymentMethodSettings\Pages;
 
-use App\Filament\Resources\Orders\OrderResource;
-use App\Models\Order;
-use App\Services\Orders\OrderOperationsService;
+use App\Filament\Resources\PaymentMethodSettings\PaymentMethodSettingResource;
+use App\Models\PaymentMethodSetting;
+use App\Services\Orders\PaymentMethodSettingsAdminService;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Arr;
 use Illuminate\Validation\ValidationException;
 
-class EditOrder extends EditRecord
+class EditPaymentMethodSetting extends EditRecord
 {
-    protected static string $resource = OrderResource::class;
+    protected static string $resource = PaymentMethodSettingResource::class;
 
     protected ?bool $hasDatabaseTransactions = true;
 
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
-        /** @var Order $record */
+        /** @var PaymentMethodSetting $record */
         try {
-            return app(OrderOperationsService::class)->update(
-                OrderResource::actor(),
+            return app(PaymentMethodSettingsAdminService::class)->update(
+                PaymentMethodSettingResource::actor(),
                 $record,
-                Arr::only($data, ['status', 'payment_status', 'manager_comment']),
+                $data,
             );
         } catch (ValidationException $exception) {
             throw ValidationException::withMessages(collect($exception->errors())
