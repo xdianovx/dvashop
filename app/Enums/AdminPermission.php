@@ -21,4 +21,8 @@ enum AdminPermission: string
     case ViewOrders = 'view_orders';
     case UpdateOrders = 'update_orders';
     case ManageCatalogImports = 'manage_catalog_imports';
+    case ViewStoreSettings = 'view_store_settings';
+    case UpdateStoreSettings = 'update_store_settings';
+    case ViewSiteNavigation = 'view_site_navigation';
+    case ManageSiteNavigation = 'manage_site_navigation';
 }

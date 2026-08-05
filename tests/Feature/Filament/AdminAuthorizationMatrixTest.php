@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\AdminPermission;
 use App\Enums\UserRole;
 use App\Filament\Resources\Products\Pages\EditProduct;
 use App\Filament\Resources\Products\Pages\ListProducts;
@@ -11,10 +12,13 @@ use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
 use App\Models\ProductOptionTemplateItem;
 use App\Models\ProductOptionValue;
+use App\Models\ShopSetting;
+use App\Models\SiteNavigationItem;
 use App\Models\User;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Models\VehicleModel;
+use App\Services\Settings\ShopSettingsService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +29,39 @@ uses(RefreshDatabase::class);
 beforeEach(function (): void {
     Filament::setCurrentPanel(Filament::getPanel('admin'));
     Filament::bootCurrentPanel();
+});
+
+test('store settings and site navigation permissions extend the matrix without changing earlier permissions', function (): void {
+    $setting = app(ShopSettingsService::class)->current();
+    $navigation = SiteNavigationItem::factory()->create();
+    $actors = [
+        'super_admin' => User::factory()->superAdmin()->create(),
+        'admin' => User::factory()->admin()->create(),
+        'manager' => User::factory()->manager()->create(),
+        'customer' => User::factory()->create(),
+        'inactive_super_admin' => User::factory()->superAdmin()->inactive()->create(),
+        'blocked_super_admin' => User::factory()->superAdmin()->blocked()->create(),
+    ];
+
+    foreach ($actors as $label => $actor) {
+        $mayView = in_array($label, ['super_admin', 'admin', 'manager'], true);
+        $mayManage = in_array($label, ['super_admin', 'admin'], true);
+
+        expect($actor->canPerformAdminAction(AdminPermission::ViewStoreSettings), "{$label}:permission:view-settings")->toBe($mayView)
+            ->and($actor->canPerformAdminAction(AdminPermission::UpdateStoreSettings), "{$label}:permission:update-settings")->toBe($mayManage)
+            ->and($actor->canPerformAdminAction(AdminPermission::ViewSiteNavigation), "{$label}:permission:view-navigation")->toBe($mayView)
+            ->and($actor->canPerformAdminAction(AdminPermission::ManageSiteNavigation), "{$label}:permission:manage-navigation")->toBe($mayManage)
+            ->and($actor->can('view', $setting), "{$label}:policy:view-settings")->toBe($mayView)
+            ->and($actor->can('update', $setting), "{$label}:policy:update-settings")->toBe($mayManage)
+            ->and($actor->can('view', $navigation), "{$label}:policy:view-navigation")->toBe($mayView)
+            ->and($actor->can('update', $navigation), "{$label}:policy:update-navigation")->toBe($mayManage)
+            ->and($actor->can('delete', $navigation), "{$label}:policy:delete-navigation")->toBe($mayManage)
+            ->and($actor->can('reorder', SiteNavigationItem::class), "{$label}:policy:reorder-navigation")->toBe($mayManage)
+            ->and($actor->can('forceDelete', $navigation), "{$label}:policy:force-delete-navigation")->toBeFalse()
+            ->and($actor->can('replicate', $navigation), "{$label}:policy:replicate-navigation")->toBeFalse();
+    }
+
+    expect($setting)->toBeInstanceOf(ShopSetting::class);
 });
 
 test('catalog policies enforce view only manager access and privileged mutations', function (): void {

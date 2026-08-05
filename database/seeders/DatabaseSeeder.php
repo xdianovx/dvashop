@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
             ProductOptionSeeder::class,
             VehicleCatalogSeeder::class,
             ProductSeeder::class,
+            ShopSettingsSeeder::class,
         ]);
     }
 }
