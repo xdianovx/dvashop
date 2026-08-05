@@ -12,6 +12,7 @@ use App\Models\User;
 use Filament\Actions\DeleteAction;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 
@@ -111,4 +112,80 @@ test('OrderResource updates only operational fields and keeps item snapshots rea
         ->and($order->manager_comment)->toBe('Оплата подтверждена')
         ->and($order->paid_at)->not->toBeNull()
         ->and($item->refresh()->only(array_keys($snapshot)))->toBe($snapshot);
+});
+
+test('OrderResource exposes only current and allowed next statuses', function (): void {
+    $order = Order::factory()->create([
+        'status' => OrderStatus::Completed,
+        'payment_status' => PaymentStatus::Paid,
+    ]);
+
+    Livewire::test(EditOrder::class, ['record' => $order->getKey()])
+        ->assertFormFieldExists('status', fn (Select $field): bool => $field->getOptions() === [
+            OrderStatus::Completed->value => OrderStatus::Completed->label(),
+        ])
+        ->assertFormFieldExists('payment_status', fn (Select $field): bool => $field->getOptions() === [
+            PaymentStatus::Paid->value => PaymentStatus::Paid->label(),
+            PaymentStatus::Refunded->value => PaymentStatus::Refunded->label(),
+        ]);
+});
+
+test('forged OrderResource transitions cannot mutate terminal orders', function (): void {
+    $paidAt = now()->subDay()->startOfSecond();
+    $order = Order::factory()->create([
+        'status' => OrderStatus::Completed,
+        'payment_status' => PaymentStatus::Refunded,
+        'manager_comment' => 'Зафиксировано',
+        'paid_at' => $paidAt,
+    ]);
+    $before = $order->getAttributes();
+
+    Livewire::test(EditOrder::class, ['record' => $order->getKey()])
+        ->set('data.status', OrderStatus::Processing->value)
+        ->call('save')
+        ->assertStatus(200)
+        ->assertHasFormErrors(['status']);
+
+    expect($order->fresh()->getAttributes())->toEqual($before);
+
+    Livewire::test(EditOrder::class, ['record' => $order->getKey()])
+        ->set('data.payment_status', PaymentStatus::Paid->value)
+        ->call('save')
+        ->assertStatus(200)
+        ->assertHasFormErrors(['payment_status']);
+
+    expect($order->fresh()->getAttributes())->toEqual($before);
+});
+
+test('forged disabled OrderResource state does not change checkout data or item snapshots', function (): void {
+    $order = Order::factory()->create([
+        'customer_name' => 'Покупатель',
+        'subtotal' => 4200,
+        'delivery_price' => 300,
+        'total' => 4500,
+    ]);
+    $item = OrderItem::factory()->for($order)->create([
+        'title_snapshot' => 'Порог левый',
+        'options_snapshot' => ['side' => ['group' => 'Сторона', 'value' => 'Левая']],
+        'price_snapshot' => 4200,
+        'total_snapshot' => 4200,
+    ]);
+    $orderBefore = $order->getAttributes();
+    $itemBefore = $item->getAttributes();
+
+    Livewire::test(EditOrder::class, ['record' => $order->getKey()])
+        ->set('data.customer_name', 'Подмена')
+        ->set('data.total', 1)
+        ->set('data.paid_at', now()->addYear()->toDateTimeString())
+        ->set('data.items.'.$item->getKey().'.title_snapshot', 'Подмена снимка')
+        ->fillForm(['manager_comment' => 'Допустимое изменение'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $freshOrder = $order->fresh();
+
+    expect($freshOrder->manager_comment)->toBe('Допустимое изменение')
+        ->and(collect($freshOrder->getAttributes())->except(['manager_comment', 'updated_at'])->all())
+        ->toEqual(collect($orderBefore)->except(['manager_comment', 'updated_at'])->all())
+        ->and($item->fresh()->getAttributes())->toEqual($itemBefore);
 });

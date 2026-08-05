@@ -2,8 +2,10 @@
 
 use App\Filament\Pages\CatalogImportPage;
 use App\Filament\Pages\ShopSettingsPage;
+use App\Filament\Resources\DeliveryMethodSettings\DeliveryMethodSettingResource;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\PartTypes\PartTypeResource;
+use App\Filament\Resources\PaymentMethodSettings\PaymentMethodSettingResource;
 use App\Filament\Resources\ProductCategories\ProductCategoryResource;
 use App\Filament\Resources\ProductOptionGroups\ProductOptionGroupResource;
 use App\Filament\Resources\ProductOptionGroups\RelationManagers\ValuesRelationManager;
@@ -14,8 +16,10 @@ use App\Filament\Resources\Users\UserResource;
 use App\Filament\Resources\VehicleGenerations\VehicleGenerationResource;
 use App\Filament\Resources\VehicleMakes\VehicleMakeResource;
 use App\Filament\Resources\VehicleModels\VehicleModelResource;
+use App\Models\DeliveryMethodSetting;
 use App\Models\Order;
 use App\Models\PartType;
+use App\Models\PaymentMethodSetting;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductOptionGroup;
@@ -49,8 +53,10 @@ test('filament discovery inventory is complete and fails on an unclassified reso
     sort($widgets);
 
     $expectedResources = [
+        DeliveryMethodSettingResource::class,
         OrderResource::class,
         PartTypeResource::class,
+        PaymentMethodSettingResource::class,
         ProductCategoryResource::class,
         ProductOptionGroupResource::class,
         ProductOptionTemplateResource::class,
@@ -144,8 +150,10 @@ test('every discovered resource page route follows the explicit role matrix', fu
         default => User::factory()->create(),
     };
     $records = [
+        DeliveryMethodSettingResource::class => DeliveryMethodSetting::factory()->create(),
         OrderResource::class => Order::factory()->create(),
         PartTypeResource::class => PartType::factory()->create(),
+        PaymentMethodSettingResource::class => PaymentMethodSetting::factory()->create(),
         ProductCategoryResource::class => ProductCategory::factory()->create(),
         ProductOptionGroupResource::class => ProductOptionGroup::factory()->create(),
         ProductOptionTemplateResource::class => ProductOptionTemplate::factory()->create(),

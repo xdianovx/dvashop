@@ -4,8 +4,10 @@ use App\Enums\AdminPermission;
 use App\Enums\UserRole;
 use App\Filament\Resources\Products\Pages\EditProduct;
 use App\Filament\Resources\Products\Pages\ListProducts;
+use App\Models\DeliveryMethodSetting;
 use App\Models\Order;
 use App\Models\PartType;
+use App\Models\PaymentMethodSetting;
 use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductOptionGroup;
@@ -62,6 +64,46 @@ test('store settings and site navigation permissions extend the matrix without c
     }
 
     expect($setting)->toBeInstanceOf(ShopSetting::class);
+});
+
+test('checkout method settings permissions allow managers to view but only privileged roles to manage', function (): void {
+    $deliveryMethod = DeliveryMethodSetting::factory()->create();
+    $paymentMethod = PaymentMethodSetting::factory()->create();
+    $actors = [
+        'super_admin' => User::factory()->superAdmin()->create(),
+        'admin' => User::factory()->admin()->create(),
+        'manager' => User::factory()->manager()->create(),
+        'customer' => User::factory()->create(),
+        'inactive_super_admin' => User::factory()->superAdmin()->inactive()->create(),
+        'blocked_super_admin' => User::factory()->superAdmin()->blocked()->create(),
+    ];
+
+    foreach ($actors as $label => $actor) {
+        $mayView = in_array($label, ['super_admin', 'admin', 'manager'], true);
+        $mayManage = in_array($label, ['super_admin', 'admin'], true);
+
+        expect($actor->canPerformAdminAction(AdminPermission::ViewDeliveryMethods), "{$label}:permission:view-delivery-methods")->toBe($mayView)
+            ->and($actor->canPerformAdminAction(AdminPermission::ManageDeliveryMethods), "{$label}:permission:manage-delivery-methods")->toBe($mayManage)
+            ->and($actor->canPerformAdminAction(AdminPermission::ViewPaymentMethods), "{$label}:permission:view-payment-methods")->toBe($mayView)
+            ->and($actor->canPerformAdminAction(AdminPermission::ManagePaymentMethods), "{$label}:permission:manage-payment-methods")->toBe($mayManage);
+
+        foreach ([$deliveryMethod, $paymentMethod] as $method) {
+            $model = $method::class;
+
+            expect($actor->can('viewAny', $model), "{$label}:{$model}:viewAny")->toBe($mayView)
+                ->and($actor->can('view', $method), "{$label}:{$model}:view")->toBe($mayView)
+                ->and($actor->can('update', $method), "{$label}:{$model}:update")->toBe($mayManage)
+                ->and($actor->can('reorder', $model), "{$label}:{$model}:reorder")->toBe($mayManage)
+                ->and($actor->can('create', $model), "{$label}:{$model}:create")->toBeFalse()
+                ->and($actor->can('delete', $method), "{$label}:{$model}:delete")->toBeFalse()
+                ->and($actor->can('deleteAny', $model), "{$label}:{$model}:deleteAny")->toBeFalse()
+                ->and($actor->can('restore', $method), "{$label}:{$model}:restore")->toBeFalse()
+                ->and($actor->can('restoreAny', $model), "{$label}:{$model}:restoreAny")->toBeFalse()
+                ->and($actor->can('forceDelete', $method), "{$label}:{$model}:forceDelete")->toBeFalse()
+                ->and($actor->can('forceDeleteAny', $model), "{$label}:{$model}:forceDeleteAny")->toBeFalse()
+                ->and($actor->can('replicate', $method), "{$label}:{$model}:replicate")->toBeFalse();
+        }
+    }
 });
 
 test('catalog policies enforce view only manager access and privileged mutations', function (): void {

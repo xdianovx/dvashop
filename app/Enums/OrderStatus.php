@@ -28,4 +28,27 @@ enum OrderStatus: string
             ->mapWithKeys(fn (self $status): array => [$status->value => $status->label()])
             ->all();
     }
+
+    /** @return list<self> */
+    public function allowedTransitions(): array
+    {
+        return match ($this) {
+            self::New => [self::Processing, self::Completed, self::Canceled],
+            self::Processing => [self::Completed, self::Canceled],
+            self::Completed, self::Canceled => [],
+        };
+    }
+
+    public function canTransitionTo(self $target): bool
+    {
+        return $target === $this || in_array($target, $this->allowedTransitions(), true);
+    }
+
+    /** @return array<string, string> */
+    public function transitionOptions(): array
+    {
+        return collect([$this, ...$this->allowedTransitions()])
+            ->mapWithKeys(fn (self $status): array => [$status->value => $status->label()])
+            ->all();
+    }
 }
