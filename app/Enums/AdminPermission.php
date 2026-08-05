@@ -31,4 +31,6 @@ enum AdminPermission: string
     case ManagePaymentMethods = 'manage_payment_methods';
     case ViewHomepageContent = 'view_homepage_content';
     case ManageHomepageContent = 'manage_homepage_content';
+    case ViewStaticContent = 'view_static_content';
+    case ManageStaticContent = 'manage_static_content';
 }

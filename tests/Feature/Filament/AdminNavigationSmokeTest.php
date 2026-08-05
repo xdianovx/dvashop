@@ -3,6 +3,8 @@
 use App\Filament\Pages\CatalogImportPage;
 use App\Filament\Pages\ShopSettingsPage;
 use App\Filament\Resources\DeliveryMethodSettings\DeliveryMethodSettingResource;
+use App\Filament\Resources\FaqCategories\FaqCategoryResource;
+use App\Filament\Resources\FaqItems\FaqItemResource;
 use App\Filament\Resources\HomepageCategoryCards\HomepageCategoryCardResource;
 use App\Filament\Resources\HomepageMetrics\HomepageMetricResource;
 use App\Filament\Resources\HomepageQuickLinks\HomepageQuickLinkResource;
@@ -16,11 +18,16 @@ use App\Filament\Resources\ProductOptionGroups\RelationManagers\ValuesRelationMa
 use App\Filament\Resources\ProductOptionTemplates\ProductOptionTemplateResource;
 use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\SiteNavigationItems\SiteNavigationItemResource;
+use App\Filament\Resources\StaticPageItems\StaticPageItemResource;
+use App\Filament\Resources\StaticPages\StaticPageResource;
+use App\Filament\Resources\StaticPageSections\StaticPageSectionResource;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Resources\VehicleGenerations\VehicleGenerationResource;
 use App\Filament\Resources\VehicleMakes\VehicleMakeResource;
 use App\Filament\Resources\VehicleModels\VehicleModelResource;
 use App\Models\DeliveryMethodSetting;
+use App\Models\FaqCategory;
+use App\Models\FaqItem;
 use App\Models\HomepageCategoryCard;
 use App\Models\HomepageMetric;
 use App\Models\HomepageQuickLink;
@@ -33,10 +40,15 @@ use App\Models\ProductCategory;
 use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
 use App\Models\SiteNavigationItem;
+use App\Models\StaticPage;
+use App\Models\StaticPageItem;
+use App\Models\StaticPageSection;
 use App\Models\User;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Models\VehicleModel;
+use Database\Seeders\FaqSeeder;
+use Database\Seeders\StaticPageContentSeeder;
 use Filament\Facades\Filament;
 use Filament\Pages\Dashboard;
 use Filament\Widgets\AccountWidget;
@@ -62,6 +74,8 @@ test('filament discovery inventory is complete and fails on an unclassified reso
 
     $expectedResources = [
         DeliveryMethodSettingResource::class,
+        FaqCategoryResource::class,
+        FaqItemResource::class,
         HomepageCategoryCardResource::class,
         HomepageMetricResource::class,
         HomepageQuickLinkResource::class,
@@ -74,6 +88,9 @@ test('filament discovery inventory is complete and fails on an unclassified reso
         ProductOptionTemplateResource::class,
         ProductResource::class,
         SiteNavigationItemResource::class,
+        StaticPageItemResource::class,
+        StaticPageSectionResource::class,
+        StaticPageResource::class,
         UserResource::class,
         VehicleGenerationResource::class,
         VehicleMakeResource::class,
@@ -161,8 +178,12 @@ test('every discovered resource page route follows the explicit role matrix', fu
         'blocked' => User::factory()->superAdmin()->blocked()->create(),
         default => User::factory()->create(),
     };
+    $this->seed([StaticPageContentSeeder::class, FaqSeeder::class]);
+
     $records = [
         DeliveryMethodSettingResource::class => DeliveryMethodSetting::factory()->create(),
+        FaqCategoryResource::class => FaqCategory::query()->where('code', 'common')->firstOrFail(),
+        FaqItemResource::class => FaqItem::query()->where('code', 'common_quality_exchange')->firstOrFail(),
         HomepageCategoryCardResource::class => HomepageCategoryCard::factory()->create(),
         HomepageMetricResource::class => HomepageMetric::factory()->create(),
         HomepageQuickLinkResource::class => HomepageQuickLink::factory()->create(),
@@ -175,6 +196,9 @@ test('every discovered resource page route follows the explicit role matrix', fu
         ProductOptionTemplateResource::class => ProductOptionTemplate::factory()->create(),
         ProductResource::class => Product::factory()->create(),
         SiteNavigationItemResource::class => SiteNavigationItem::factory()->create(),
+        StaticPageItemResource::class => StaticPageItem::query()->where('code', 'about_metric_parts')->firstOrFail(),
+        StaticPageSectionResource::class => StaticPageSection::query()->where('code', 'about_hero')->firstOrFail(),
+        StaticPageResource::class => StaticPage::query()->where('code', 'about')->firstOrFail(),
         UserResource::class => User::factory()->create(),
         VehicleGenerationResource::class => VehicleGeneration::factory()->create(),
         VehicleMakeResource::class => VehicleMake::factory()->create(),
