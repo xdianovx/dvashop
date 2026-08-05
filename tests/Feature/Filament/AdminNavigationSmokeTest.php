@@ -3,6 +3,10 @@
 use App\Filament\Pages\CatalogImportPage;
 use App\Filament\Pages\ShopSettingsPage;
 use App\Filament\Resources\DeliveryMethodSettings\DeliveryMethodSettingResource;
+use App\Filament\Resources\HomepageCategoryCards\HomepageCategoryCardResource;
+use App\Filament\Resources\HomepageMetrics\HomepageMetricResource;
+use App\Filament\Resources\HomepageQuickLinks\HomepageQuickLinkResource;
+use App\Filament\Resources\HomepageSections\HomepageSectionResource;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\PartTypes\PartTypeResource;
 use App\Filament\Resources\PaymentMethodSettings\PaymentMethodSettingResource;
@@ -17,6 +21,10 @@ use App\Filament\Resources\VehicleGenerations\VehicleGenerationResource;
 use App\Filament\Resources\VehicleMakes\VehicleMakeResource;
 use App\Filament\Resources\VehicleModels\VehicleModelResource;
 use App\Models\DeliveryMethodSetting;
+use App\Models\HomepageCategoryCard;
+use App\Models\HomepageMetric;
+use App\Models\HomepageQuickLink;
+use App\Models\HomepageSection;
 use App\Models\Order;
 use App\Models\PartType;
 use App\Models\PaymentMethodSetting;
@@ -54,6 +62,10 @@ test('filament discovery inventory is complete and fails on an unclassified reso
 
     $expectedResources = [
         DeliveryMethodSettingResource::class,
+        HomepageCategoryCardResource::class,
+        HomepageMetricResource::class,
+        HomepageQuickLinkResource::class,
+        HomepageSectionResource::class,
         OrderResource::class,
         PartTypeResource::class,
         PaymentMethodSettingResource::class,
@@ -151,6 +163,10 @@ test('every discovered resource page route follows the explicit role matrix', fu
     };
     $records = [
         DeliveryMethodSettingResource::class => DeliveryMethodSetting::factory()->create(),
+        HomepageCategoryCardResource::class => HomepageCategoryCard::factory()->create(),
+        HomepageMetricResource::class => HomepageMetric::factory()->create(),
+        HomepageQuickLinkResource::class => HomepageQuickLink::factory()->create(),
+        HomepageSectionResource::class => HomepageSection::factory()->create(),
         OrderResource::class => Order::factory()->create(),
         PartTypeResource::class => PartType::factory()->create(),
         PaymentMethodSettingResource::class => PaymentMethodSetting::factory()->create(),

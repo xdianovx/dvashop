@@ -23,6 +23,7 @@ class DatabaseSeeder extends Seeder
             ProductSeeder::class,
             ShopSettingsSeeder::class,
             CheckoutMethodSettingsSeeder::class,
+            HomepageContentSeeder::class,
         ]);
     }
 }

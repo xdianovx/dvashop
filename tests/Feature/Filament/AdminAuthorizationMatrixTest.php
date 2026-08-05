@@ -5,6 +5,10 @@ use App\Enums\UserRole;
 use App\Filament\Resources\Products\Pages\EditProduct;
 use App\Filament\Resources\Products\Pages\ListProducts;
 use App\Models\DeliveryMethodSetting;
+use App\Models\HomepageCategoryCard;
+use App\Models\HomepageMetric;
+use App\Models\HomepageQuickLink;
+use App\Models\HomepageSection;
 use App\Models\Order;
 use App\Models\PartType;
 use App\Models\PaymentMethodSetting;
@@ -31,6 +35,48 @@ uses(RefreshDatabase::class);
 beforeEach(function (): void {
     Filament::setCurrentPanel(Filament::getPanel('admin'));
     Filament::bootCurrentPanel();
+});
+
+test('homepage content permissions are view only for managers and manageable only by privileged roles', function (): void {
+    $records = [
+        HomepageSection::factory()->create(),
+        HomepageQuickLink::factory()->create(),
+        HomepageCategoryCard::factory()->create(),
+        HomepageMetric::factory()->create(),
+    ];
+    $actors = [
+        'super_admin' => User::factory()->superAdmin()->create(),
+        'admin' => User::factory()->admin()->create(),
+        'manager' => User::factory()->manager()->create(),
+        'customer' => User::factory()->create(),
+        'inactive_super_admin' => User::factory()->superAdmin()->inactive()->create(),
+        'blocked_super_admin' => User::factory()->superAdmin()->blocked()->create(),
+    ];
+
+    foreach ($actors as $label => $actor) {
+        $mayView = in_array($label, ['super_admin', 'admin', 'manager'], true);
+        $mayManage = in_array($label, ['super_admin', 'admin'], true);
+
+        expect($actor->canPerformAdminAction(AdminPermission::ViewHomepageContent), "{$label}:permission:view-homepage")->toBe($mayView)
+            ->and($actor->canPerformAdminAction(AdminPermission::ManageHomepageContent), "{$label}:permission:manage-homepage")->toBe($mayManage);
+
+        foreach ($records as $record) {
+            $model = $record::class;
+
+            expect($actor->can('viewAny', $model), "{$label}:{$model}:viewAny")->toBe($mayView)
+                ->and($actor->can('view', $record), "{$label}:{$model}:view")->toBe($mayView)
+                ->and($actor->can('update', $record), "{$label}:{$model}:update")->toBe($mayManage)
+                ->and($actor->can('reorder', $model), "{$label}:{$model}:reorder")->toBe($mayManage)
+                ->and($actor->can('create', $model), "{$label}:{$model}:create")->toBeFalse()
+                ->and($actor->can('delete', $record), "{$label}:{$model}:delete")->toBeFalse()
+                ->and($actor->can('deleteAny', $model), "{$label}:{$model}:deleteAny")->toBeFalse()
+                ->and($actor->can('restore', $record), "{$label}:{$model}:restore")->toBeFalse()
+                ->and($actor->can('restoreAny', $model), "{$label}:{$model}:restoreAny")->toBeFalse()
+                ->and($actor->can('forceDelete', $record), "{$label}:{$model}:forceDelete")->toBeFalse()
+                ->and($actor->can('forceDeleteAny', $model), "{$label}:{$model}:forceDeleteAny")->toBeFalse()
+                ->and($actor->can('replicate', $record), "{$label}:{$model}:replicate")->toBeFalse();
+        }
+    }
 });
 
 test('store settings and site navigation permissions extend the matrix without changing earlier permissions', function (): void {

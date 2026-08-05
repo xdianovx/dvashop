@@ -29,4 +29,6 @@ enum AdminPermission: string
     case ManageDeliveryMethods = 'manage_delivery_methods';
     case ViewPaymentMethods = 'view_payment_methods';
     case ManagePaymentMethods = 'manage_payment_methods';
+    case ViewHomepageContent = 'view_homepage_content';
+    case ManageHomepageContent = 'manage_homepage_content';
 }
