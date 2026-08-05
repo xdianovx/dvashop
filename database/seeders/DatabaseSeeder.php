@@ -24,6 +24,8 @@ class DatabaseSeeder extends Seeder
             ShopSettingsSeeder::class,
             CheckoutMethodSettingsSeeder::class,
             HomepageContentSeeder::class,
+            StaticPageContentSeeder::class,
+            FaqSeeder::class,
         ]);
     }
 }

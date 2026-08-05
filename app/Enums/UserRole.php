@@ -63,6 +63,8 @@ enum UserRole: string
                 AdminPermission::ManagePaymentMethods,
                 AdminPermission::ViewHomepageContent,
                 AdminPermission::ManageHomepageContent,
+                AdminPermission::ViewStaticContent,
+                AdminPermission::ManageStaticContent,
             ],
             self::Admin => [
                 AdminPermission::AccessPanel,
@@ -90,6 +92,8 @@ enum UserRole: string
                 AdminPermission::ManagePaymentMethods,
                 AdminPermission::ViewHomepageContent,
                 AdminPermission::ManageHomepageContent,
+                AdminPermission::ViewStaticContent,
+                AdminPermission::ManageStaticContent,
             ],
             self::Manager => [
                 AdminPermission::AccessPanel,
@@ -104,6 +108,7 @@ enum UserRole: string
                 AdminPermission::ViewDeliveryMethods,
                 AdminPermission::ViewPaymentMethods,
                 AdminPermission::ViewHomepageContent,
+                AdminPermission::ViewStaticContent,
             ],
             self::Customer => [],
         };
