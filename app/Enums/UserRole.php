@@ -53,6 +53,10 @@ enum UserRole: string
                 AdminPermission::ViewOrders,
                 AdminPermission::UpdateOrders,
                 AdminPermission::ManageCatalogImports,
+                AdminPermission::ViewStoreSettings,
+                AdminPermission::UpdateStoreSettings,
+                AdminPermission::ViewSiteNavigation,
+                AdminPermission::ManageSiteNavigation,
             ],
             self::Admin => [
                 AdminPermission::AccessPanel,
@@ -70,6 +74,10 @@ enum UserRole: string
                 AdminPermission::ViewOrders,
                 AdminPermission::UpdateOrders,
                 AdminPermission::ManageCatalogImports,
+                AdminPermission::ViewStoreSettings,
+                AdminPermission::UpdateStoreSettings,
+                AdminPermission::ViewSiteNavigation,
+                AdminPermission::ManageSiteNavigation,
             ],
             self::Manager => [
                 AdminPermission::AccessPanel,
@@ -79,6 +87,8 @@ enum UserRole: string
                 AdminPermission::UpdateProducts,
                 AdminPermission::ViewOrders,
                 AdminPermission::UpdateOrders,
+                AdminPermission::ViewStoreSettings,
+                AdminPermission::ViewSiteNavigation,
             ],
             self::Customer => [],
         };

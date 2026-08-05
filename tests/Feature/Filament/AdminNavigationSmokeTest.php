@@ -1,6 +1,7 @@
 <?php
 
 use App\Filament\Pages\CatalogImportPage;
+use App\Filament\Pages\ShopSettingsPage;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\PartTypes\PartTypeResource;
 use App\Filament\Resources\ProductCategories\ProductCategoryResource;
@@ -8,6 +9,7 @@ use App\Filament\Resources\ProductOptionGroups\ProductOptionGroupResource;
 use App\Filament\Resources\ProductOptionGroups\RelationManagers\ValuesRelationManager;
 use App\Filament\Resources\ProductOptionTemplates\ProductOptionTemplateResource;
 use App\Filament\Resources\Products\ProductResource;
+use App\Filament\Resources\SiteNavigationItems\SiteNavigationItemResource;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Resources\VehicleGenerations\VehicleGenerationResource;
 use App\Filament\Resources\VehicleMakes\VehicleMakeResource;
@@ -18,6 +20,7 @@ use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
+use App\Models\SiteNavigationItem;
 use App\Models\User;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
@@ -52,12 +55,13 @@ test('filament discovery inventory is complete and fails on an unclassified reso
         ProductOptionGroupResource::class,
         ProductOptionTemplateResource::class,
         ProductResource::class,
+        SiteNavigationItemResource::class,
         UserResource::class,
         VehicleGenerationResource::class,
         VehicleMakeResource::class,
         VehicleModelResource::class,
     ];
-    $expectedPages = [CatalogImportPage::class, Dashboard::class];
+    $expectedPages = [CatalogImportPage::class, Dashboard::class, ShopSettingsPage::class];
     $expectedWidgets = [AccountWidget::class, FilamentInfoWidget::class];
     sort($expectedResources);
     sort($expectedPages);
@@ -119,6 +123,8 @@ test('actual navigation contains only role permitted resource and page urls', fu
     } else {
         $response->assertDontSee(CatalogImportPage::getUrl(), false);
     }
+
+    $response->assertSee(ShopSettingsPage::getUrl(), false);
 })->with([
     'super admin' => ['super_admin'],
     'admin' => ['admin'],
@@ -144,6 +150,7 @@ test('every discovered resource page route follows the explicit role matrix', fu
         ProductOptionGroupResource::class => ProductOptionGroup::factory()->create(),
         ProductOptionTemplateResource::class => ProductOptionTemplate::factory()->create(),
         ProductResource::class => Product::factory()->create(),
+        SiteNavigationItemResource::class => SiteNavigationItem::factory()->create(),
         UserResource::class => User::factory()->create(),
         VehicleGenerationResource::class => VehicleGeneration::factory()->create(),
         VehicleMakeResource::class => VehicleMake::factory()->create(),
@@ -188,6 +195,16 @@ test('every discovered resource page route follows the explicit role matrix', fu
     } else {
         expect($importResponse->getStatusCode())->not->toBe(200)
             ->and($importResponse->getStatusCode())->not->toBe(500);
+    }
+
+    $settingsResponse = $this->get(ShopSettingsPage::getUrl());
+    $mayViewSettings = in_array($role, ['super_admin', 'admin', 'manager'], true);
+
+    if ($mayViewSettings) {
+        $settingsResponse->assertOk();
+    } else {
+        expect($settingsResponse->getStatusCode())->not->toBe(200)
+            ->and($settingsResponse->getStatusCode())->not->toBe(500);
     }
 })->with([
     'super admin' => ['super_admin'],
