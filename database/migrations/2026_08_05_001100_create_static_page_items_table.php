@@ -18,7 +18,10 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->unsignedInteger('position')->default(0);
             $table->timestamps();
-            $table->index(['static_page_section_id', 'is_active', 'position']);
+            $table->index(
+                ['static_page_section_id', 'is_active', 'position'],
+                'spi_section_active_position_idx',
+            );
         });
     }
 

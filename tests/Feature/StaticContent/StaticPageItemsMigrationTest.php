@@ -36,7 +36,7 @@ test('static page items migration enforces parent unique defaults indexes and ro
         expect(fn () => DB::table('static_page_items')->insert(['static_page_section_id' => 999, 'code' => 'about_metric_models', 'title' => 'Нет', 'created_at' => now(), 'updated_at' => now()]))->toThrow(QueryException::class);
         expect(fn () => DB::table('static_page_sections')->where('id', 20)->delete())->toThrow(QueryException::class);
         $indexes = collect(DB::select("PRAGMA index_list('static_page_items')"))->pluck('name');
-        expect($indexes)->toContain('static_page_items_code_unique')->toContain('static_page_items_static_page_section_id_is_active_position_index');
+        expect($indexes)->toContain('static_page_items_code_unique')->toContain('spi_section_active_position_idx');
 
         $items->down();
         expect(Schema::hasTable('static_page_items'))->toBeFalse()
