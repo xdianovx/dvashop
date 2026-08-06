@@ -29,6 +29,7 @@ Thumbs.db
 *.tar.gz
 *.tgz
 *.zip
+*.bak
 *:Zone.Identifier
 
 .env.*
