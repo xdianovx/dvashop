@@ -30,6 +30,8 @@ test('delivery settings update is normalized locked and does not change existing
         'code' => DeliveryMethod::Courier->value,
         'title' => '  Доставка курьером  ',
         'description' => '  Только настройка администратора  ',
+        'page_title' => '  Заголовок страницы доставки  ',
+        'page_description' => '  Полное описание страницы доставки  ',
         'base_price' => '450.50',
         'is_active' => true,
         'position' => 25,
@@ -37,6 +39,8 @@ test('delivery settings update is normalized locked and does not change existing
 
     expect($updated->title)->toBe('Доставка курьером')
         ->and($updated->description)->toBe('Только настройка администратора')
+        ->and($updated->page_title)->toBe('Заголовок страницы доставки')
+        ->and($updated->page_description)->toBe('Полное описание страницы доставки')
         ->and($updated->base_price)->toBe('450.50')
         ->and($updated->position)->toBe(25)
         ->and($order->refresh()->delivery_method)->toBe(DeliveryMethod::Courier)
@@ -61,6 +65,8 @@ test('delivery settings reject forged fields and invalid values without partial 
     'immutable code' => [['code' => DeliveryMethod::Post->value], 'code'],
     'html title' => [['title' => '<b>Самовывоз</b>'], 'title'],
     'html description' => [['description' => '<script>alert(1)</script>'], 'description'],
+    'html page title' => [['page_title' => '<style>body{}</style>'], 'page_title'],
+    'html page description' => [['page_description' => '<iframe src="x"></iframe>'], 'page_description'],
     'negative price' => [['base_price' => -1], 'base_price'],
     'too precise price' => [['base_price' => '1.999'], 'base_price'],
     'negative position' => [['position' => -1], 'position'],

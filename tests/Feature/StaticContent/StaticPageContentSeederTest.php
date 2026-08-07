@@ -77,6 +77,41 @@ test('static page content seeder is idempotent and preserves administrator edits
         ->and($item->is_active)->toBeFalse();
 });
 
+test('static page seeder preserves legacy non blank values and fills only null or blank fields', function (): void {
+    $this->seed(StaticPageContentSeeder::class);
+
+    $about = StaticPage::query()->where('code', StaticPageCode::About)->firstOrFail();
+    $about->forceFill([
+        'title' => '   ',
+        'primary_action_label' => 'Связаться',
+        'secondary_action_label' => 'Вернуться на главную',
+    ])->save();
+
+    $technology = StaticPageItem::query()->where('code', StaticPageItemCode::AboutTechnologySteel)->firstOrFail();
+    $technology->forceFill(['label' => '01'])->save();
+
+    $step = StaticPageItem::query()->where('code', StaticPageItemCode::HowStepChoose)->firstOrFail();
+    $step->forceFill(['title' => 'Выбираете товар
+и оставляете заявку'])->save();
+
+    $goal = StaticPageSection::query()->where('code', StaticPageSectionCode::AboutGoal)->firstOrFail();
+    $goal->forceFill(['body' => '   '])->save();
+
+    $manual = StaticPageItem::query()->where('code', StaticPageItemCode::PartnersTypeDropshipping)->firstOrFail();
+    $manual->forceFill(['title' => 'Ручное название'])->save();
+
+    $this->seed(StaticPageContentSeeder::class);
+
+    expect($about->refresh()->title)->toBe('О нас')
+        ->and($about->primary_action_label)->toBe('Связаться')
+        ->and($about->secondary_action_label)->toBe('Вернуться на главную')
+        ->and($technology->refresh()->label)->toBe('01')
+        ->and($step->refresh()->title)->toBe('Выбираете товар
+и оставляете заявку')
+        ->and($goal->refresh()->body)->toBe('предлагать надежные и точные решения, которые экономят ваше время и деньги, сохраняя высокое качество ремонта.')
+        ->and($manual->refresh()->title)->toBe('Ручное название');
+});
+
 test('static page content seeder rolls back every inserted record after an artificial failure', function (): void {
     DB::unprepared(<<<'SQL'
         CREATE TRIGGER fail_static_page_item_seed

@@ -11,6 +11,8 @@ use App\Models\HomepageCategoryCard;
 use App\Models\HomepageMetric;
 use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
+use App\Models\PartType;
+use App\Models\ProductCategory;
 use App\Models\User;
 use Closure;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -83,10 +85,7 @@ class HomepageContentAdminService
 
     public function setQuickLinkActive(User $actor, HomepageQuickLink $link, bool $active): HomepageQuickLink
     {
-        /** @var HomepageQuickLink $updated */
-        $updated = $this->setActive($actor, $link, $active);
-
-        return $updated;
+        return $this->updateQuickLink($actor, $link, ['is_active' => $active]);
     }
 
     /** @param array<int|string, mixed> $ids */
@@ -103,12 +102,7 @@ class HomepageContentAdminService
             $actor,
             $card,
             $attributes,
-            fn (array $data, Model $record): array => $this->validateDestination(
-                $data,
-                $record,
-                HomepageCategoryCardCode::class,
-                'карточки категории',
-            ),
+            fn (array $data, Model $record): array => $this->validateCategoryCard($data, $record),
         );
 
         return $updated;
@@ -116,10 +110,7 @@ class HomepageContentAdminService
 
     public function setCategoryCardActive(User $actor, HomepageCategoryCard $card, bool $active): HomepageCategoryCard
     {
-        /** @var HomepageCategoryCard $updated */
-        $updated = $this->setActive($actor, $card, $active);
-
-        return $updated;
+        return $this->updateCategoryCard($actor, $card, ['is_active' => $active]);
     }
 
     /** @param array<int|string, mixed> $ids */
@@ -311,6 +302,121 @@ class HomepageContentAdminService
         $validated['is_active'] = (bool) $validated['is_active'];
         $validated['position'] = (int) $validated['position'];
 
+        if (($validated['link_type'] ?? null) === null) {
+            $validated['open_in_new_tab'] = false;
+            $validated['is_active'] = false;
+        }
+
+        return $validated;
+    }
+
+    /** @param array<string, mixed> $attributes
+     * @return array<string, mixed>
+     */
+    private function validateCategoryCard(array $attributes, Model $record): array
+    {
+        $fields = [
+            'code',
+            'title',
+            'link_type',
+            'route_name',
+            'product_category_id',
+            'part_type_id',
+            'url',
+            'open_in_new_tab',
+            'is_active',
+            'position',
+        ];
+        $this->rejectUnexpected($attributes, $fields, 'карточки категории');
+        $candidate = array_merge($record->only($fields), $attributes);
+        $candidate['code'] = $this->backedValue($candidate['code'] ?? null);
+        $candidate['link_type'] = $this->backedValue($candidate['link_type'] ?? null);
+        $candidate['title'] = $this->trimNullable($candidate['title'] ?? null);
+        $candidate['route_name'] = $this->trimNullable($candidate['route_name'] ?? null);
+        $candidate['url'] = $this->trimNullable($candidate['url'] ?? null);
+        $candidate['product_category_id'] = $this->nullablePositiveId($candidate['product_category_id'] ?? null, 'product_category_id');
+        $candidate['part_type_id'] = $this->nullablePositiveId($candidate['part_type_id'] ?? null, 'part_type_id');
+        $this->ensureCodeUnchanged($candidate['code'] ?? null, $record, 'карточки категории');
+
+        $validated = Validator::make($candidate, [
+            'code' => ['required', Rule::enum(HomepageCategoryCardCode::class)],
+            'title' => ['required', 'string', 'max:255', $this->plainTextRule('Название')],
+            'link_type' => ['nullable', Rule::enum(NavigationLinkType::class)],
+            'route_name' => ['nullable', 'string', 'max:255'],
+            'product_category_id' => ['nullable', 'integer', 'min:1'],
+            'part_type_id' => ['nullable', 'integer', 'min:1'],
+            'url' => ['nullable', 'string', 'max:2048'],
+            'open_in_new_tab' => ['required', 'boolean'],
+            'is_active' => ['required', 'boolean'],
+            'position' => ['required', 'integer', 'min:0'],
+        ], $this->messages())->validate();
+
+        if ($validated['product_category_id'] !== null && $validated['part_type_id'] !== null) {
+            throw ValidationException::withMessages([
+                'product_category_id' => 'Карточка не может одновременно вести в категорию магазина и тип детали.',
+            ]);
+        }
+
+        if (($validated['url'] ?? null) !== null || ($validated['link_type'] ?? null) === NavigationLinkType::Url->value) {
+            throw ValidationException::withMessages(['url' => 'Внешние ссылки для витринных карточек не поддерживаются.']);
+        }
+
+        $hasRelation = $validated['product_category_id'] !== null || $validated['part_type_id'] !== null;
+        if ($hasRelation && (($validated['link_type'] ?? null) !== null || ($validated['route_name'] ?? null) !== null)) {
+            throw ValidationException::withMessages(['route_name' => 'Каталожная связь не может сочетаться с маршрутом.']);
+        }
+
+        if (($validated['link_type'] ?? null) !== null || ($validated['route_name'] ?? null) !== null) {
+            if (($validated['link_type'] ?? null) !== NavigationLinkType::Route->value
+                || ($validated['route_name'] ?? null) !== 'catalog.index'
+                || ! Route::has('catalog.index')) {
+                throw ValidationException::withMessages(['route_name' => 'Для витринной карточки разрешён только существующий маршрут всего каталога.']);
+            }
+        }
+
+        if ($validated['product_category_id'] !== null) {
+            $category = ProductCategory::withTrashed()->find($validated['product_category_id']);
+            if (! $category instanceof ProductCategory) {
+                throw ValidationException::withMessages(['product_category_id' => 'Категория магазина не найдена.']);
+            }
+            $same = (int) $record->getRawOriginal('product_category_id') === (int) $category->getKey();
+            if (($category->trashed() || ! $category->is_active) && ! $same) {
+                throw ValidationException::withMessages(['product_category_id' => 'Нельзя назначить неактивную или удалённую категорию магазина.']);
+            }
+            if ($category->trashed() || ! $category->is_active) {
+                $validated['is_active'] = false;
+            }
+        }
+
+        if ($validated['part_type_id'] !== null) {
+            $partType = PartType::withTrashed()->find($validated['part_type_id']);
+            if (! $partType instanceof PartType) {
+                throw ValidationException::withMessages(['part_type_id' => 'Тип детали не найден.']);
+            }
+            $same = (int) $record->getRawOriginal('part_type_id') === (int) $partType->getKey();
+            if (($partType->trashed() || ! $partType->is_active) && ! $same) {
+                throw ValidationException::withMessages(['part_type_id' => 'Нельзя назначить неактивный или удалённый тип детали.']);
+            }
+            if ($partType->trashed() || ! $partType->is_active) {
+                $validated['is_active'] = false;
+            }
+        }
+
+        $hasDestination = $hasRelation
+            || (($validated['link_type'] ?? null) === NavigationLinkType::Route->value
+                && ($validated['route_name'] ?? null) === 'catalog.index');
+
+        if (! $hasDestination) {
+            $validated['link_type'] = null;
+            $validated['route_name'] = null;
+            $validated['is_active'] = false;
+        }
+
+        $validated['url'] = null;
+        $validated['open_in_new_tab'] = false;
+        $validated['is_active'] = (bool) $validated['is_active'];
+        $validated['position'] = (int) $validated['position'];
+
         return $validated;
     }
 
@@ -424,6 +530,23 @@ class HomepageContentAdminService
         $value = trim($value);
 
         return $value === '' ? null : $value;
+    }
+
+    private function nullablePositiveId(mixed $value, string $field): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_int($value) && $value > 0) {
+            return $value;
+        }
+
+        if (is_string($value) && ctype_digit($value) && (int) $value > 0) {
+            return (int) $value;
+        }
+
+        throw ValidationException::withMessages([$field => 'Выберите существующую запись.']);
     }
 
     private function plainTextRule(string $label): Closure

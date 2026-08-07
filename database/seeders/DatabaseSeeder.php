@@ -26,6 +26,7 @@ class DatabaseSeeder extends Seeder
             HomepageContentSeeder::class,
             StaticPageContentSeeder::class,
             FaqSeeder::class,
+            LegalDocumentsSeeder::class,
         ]);
     }
 }

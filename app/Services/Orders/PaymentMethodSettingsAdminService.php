@@ -19,6 +19,8 @@ class PaymentMethodSettingsAdminService
         'code',
         'title',
         'description',
+        'page_title',
+        'page_description',
         'is_active',
         'position',
     ];
@@ -97,14 +99,16 @@ class PaymentMethodSettingsAdminService
             ? $candidate['code']->value
             : $candidate['code'];
 
-        foreach (['title', 'description'] as $field) {
+        foreach (['title', 'description', 'page_title', 'page_description'] as $field) {
             if (is_string($candidate[$field] ?? null)) {
                 $candidate[$field] = trim($candidate[$field]);
             }
         }
 
-        if (($candidate['description'] ?? null) === '') {
-            $candidate['description'] = null;
+        foreach (['description', 'page_title', 'page_description'] as $field) {
+            if (($candidate[$field] ?? null) === '') {
+                $candidate[$field] = null;
+            }
         }
 
         if (($candidate['code'] ?? null) !== $existing->code->value) {
@@ -123,6 +127,8 @@ class PaymentMethodSettingsAdminService
             'code' => ['required', Rule::enum(PaymentMethod::class)],
             'title' => ['required', 'string', 'max:255', $plainText],
             'description' => ['nullable', 'string', 'max:5000', $plainText],
+            'page_title' => ['nullable', 'string', 'max:255', $plainText],
+            'page_description' => ['nullable', 'string', 'max:5000', $plainText],
             'is_active' => ['required', 'boolean'],
             'position' => ['required', 'integer', 'min:0'],
         ], [
@@ -136,7 +142,9 @@ class PaymentMethodSettingsAdminService
         ], [
             'code' => 'код',
             'title' => 'название',
-            'description' => 'описание',
+            'description' => 'описание в оформлении заказа',
+            'page_title' => 'заголовок на странице «Оплата и доставка»',
+            'page_description' => 'описание на странице «Оплата и доставка»',
             'is_active' => 'активность',
             'position' => 'позиция',
         ])->validate();

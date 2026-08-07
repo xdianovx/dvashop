@@ -46,9 +46,25 @@ class EditPaymentPage extends SiteContentEditorPage
                             ->schema([
                                 Hidden::make('id'),
                                 Hidden::make('_label')->dehydrated(false),
-                                TextInput::make('title')->label('Название')->required()->maxLength(255),
+                                TextInput::make('title')
+                                    ->label('Название в оформлении заказа')
+                                    ->required()
+                                    ->maxLength(255),
                                 Toggle::make('is_active')->label('Показывать на сайте'),
-                                Textarea::make('description')->label('Описание')->rows(4)->maxLength(5000)->columnSpanFull(),
+                                Textarea::make('description')
+                                    ->label('Краткое описание в оформлении заказа')
+                                    ->rows(3)
+                                    ->maxLength(5000)
+                                    ->columnSpanFull(),
+                                TextInput::make('page_title')
+                                    ->label('Заголовок на странице «Оплата и доставка»')
+                                    ->maxLength(255)
+                                    ->columnSpanFull(),
+                                Textarea::make('page_description')
+                                    ->label('Полное описание на странице «Оплата и доставка»')
+                                    ->rows(5)
+                                    ->maxLength(5000)
+                                    ->columnSpanFull(),
                             ])
                             ->columns(2)
                             ->addable(false)
@@ -65,7 +81,10 @@ class EditPaymentPage extends SiteContentEditorPage
                             ->schema([
                                 Hidden::make('id'),
                                 Hidden::make('_label')->dehydrated(false),
-                                TextInput::make('title')->label('Название')->required()->maxLength(255),
+                                TextInput::make('title')
+                                    ->label('Название в оформлении заказа')
+                                    ->required()
+                                    ->maxLength(255),
                                 TextInput::make('base_price')
                                     ->label('Базовая стоимость')
                                     ->numeric()
@@ -74,7 +93,20 @@ class EditPaymentPage extends SiteContentEditorPage
                                     ->prefix('₽')
                                     ->required(),
                                 Toggle::make('is_active')->label('Показывать на сайте'),
-                                Textarea::make('description')->label('Описание')->rows(4)->maxLength(5000)->columnSpanFull(),
+                                Textarea::make('description')
+                                    ->label('Краткое описание в оформлении заказа')
+                                    ->rows(3)
+                                    ->maxLength(5000)
+                                    ->columnSpanFull(),
+                                TextInput::make('page_title')
+                                    ->label('Заголовок на странице «Оплата и доставка»')
+                                    ->maxLength(255)
+                                    ->columnSpanFull(),
+                                Textarea::make('page_description')
+                                    ->label('Полное описание на странице «Оплата и доставка»')
+                                    ->rows(5)
+                                    ->maxLength(5000)
+                                    ->columnSpanFull(),
                             ])
                             ->columns(2)
                             ->addable(false)

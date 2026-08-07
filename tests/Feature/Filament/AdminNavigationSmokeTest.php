@@ -1,6 +1,7 @@
 <?php
 
 use App\Filament\Pages\CatalogImportPage;
+use App\Filament\Pages\LegalDocumentsPage;
 use App\Filament\Pages\ShopSettingsPage;
 use App\Filament\Pages\SiteContent\EditAboutPage;
 use App\Filament\Pages\SiteContent\EditFaqPage;
@@ -35,6 +36,7 @@ use App\Models\VehicleModel;
 use Database\Seeders\CheckoutMethodSettingsSeeder;
 use Database\Seeders\FaqSeeder;
 use Database\Seeders\HomepageContentSeeder;
+use Database\Seeders\LegalDocumentsSeeder;
 use Database\Seeders\StaticPageContentSeeder;
 use Filament\Facades\Filament;
 use Filament\Pages\Dashboard;
@@ -124,6 +126,7 @@ test('filament discovery contains no deleted technical resources and every disco
         Dashboard::class,
         ShopSettingsPage::class,
         SitePagesPage::class,
+        LegalDocumentsPage::class,
         ...siteContentEditorPages(),
     ];
     $expectedWidgets = [AccountWidget::class, FilamentInfoWidget::class];
@@ -143,7 +146,7 @@ test('filament discovery contains no deleted technical resources and every disco
     }
 });
 
-test('content navigation contains exactly one site pages item and editor children stay hidden', function (string $role): void {
+test('content navigation contains site pages and fixed documents while editor children stay hidden', function (string $role): void {
     $user = match ($role) {
         'super_admin' => User::factory()->superAdmin()->create(),
         'admin' => User::factory()->admin()->create(),
@@ -164,14 +167,17 @@ test('content navigation contains exactly one site pages item and editor childre
     $contentNavigationPages = collect(Filament::getPanel('admin')->getPages())
         ->filter(fn (string $page): bool => $page::shouldRegisterNavigation())
         ->filter(fn (string $page): bool => $page::getNavigationGroup() === 'Контент сайта')
+        ->sortBy(fn (string $page): int => $page::getNavigationSort() ?? 0)
         ->values()
         ->all();
 
-    expect($contentNavigationPages)->toBe([SitePagesPage::class]);
+    expect($contentNavigationPages)->toEqualCanonicalizing([SitePagesPage::class, LegalDocumentsPage::class]);
 
     $response->assertOk()
         ->assertSee(SitePagesPage::getUrl(), false)
-        ->assertSee('Страницы сайта');
+        ->assertSee('Страницы сайта')
+        ->assertSee(LegalDocumentsPage::getUrl(), false)
+        ->assertSee('Документы');
 
     foreach (siteContentEditorPages() as $page) {
         expect($page::shouldRegisterNavigation(), $page)->toBeFalse();
@@ -250,7 +256,8 @@ test('actual navigation contains only role permitted visible resource and page u
     }
 
     $response->assertSee(ShopSettingsPage::getUrl(), false)
-        ->assertSee(SitePagesPage::getUrl(), false);
+        ->assertSee(SitePagesPage::getUrl(), false)
+        ->assertSee(LegalDocumentsPage::getUrl(), false);
 })->with([
     'super admin' => ['super_admin'],
     'admin' => ['admin'],
@@ -266,6 +273,7 @@ test('every discovered resource and content page route follows the explicit role
         HomepageContentSeeder::class,
         StaticPageContentSeeder::class,
         FaqSeeder::class,
+        LegalDocumentsSeeder::class,
     ]);
 
     $actor = match ($role) {
@@ -320,7 +328,7 @@ test('every discovered resource and content page route follows the explicit role
         }
     }
 
-    foreach ([SitePagesPage::class, ...siteContentEditorPages()] as $page) {
+    foreach ([SitePagesPage::class, LegalDocumentsPage::class, ...siteContentEditorPages()] as $page) {
         $response = $this->get($page::getUrl());
         $allowed = in_array($role, ['super_admin', 'admin', 'manager'], true);
 

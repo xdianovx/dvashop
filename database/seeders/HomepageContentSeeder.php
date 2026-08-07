@@ -11,86 +11,228 @@ use App\Models\HomepageCategoryCard;
 use App\Models\HomepageMetric;
 use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
+use App\Models\PartType;
+use App\Models\ProductCategory;
+use Database\Seeders\Concerns\FillsMissingSeederAttributes;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
-use RuntimeException;
 
 class HomepageContentSeeder extends Seeder
 {
+    use FillsMissingSeederAttributes;
+
     public function run(): void
     {
         DB::transaction(function (): void {
-            if (! Route::has('catalog.index')) {
-                throw new RuntimeException('Обязательный маршрут catalog.index не зарегистрирован.');
-            }
-
             foreach ($this->sections() as $code => $attributes) {
-                HomepageSection::query()->firstOrCreate(['code' => $code], $attributes);
+                $record = HomepageSection::query()->firstOrNew(['code' => $code]);
+                $this->fillMissing($record, $attributes)->save();
             }
 
             foreach ($this->quickLinks() as $code => $attributes) {
-                HomepageQuickLink::query()->firstOrCreate(['code' => $code], $attributes);
+                $record = HomepageQuickLink::query()->firstOrNew(['code' => $code]);
+                $this->fillMissing($record, $attributes)->save();
             }
 
-            foreach ($this->categoryCards() as $code => $attributes) {
-                HomepageCategoryCard::query()->firstOrCreate(['code' => $code], $attributes);
+            foreach ($this->categoryCards() as $code => $definition) {
+                $this->seedCategoryCard($code, $definition);
             }
 
             foreach ($this->metrics() as $code => $attributes) {
-                HomepageMetric::query()->firstOrCreate(['code' => $code], $attributes);
+                $record = HomepageMetric::query()->firstOrNew(['code' => $code]);
+                $this->fillMissing($record, $attributes)->save();
             }
         });
     }
 
+    /** @return array<string, array<string, mixed>> */
     private function sections(): array
     {
         return [
-            HomepageSectionCode::QuickLinks->value => ['title' => null, 'position' => 10],
-            HomepageSectionCode::VehicleSearch->value => ['title' => 'Быстрый поиск запчастей', 'position' => 20],
-            HomepageSectionCode::CategoryCards->value => ['title' => null, 'position' => 30],
-            HomepageSectionCode::AboutMetrics->value => ['title' => 'О компании', 'position' => 40],
+            HomepageSectionCode::QuickLinks->value => ['title' => null, 'is_active' => true, 'position' => 10],
+            HomepageSectionCode::VehicleSearch->value => ['title' => 'Быстрый поиск запчастей', 'is_active' => true, 'position' => 20],
+            HomepageSectionCode::CategoryCards->value => ['title' => null, 'is_active' => true, 'position' => 30],
+            HomepageSectionCode::AboutMetrics->value => ['title' => 'О компании', 'is_active' => true, 'position' => 40],
         ];
     }
 
+    /** @return array<string, array<string, mixed>> */
     private function quickLinks(): array
     {
         return [
-            HomepageQuickLinkCode::NewArrivals->value => ['title' => 'Новинки', 'position' => 10],
-            HomepageQuickLinkCode::Promotions->value => ['title' => 'Акции', 'position' => 20],
-            HomepageQuickLinkCode::ServiceSearch->value => ['title' => 'Поиск СТО', 'position' => 30],
-            HomepageQuickLinkCode::Reviews->value => ['title' => 'Отзывы', 'position' => 40],
-            HomepageQuickLinkCode::Socials->value => ['title' => 'Соц. сети', 'position' => 50],
-            HomepageQuickLinkCode::Galvanized->value => ['title' => 'Оцинковка', 'position' => 60],
-            HomepageQuickLinkCode::Fitting->value => ['title' => 'Примерка', 'position' => 70],
+            HomepageQuickLinkCode::NewArrivals->value => $this->disabledLink('Новинки', 10),
+            HomepageQuickLinkCode::Promotions->value => $this->disabledLink('Акции', 20),
+            HomepageQuickLinkCode::ServiceSearch->value => $this->disabledLink('Поиск СТО', 30),
+            HomepageQuickLinkCode::Reviews->value => $this->disabledLink('Отзывы', 40),
+            HomepageQuickLinkCode::Socials->value => $this->disabledLink('Соц. сети', 50),
+            HomepageQuickLinkCode::Galvanized->value => $this->disabledLink('Оцинковка', 60),
+            HomepageQuickLinkCode::Fitting->value => $this->disabledLink('Примерка', 70),
         ];
     }
 
+    /** @return array<string, mixed> */
+    private function disabledLink(string $title, int $position): array
+    {
+        return [
+            'title' => $title,
+            'link_type' => null,
+            'route_name' => null,
+            'url' => null,
+            'open_in_new_tab' => false,
+            'is_active' => false,
+            'position' => $position,
+        ];
+    }
+
+    /** @return array<string, array{title:string,target:?string,position:int}> */
     private function categoryCards(): array
     {
-        $destination = [
-            'link_type' => NavigationLinkType::Route->value,
-            'route_name' => 'catalog.index',
-            'position' => 0,
-        ];
-
         return [
-            HomepageCategoryCardCode::Sills->value => [...$destination, 'title' => 'Кузовные пороги', 'position' => 10],
-            HomepageCategoryCardCode::Commercial->value => [...$destination, 'title' => 'Коммерческий транспорт', 'position' => 20],
-            HomepageCategoryCardCode::BodyRepair->value => [...$destination, 'title' => 'Ремонт кузова', 'position' => 30],
-            HomepageCategoryCardCode::FrontArches->value => [...$destination, 'title' => 'Передние арки', 'position' => 40],
-            HomepageCategoryCardCode::RearArches->value => [...$destination, 'title' => 'Задние арки', 'position' => 50],
+            HomepageCategoryCardCode::Sills->value => [
+                'title' => 'Кузовные пороги',
+                'target' => 'part_type:Порог',
+                'position' => 10,
+            ],
+            HomepageCategoryCardCode::Commercial->value => [
+                'title' => 'Коммерческий транспорт',
+                'target' => null,
+                'position' => 20,
+            ],
+            HomepageCategoryCardCode::BodyRepair->value => [
+                'title' => 'Ремонт кузова',
+                'target' => 'product_category:Ремонтные элементы кузова',
+                'position' => 30,
+            ],
+            HomepageCategoryCardCode::FrontArches->value => [
+                'title' => 'Передние арки',
+                'target' => 'part_type:Арка / Передняя',
+                'position' => 40,
+            ],
+            HomepageCategoryCardCode::RearArches->value => [
+                'title' => 'Задние арки',
+                'target' => 'part_type:Арка / Задняя',
+                'position' => 50,
+            ],
         ];
     }
 
+    /** @param array{title:string,target:?string,position:int} $definition */
+    private function seedCategoryCard(string $code, array $definition): void
+    {
+        $record = HomepageCategoryCard::query()->firstOrNew(['code' => $code]);
+        $wasNew = ! $record->exists;
+        $destinationWasMissing = $record->exists && $this->hasNoCategoryDestination($record);
+        $destination = $this->categoryDestination($definition['target']);
+        $destinationWasResolved = $this->hasResolvedCategoryDestination($destination);
+
+        $this->fillMissing($record, [
+            'title' => $definition['title'],
+            'position' => $definition['position'],
+        ]);
+
+        if ($wasNew) {
+            $record->fill($destination);
+        } elseif ($destinationWasMissing && $destinationWasResolved) {
+            unset($destination['is_active']);
+            $this->fillMissing($record, $destination);
+        }
+
+        if (! $wasNew && $destinationWasMissing && ! $destinationWasResolved) {
+            $safeChanges = array_intersect_key($record->getDirty(), array_flip(['title', 'position']));
+
+            if ($safeChanges !== []) {
+                DB::table($record->getTable())
+                    ->where($record->getKeyName(), $record->getKey())
+                    ->update([...$safeChanges, 'updated_at' => now()]);
+            }
+
+            return;
+        }
+
+        if ($wasNew || $record->isDirty()) {
+            $record->save();
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function categoryDestination(?string $target): array
+    {
+        $empty = [
+            'link_type' => null,
+            'route_name' => null,
+            'product_category_id' => null,
+            'part_type_id' => null,
+            'url' => null,
+            'open_in_new_tab' => false,
+            'is_active' => false,
+        ];
+
+        if ($target === null) {
+            return $empty;
+        }
+
+        if ($target === 'catalog') {
+            return Route::has('catalog.index')
+                ? [...$empty, 'link_type' => NavigationLinkType::Route, 'route_name' => 'catalog.index', 'is_active' => true]
+                : $empty;
+        }
+
+        if (str_starts_with($target, 'part_type:')) {
+            $fullTitle = substr($target, strlen('part_type:'));
+            $record = PartType::query()
+                ->where('full_title', $fullTitle)
+                ->where('is_active', true)
+                ->first();
+
+            return $record instanceof PartType
+                ? [...$empty, 'part_type_id' => (int) $record->getKey(), 'is_active' => true]
+                : $empty;
+        }
+
+        if (str_starts_with($target, 'product_category:')) {
+            $title = substr($target, strlen('product_category:'));
+            $record = ProductCategory::query()
+                ->where('title', $title)
+                ->where('is_active', true)
+                ->where('full_slug', 'kuzovnye-detali/remontnye-elementy-kuzova')
+                ->first();
+
+            return $record instanceof ProductCategory
+                ? [...$empty, 'product_category_id' => (int) $record->getKey(), 'is_active' => true]
+                : $empty;
+        }
+
+        return $empty;
+    }
+
+    private function hasNoCategoryDestination(HomepageCategoryCard $record): bool
+    {
+        return $record->link_type === null
+            && blank($record->route_name)
+            && blank($record->url)
+            && $record->product_category_id === null
+            && $record->part_type_id === null;
+    }
+
+    /** @param array<string, mixed> $destination */
+    private function hasResolvedCategoryDestination(array $destination): bool
+    {
+        return $destination['link_type'] !== null
+            || filled($destination['route_name'])
+            || $destination['product_category_id'] !== null
+            || $destination['part_type_id'] !== null;
+    }
+
+    /** @return array<string, array<string, mixed>> */
     private function metrics(): array
     {
         return [
-            HomepageMetricCode::SinceYear->value => ['prefix' => 'с', 'value' => '2014', 'suffix' => 'г.', 'text' => 'наша экспертиза для вашей уверенности', 'position' => 10],
-            HomepageMetricCode::VehicleDatabase->value => ['prefix' => null, 'value' => '3000', 'suffix' => 'авто', 'text' => 'самая большая база ремонтных деталей', 'position' => 20],
-            HomepageMetricCode::ItemsSold->value => ['prefix' => null, 'value' => '1', 'suffix' => 'млн шт.', 'text' => 'проданных арок и порогов за все время', 'position' => 30],
-            HomepageMetricCode::OriginalFit->value => ['prefix' => null, 'value' => '100', 'suffix' => '%', 'text' => 'повторяет оригинальные детали', 'position' => 40],
-            HomepageMetricCode::PriceAdvantage->value => ['prefix' => 'в', 'value' => '5', 'suffix' => 'раз', 'text' => 'дешевле штампованных деталей с разборки', 'position' => 50],
+            HomepageMetricCode::SinceYear->value => ['prefix' => 'с', 'value' => '2014', 'suffix' => 'г.', 'text' => 'наша экспертиза для вашей уверенности', 'is_active' => true, 'position' => 10],
+            HomepageMetricCode::VehicleDatabase->value => ['prefix' => null, 'value' => '3000', 'suffix' => 'авто', 'text' => 'самая большая база ремонтных деталей', 'is_active' => true, 'position' => 20],
+            HomepageMetricCode::ItemsSold->value => ['prefix' => null, 'value' => '1', 'suffix' => 'млн шт.', 'text' => 'проданных арок и порогов за все время', 'is_active' => true, 'position' => 30],
+            HomepageMetricCode::OriginalFit->value => ['prefix' => null, 'value' => '100', 'suffix' => '%', 'text' => 'повторяет оригинальные детали', 'is_active' => true, 'position' => 40],
+            HomepageMetricCode::PriceAdvantage->value => ['prefix' => 'в', 'value' => '5', 'suffix' => 'раз', 'text' => 'дешевле штампованных деталей с разборки', 'is_active' => true, 'position' => 50],
         ];
     }
 }
