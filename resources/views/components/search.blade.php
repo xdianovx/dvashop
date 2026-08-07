@@ -1,6 +1,8 @@
+@props(['title' => null])
+
 <section class="search">
     <div class="container">
-        <x-section-heading title="Быстрый поиск запчастей">
+        <x-section-heading :title="$title">
             <x-slot:icon>
                 <svg viewBox="0 0 42 42" fill="none" stroke="currentColor" stroke-width="3"
                     stroke-linecap="round" stroke-linejoin="round">

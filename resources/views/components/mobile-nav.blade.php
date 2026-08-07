@@ -1,3 +1,5 @@
+@props(['storefront' => null])
+
 <nav class="mobile-nav">
     <a href="{{ route('home') }}" class="mobile-nav__item">
         <img src="/img/mobile-nav/home.svg" alt="" class="mobile-nav__icon" aria-hidden="true">
@@ -7,8 +9,10 @@
         <img src="/img/mobile-nav/catalog.svg" alt="" class="mobile-nav__icon" aria-hidden="true">
         <span class="mobile-nav__label">Каталог</span>
     </a>
-    <a href="tel:88001005625" class="mobile-nav__item">
-        <img src="/img/mobile-nav/phone.svg" alt="" class="mobile-nav__icon" aria-hidden="true">
-        <span class="mobile-nav__label mobile-nav__label--ink">Позвонить</span>
-    </a>
+    @if ($storefront?->phoneUrl)
+        <a href="{{ $storefront->phoneUrl }}" class="mobile-nav__item">
+            <img src="/img/mobile-nav/phone.svg" alt="" class="mobile-nav__icon" aria-hidden="true">
+            <span class="mobile-nav__label mobile-nav__label--ink">Позвонить</span>
+        </a>
+    @endif
 </nav>

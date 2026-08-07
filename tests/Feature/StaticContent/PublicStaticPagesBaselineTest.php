@@ -6,9 +6,9 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
-test('public static pages remain hardcoded and respond without a9 seed data', function (string $uri): void {
+test('public information pages fail soft without optional seeded content', function (string $routeName): void {
     expect(StaticPage::query()->count())->toBe(0)
         ->and(FaqCategory::query()->count())->toBe(0);
 
-    $this->get($uri)->assertOk();
-})->with(['/about', '/how', '/payment', '/faq', '/partners']);
+    $this->get(route($routeName))->assertOk();
+})->with(['home', 'about', 'how', 'payment', 'faq', 'partners']);
