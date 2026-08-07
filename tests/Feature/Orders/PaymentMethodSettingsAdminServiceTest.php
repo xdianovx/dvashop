@@ -30,12 +30,16 @@ test('payment settings update is normalized locked and does not change existing 
         'code' => PaymentMethod::Sbp->value,
         'title' => '  Оплата через СБП  ',
         'description' => '  Ручная настройка  ',
+        'page_title' => '  Заголовок страницы оплаты  ',
+        'page_description' => '  Полное описание страницы оплаты  ',
         'is_active' => true,
         'position' => 15,
     ]);
 
     expect($updated->title)->toBe('Оплата через СБП')
         ->and($updated->description)->toBe('Ручная настройка')
+        ->and($updated->page_title)->toBe('Заголовок страницы оплаты')
+        ->and($updated->page_description)->toBe('Полное описание страницы оплаты')
         ->and($updated->position)->toBe(15)
         ->and($order->refresh()->payment_method)->toBe(PaymentMethod::Sbp)
         ->and($order->subtotal)->toBe('4300.00')
@@ -59,6 +63,8 @@ test('payment settings reject forged fields and invalid values without partial c
     'immutable code' => [['code' => PaymentMethod::Invoice->value], 'code'],
     'html title' => [['title' => '<b>Карта</b>'], 'title'],
     'html description' => [['description' => '<script>alert(1)</script>'], 'description'],
+    'html page title' => [['page_title' => '<style>body{}</style>'], 'page_title'],
+    'html page description' => [['page_description' => '<iframe src="x"></iframe>'], 'page_description'],
     'negative position' => [['position' => -1], 'position'],
 ]);
 

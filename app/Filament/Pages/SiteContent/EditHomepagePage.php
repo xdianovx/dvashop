@@ -14,6 +14,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 
 class EditHomepagePage extends SiteContentEditorPage
@@ -97,7 +98,7 @@ class EditHomepagePage extends SiteContentEditorPage
                             ->columnSpanFull(),
                     ]),
                 Section::make('Витринные категории')
-                    ->description('Изображение каждой карточки определяется её фиксированным назначением и не редактируется.')
+                    ->description('Изображение каждой карточки определяется её фиксированным кодом. Внешние ссылки не используются.')
                     ->schema([
                         Repeater::make('category_cards')
                             ->label('Карточки категорий')
@@ -108,18 +109,39 @@ class EditHomepagePage extends SiteContentEditorPage
                                     ->label('Название')
                                     ->required()
                                     ->maxLength(255),
-                                Select::make('destination')
-                                    ->label('Куда ведёт карточка')
-                                    ->options(SitePageContentAdminService::destinationOptions())
-                                    ->required()
-                                    ->live(),
-                                TextInput::make('external_url')
-                                    ->label('Адрес внешней ссылки')
-                                    ->url()
-                                    ->maxLength(2048)
-                                    ->required(fn (Get $get): bool => $get('destination') === SitePageContentAdminService::DESTINATION_EXTERNAL)
-                                    ->visible(fn (Get $get): bool => $get('destination') === SitePageContentAdminService::DESTINATION_EXTERNAL)
-                                    ->columnSpanFull(),
+                                Select::make('destination_type')
+                                    ->label('Назначение карточки')
+                                    ->options(SitePageContentAdminService::categoryCardDestinationOptions())
+                                    ->placeholder('Не выбрано')
+                                    ->live()
+                                    ->afterStateUpdated(function (Set $set, ?string $state): void {
+                                        if ($state !== 'product_category') {
+                                            $set('product_category_id', null);
+                                        }
+                                        if ($state !== 'part_type') {
+                                            $set('part_type_id', null);
+                                        }
+                                        if ($state === null || $state === '') {
+                                            $set('is_active', false);
+                                        }
+                                    })
+                                    ->helperText('Доступны только весь каталог, существующая категория магазина или существующий тип детали.'),
+                                Select::make('product_category_id')
+                                    ->label('Категория магазина')
+                                    ->options(fn (Get $get): array => app(SitePageContentAdminService::class)
+                                        ->productCategoryOptions(is_numeric($get('product_category_id')) ? (int) $get('product_category_id') : null))
+                                    ->searchable()
+                                    ->preload()
+                                    ->required(fn (Get $get): bool => $get('destination_type') === 'product_category')
+                                    ->visible(fn (Get $get): bool => $get('destination_type') === 'product_category'),
+                                Select::make('part_type_id')
+                                    ->label('Тип детали')
+                                    ->options(fn (Get $get): array => app(SitePageContentAdminService::class)
+                                        ->partTypeOptions(is_numeric($get('part_type_id')) ? (int) $get('part_type_id') : null))
+                                    ->searchable()
+                                    ->preload()
+                                    ->required(fn (Get $get): bool => $get('destination_type') === 'part_type')
+                                    ->visible(fn (Get $get): bool => $get('destination_type') === 'part_type'),
                                 Toggle::make('is_active')->label('Показывать на сайте'),
                             ])
                             ->columns(2)

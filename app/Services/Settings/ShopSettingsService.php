@@ -40,6 +40,17 @@ class ShopSettingsService
             'phone_display' => '8 800 100 56 25',
             'phone_href' => '+78001005625',
             'phone_caption' => 'Бесплатный звонок',
+            'public_email' => null,
+            'order_notification_email' => null,
+            'work_hours' => null,
+            'legal_name' => 'ООО «АРТ ГРУПП»',
+            'inn' => '7814593546',
+            'ogrn' => '1137847459936',
+            'legal_address' => '192082, Россия, г. Санкт-Петербург, ул. Туристская, д. 23 к. 2',
+            'vk_url' => null,
+            'telegram_url' => null,
+            'footer_copyright' => '© 2026 ООО «АРТ ГРУПП»',
+            'footer_disclaimer' => 'Сайт не является офертой',
         ];
     }
 

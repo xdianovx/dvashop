@@ -84,8 +84,8 @@ test('every page aggregate rolls back earlier updates when a later field is inva
             $state['steps'][1]['title'] = '<b>Ошибка</b>';
         }],
         ['paymentState', 'savePayment', function (array &$state): void {
-            $state['payment_methods'][0]['title'] = 'Не должно сохраниться';
-            $state['payment_methods'][1]['title'] = '<b>Ошибка</b>';
+            $state['payment_methods'][0]['page_title'] = 'Не должно сохраниться';
+            $state['payment_methods'][1]['page_description'] = '<iframe src="x"></iframe>';
         }],
         ['faqState', 'saveFaq', function (array &$state): void {
             $state['categories'][0]['title'] = 'Не должно сохраниться';

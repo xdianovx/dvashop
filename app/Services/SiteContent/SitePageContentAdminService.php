@@ -3,6 +3,7 @@
 namespace App\Services\SiteContent;
 
 use App\Enums\AdminPermission;
+use App\Enums\HomepageCategoryDestination;
 use App\Enums\NavigationLinkType;
 use App\Enums\StaticPageCode;
 use App\Enums\StaticPageItemCode;
@@ -14,7 +15,9 @@ use App\Models\HomepageCategoryCard;
 use App\Models\HomepageMetric;
 use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
+use App\Models\PartType;
 use App\Models\PaymentMethodSetting;
+use App\Models\ProductCategory;
 use App\Models\StaticPage;
 use App\Models\StaticPageItem;
 use App\Models\StaticPageSection;
@@ -72,6 +75,49 @@ class SitePageContentAdminService
         ];
     }
 
+    /** @return array<string, string> */
+    public static function categoryCardDestinationOptions(): array
+    {
+        return HomepageCategoryDestination::options();
+    }
+
+    /** @return array<int, string> */
+    public function productCategoryOptions(?int $currentId = null): array
+    {
+        return ProductCategory::withTrashed()
+            ->with('parent')
+            ->where(function ($query) use ($currentId): void {
+                $query->where(fn ($active) => $active->where('is_active', true)->whereNull('deleted_at'));
+                if ($currentId !== null) {
+                    $query->orWhereKey($currentId);
+                }
+            })
+            ->orderBy('full_slug')
+            ->get()
+            ->mapWithKeys(fn (ProductCategory $category): array => [
+                (int) $category->getKey() => $this->catalogOptionLabel($category->full_title, $category->is_active, $category->trashed()),
+            ])
+            ->all();
+    }
+
+    /** @return array<int, string> */
+    public function partTypeOptions(?int $currentId = null): array
+    {
+        return PartType::withTrashed()
+            ->where(function ($query) use ($currentId): void {
+                $query->where(fn ($active) => $active->where('is_active', true)->whereNull('deleted_at'));
+                if ($currentId !== null) {
+                    $query->orWhereKey($currentId);
+                }
+            })
+            ->orderBy('full_slug')
+            ->get()
+            ->mapWithKeys(fn (PartType $partType): array => [
+                (int) $partType->getKey() => $this->catalogOptionLabel($partType->full_title, $partType->is_active, $partType->trashed()),
+            ])
+            ->all();
+    }
+
     /** @return array<string, mixed> */
     public function homepageState(): array
     {
@@ -88,7 +134,15 @@ class SitePageContentAdminService
                 ->map(fn (HomepageQuickLink $record): array => $this->destinationState($record))
                 ->all(),
             'category_cards' => HomepageCategoryCard::query()->ordered()->get()
-                ->map(fn (HomepageCategoryCard $record): array => $this->destinationState($record))
+                ->map(fn (HomepageCategoryCard $record): array => [
+                    'id' => $record->getKey(),
+                    '_label' => $record->code->value,
+                    'title' => $record->title,
+                    'destination_type' => $this->categoryCardDestinationType($record)?->value,
+                    'product_category_id' => $record->product_category_id,
+                    'part_type_id' => $record->part_type_id,
+                    'is_active' => $record->is_active,
+                ])
                 ->all(),
             'metrics' => HomepageMetric::query()->ordered()->get()
                 ->map(fn (HomepageMetric $record): array => [
@@ -158,7 +212,7 @@ class SitePageContentAdminService
             $cardRows = $this->fixedRows(
                 $data['category_cards'] ?? null,
                 $cards,
-                ['id', 'title', 'destination', 'external_url', 'is_active'],
+                ['id', 'title', 'destination_type', 'product_category_id', 'part_type_id', 'is_active'],
                 'category_cards',
             );
 
@@ -166,7 +220,7 @@ class SitePageContentAdminService
                 $payload = [
                     'title' => $this->requiredValue($row, 'title', "category_cards.{$index}"),
                     'is_active' => $this->requiredValue($row, 'is_active', "category_cards.{$index}"),
-                    ...$this->destinationPayload($row, "category_cards.{$index}"),
+                    ...$this->categoryCardPayload($row, "category_cards.{$index}"),
                 ];
 
                 $this->withValidationPath(
@@ -379,6 +433,8 @@ class SitePageContentAdminService
                     '_label' => $record->code->label(),
                     'title' => $record->title,
                     'description' => $record->description,
+                    'page_title' => $record->page_title,
+                    'page_description' => $record->page_description,
                     'is_active' => $record->is_active,
                 ])->all(),
             'delivery_methods' => DeliveryMethodSetting::query()->ordered()->get()
@@ -387,6 +443,8 @@ class SitePageContentAdminService
                     '_label' => $record->code->label(),
                     'title' => $record->title,
                     'description' => $record->description,
+                    'page_title' => $record->page_title,
+                    'page_description' => $record->page_description,
                     'base_price' => $record->base_price,
                     'is_active' => $record->is_active,
                 ])->all(),
@@ -407,13 +465,15 @@ class SitePageContentAdminService
             $paymentRows = $this->fixedRows(
                 $data['payment_methods'] ?? null,
                 $payments,
-                ['id', 'title', 'description', 'is_active'],
+                ['id', 'title', 'description', 'page_title', 'page_description', 'is_active'],
                 'payment_methods',
             );
             foreach ($paymentRows as $index => [$record, $row]) {
                 $this->withValidationPath("payment_methods.{$index}", fn () => $this->paymentMethods->update($actor, $record, [
                     'title' => $this->requiredValue($row, 'title', "payment_methods.{$index}"),
                     'description' => $row['description'] ?? null,
+                    'page_title' => $row['page_title'] ?? null,
+                    'page_description' => $row['page_description'] ?? null,
                     'is_active' => $this->requiredValue($row, 'is_active', "payment_methods.{$index}"),
                 ]));
             }
@@ -426,13 +486,15 @@ class SitePageContentAdminService
             $deliveryRows = $this->fixedRows(
                 $data['delivery_methods'] ?? null,
                 $deliveries,
-                ['id', 'title', 'description', 'base_price', 'is_active'],
+                ['id', 'title', 'description', 'page_title', 'page_description', 'base_price', 'is_active'],
                 'delivery_methods',
             );
             foreach ($deliveryRows as $index => [$record, $row]) {
                 $this->withValidationPath("delivery_methods.{$index}", fn () => $this->deliveryMethods->update($actor, $record, [
                     'title' => $this->requiredValue($row, 'title', "delivery_methods.{$index}"),
                     'description' => $row['description'] ?? null,
+                    'page_title' => $row['page_title'] ?? null,
+                    'page_description' => $row['page_description'] ?? null,
                     'base_price' => $this->requiredValue($row, 'base_price', "delivery_methods.{$index}"),
                     'is_active' => $this->requiredValue($row, 'is_active', "delivery_methods.{$index}"),
                 ]));
@@ -718,7 +780,7 @@ class SitePageContentAdminService
     }
 
     /** @return array<string, mixed> */
-    private function destinationState(HomepageQuickLink|HomepageCategoryCard $record): array
+    private function destinationState(HomepageQuickLink $record): array
     {
         $type = $record->link_type;
         $destination = match ($type) {
@@ -798,6 +860,125 @@ class SitePageContentAdminService
             'link_type' => NavigationLinkType::Route->value,
             'route_name' => $route,
         ];
+    }
+
+    private function categoryCardDestinationType(HomepageCategoryCard $record): ?HomepageCategoryDestination
+    {
+        return match (true) {
+            $record->product_category_id !== null => HomepageCategoryDestination::ProductCategory,
+            $record->part_type_id !== null => HomepageCategoryDestination::PartType,
+            $record->link_type === NavigationLinkType::Route && $record->route_name === 'catalog.index' => HomepageCategoryDestination::Catalog,
+            default => null,
+        };
+    }
+
+    /** @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function categoryCardPayload(array $row, string $path): array
+    {
+        $rawType = $row['destination_type'] ?? null;
+        $productCategoryId = $this->nullableId($row['product_category_id'] ?? null, "{$path}.product_category_id");
+        $partTypeId = $this->nullableId($row['part_type_id'] ?? null, "{$path}.part_type_id");
+
+        if ($rawType === null || $rawType === '') {
+            return $this->emptyCategoryCardDestination($productCategoryId, $partTypeId, $path);
+        }
+
+        $type = is_string($rawType) ? HomepageCategoryDestination::tryFrom($rawType) : null;
+        if ($type === null) {
+            $this->validationError("{$path}.destination_type", 'Выберите назначение карточки из списка.');
+        }
+
+        return match ($type) {
+            HomepageCategoryDestination::Catalog => $this->catalogCategoryCardDestination($productCategoryId, $partTypeId, $path),
+            HomepageCategoryDestination::ProductCategory => $this->productCategoryCardDestination($productCategoryId, $partTypeId, $path),
+            HomepageCategoryDestination::PartType => $this->partTypeCategoryCardDestination($productCategoryId, $partTypeId, $path),
+        };
+    }
+
+    /** @return array<string, mixed> */
+    private function emptyCategoryCardDestination(?int $productCategoryId, ?int $partTypeId, string $path): array
+    {
+        if ($productCategoryId !== null || $partTypeId !== null) {
+            $this->validationError("{$path}.destination_type", 'Без назначения каталожные связи должны быть пустыми.');
+        }
+
+        return [
+            'link_type' => null,
+            'route_name' => null,
+            'product_category_id' => null,
+            'part_type_id' => null,
+            'url' => null,
+            'open_in_new_tab' => false,
+            'is_active' => false,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function catalogCategoryCardDestination(?int $productCategoryId, ?int $partTypeId, string $path): array
+    {
+        if ($productCategoryId !== null || $partTypeId !== null) {
+            $this->validationError("{$path}.destination_type", 'Для назначения «Весь каталог» конкретные связи должны быть пустыми.');
+        }
+
+        return [
+            'link_type' => NavigationLinkType::Route->value,
+            'route_name' => 'catalog.index',
+            'product_category_id' => null,
+            'part_type_id' => null,
+            'url' => null,
+            'open_in_new_tab' => false,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function productCategoryCardDestination(?int $productCategoryId, ?int $partTypeId, string $path): array
+    {
+        if ($productCategoryId === null) {
+            $this->validationError("{$path}.product_category_id", 'Выберите категорию магазина.');
+        }
+        if ($partTypeId !== null) {
+            $this->validationError("{$path}.part_type_id", 'Нельзя одновременно выбрать категорию магазина и тип детали.');
+        }
+
+        return [
+            'link_type' => null,
+            'route_name' => null,
+            'product_category_id' => $productCategoryId,
+            'part_type_id' => null,
+            'url' => null,
+            'open_in_new_tab' => false,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function partTypeCategoryCardDestination(?int $productCategoryId, ?int $partTypeId, string $path): array
+    {
+        if ($partTypeId === null) {
+            $this->validationError("{$path}.part_type_id", 'Выберите тип детали.');
+        }
+        if ($productCategoryId !== null) {
+            $this->validationError("{$path}.product_category_id", 'Нельзя одновременно выбрать категорию магазина и тип детали.');
+        }
+
+        return [
+            'link_type' => null,
+            'route_name' => null,
+            'product_category_id' => null,
+            'part_type_id' => $partTypeId,
+            'url' => null,
+            'open_in_new_tab' => false,
+        ];
+    }
+
+    private function catalogOptionLabel(string $label, bool $active, bool $deleted): string
+    {
+        return match (true) {
+            $deleted => $label.' (удалено)',
+            ! $active => $label.' (неактивно)',
+            default => $label,
+        };
     }
 
     private function homepageSectionLabel(HomepageSection $section): string

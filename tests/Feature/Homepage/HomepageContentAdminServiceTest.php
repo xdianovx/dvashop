@@ -9,6 +9,8 @@ use App\Models\HomepageCategoryCard;
 use App\Models\HomepageMetric;
 use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
+use App\Models\PartType;
+use App\Models\ProductCategory;
 use App\Models\User;
 use App\Services\Homepage\HomepageContentAdminService;
 use Database\Seeders\HomepageContentSeeder;
@@ -19,6 +21,8 @@ use Illuminate\Validation\ValidationException;
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
+    $this->sillPartType = PartType::factory()->create(['title' => 'Порог']);
+    $this->bodyCategory = ProductCategory::factory()->create(['title' => 'Ремонтные элементы кузова']);
     $this->seed(HomepageContentSeeder::class);
     $this->homepageService = app(HomepageContentAdminService::class);
     $this->homepageAdmin = User::factory()->admin()->create();
@@ -37,10 +41,13 @@ test('homepage aggregate service updates and normalizes every content type', fun
         'route_name' => '  catalog.index  ',
         'position' => 9,
     ]);
-    $urlCard = $this->homepageService->updateCategoryCard($this->homepageAdmin, $card, [
-        'link_type' => NavigationLinkType::Url,
-        'url' => 'https://example.com/catalog?q=sills',
-        'open_in_new_tab' => true,
+    $categoryCard = $this->homepageService->updateCategoryCard($this->homepageAdmin, $card, [
+        'link_type' => null,
+        'route_name' => null,
+        'product_category_id' => $this->bodyCategory->getKey(),
+        'part_type_id' => null,
+        'url' => null,
+        'open_in_new_tab' => false,
     ]);
     $updatedMetric = $this->homepageService->updateMetric($this->homepageAdmin, $metric, [
         'prefix' => '  ',
@@ -55,10 +62,12 @@ test('homepage aggregate service updates and normalizes every content type', fun
         ->and($routeLink->link_type)->toBe(NavigationLinkType::Route)
         ->and($routeLink->route_name)->toBe('catalog.index')
         ->and($routeLink->url)->toBeNull()
-        ->and($urlCard->link_type)->toBe(NavigationLinkType::Url)
-        ->and($urlCard->route_name)->toBeNull()
-        ->and($urlCard->url)->toBe('https://example.com/catalog?q=sills')
-        ->and($urlCard->open_in_new_tab)->toBeTrue()
+        ->and($categoryCard->link_type)->toBeNull()
+        ->and($categoryCard->route_name)->toBeNull()
+        ->and($categoryCard->product_category_id)->toBe($this->bodyCategory->getKey())
+        ->and($categoryCard->part_type_id)->toBeNull()
+        ->and($categoryCard->url)->toBeNull()
+        ->and($categoryCard->open_in_new_tab)->toBeFalse()
         ->and($updatedMetric->prefix)->toBeNull()
         ->and($updatedMetric->value)->toBe('2015')
         ->and($updatedMetric->suffix)->toBe('год')
@@ -84,6 +93,7 @@ test('homepage service rejects forged fields html invalid destinations and parti
         fn () => $this->homepageService->updateQuickLink($this->homepageAdmin, $link, ['link_type' => null, 'route_name' => 'catalog.index']),
         fn () => $this->homepageService->updateQuickLink($this->homepageAdmin, $link, ['link_type' => NavigationLinkType::Route, 'route_name' => 'missing.route']),
         fn () => $this->homepageService->updateCategoryCard($this->homepageAdmin, $card, ['link_type' => NavigationLinkType::Route, 'route_name' => 'catalog.index', 'url' => 'https://example.com']),
+        fn () => $this->homepageService->updateCategoryCard($this->homepageAdmin, $card, ['product_category_id' => $this->bodyCategory->getKey(), 'part_type_id' => $this->sillPartType->getKey(), 'link_type' => null, 'route_name' => null]),
         fn () => $this->homepageService->updateMetric($this->homepageAdmin, $metric, ['text' => '<em>Текст</em>']),
         fn () => $this->homepageService->updateMetric($this->homepageAdmin, $metric, ['value' => str_repeat('1', 65)]),
     ];
@@ -196,7 +206,7 @@ test('manager and forbidden actors cannot bypass homepage service authorization'
     }
 
     expect($section->refresh()->is_active)->toBeTrue()
-        ->and($link->refresh()->is_active)->toBeTrue()
+        ->and($link->refresh()->is_active)->toBeFalse()
         ->and($card->refresh()->is_active)->toBeTrue()
         ->and($metric->refresh()->is_active)->toBeTrue();
 })->with([

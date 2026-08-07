@@ -15,6 +15,8 @@ use Illuminate\Validation\ValidationException;
     'code',
     'title',
     'description',
+    'page_title',
+    'page_description',
     'is_active',
     'position',
 ])]

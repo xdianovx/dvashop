@@ -19,6 +19,8 @@ class HomepageCategoryCardFactory extends Factory
             'title' => fake()->words(2, true),
             'link_type' => NavigationLinkType::Route,
             'route_name' => 'catalog.index',
+            'product_category_id' => null,
+            'part_type_id' => null,
             'url' => null,
             'open_in_new_tab' => false,
             'is_active' => true,

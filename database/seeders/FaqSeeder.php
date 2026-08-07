@@ -4,28 +4,31 @@ namespace Database\Seeders;
 
 use App\Models\FaqCategory;
 use App\Models\FaqItem;
+use Database\Seeders\Concerns\FillsMissingSeederAttributes;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class FaqSeeder extends Seeder
 {
+    use FillsMissingSeederAttributes;
+
     public function run(): void
     {
         DB::transaction(function (): void {
             $categories = [];
             foreach ($this->categories() as $code => $attributes) {
-                $categories[$code] = FaqCategory::withTrashed()->firstOrCreate(['code' => $code], $attributes);
+                $category = FaqCategory::withTrashed()->firstOrNew(['code' => $code]);
+                $categories[$code] = $this->fillMissing($category, $attributes);
+                $categories[$code]->save();
             }
 
             foreach ($this->items() as $code => $attributes) {
                 $categoryCode = $attributes['category'];
                 unset($attributes['category']);
                 $category = $categories[$categoryCode];
-                $item = FaqItem::withTrashed()->firstOrCreate(
-                    ['code' => $code],
-                    ['faq_category_id' => $category->getKey(), ...$attributes],
-                );
+                $item = FaqItem::withTrashed()->firstOrNew(['code' => $code]);
+                $this->fillMissing($item, ['faq_category_id' => $category->getKey(), ...$attributes])->save();
                 if ((int) $item->faq_category_id !== (int) $category->getKey()) {
                     throw ValidationException::withMessages(['faq_category_id' => "Вопрос {$code} связан с неверной категорией."]);
                 }

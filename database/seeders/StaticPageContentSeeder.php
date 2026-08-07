@@ -8,28 +8,31 @@ use App\Enums\StaticPageSectionCode;
 use App\Models\StaticPage;
 use App\Models\StaticPageItem;
 use App\Models\StaticPageSection;
+use Database\Seeders\Concerns\FillsMissingSeederAttributes;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class StaticPageContentSeeder extends Seeder
 {
+    use FillsMissingSeederAttributes;
+
     public function run(): void
     {
         DB::transaction(function (): void {
             $pages = [];
             foreach ($this->pages() as $code => $attributes) {
-                $pages[$code] = StaticPage::query()->firstOrCreate(['code' => $code], $attributes);
+                $page = StaticPage::query()->firstOrNew(['code' => $code]);
+                $pages[$code] = $this->fillMissing($page, $attributes);
+                $pages[$code]->save();
             }
 
             $sections = [];
             foreach ($this->sections() as $code => $attributes) {
                 $sectionCode = StaticPageSectionCode::from($code);
                 $page = $pages[$sectionCode->page()->value];
-                $section = StaticPageSection::query()->firstOrCreate(
-                    ['code' => $code],
-                    ['static_page_id' => $page->getKey(), ...$attributes],
-                );
+                $section = StaticPageSection::query()->firstOrNew(['code' => $code]);
+                $this->fillMissing($section, ['static_page_id' => $page->getKey(), ...$attributes])->save();
                 if ((int) $section->static_page_id !== (int) $page->getKey()) {
                     throw ValidationException::withMessages(['static_page_id' => "Блок {$code} связан с неверной страницей."]);
                 }
@@ -39,10 +42,8 @@ class StaticPageContentSeeder extends Seeder
             foreach ($this->items() as $code => $attributes) {
                 $itemCode = StaticPageItemCode::from($code);
                 $section = $sections[$itemCode->section()->value];
-                $item = StaticPageItem::query()->firstOrCreate(
-                    ['code' => $code],
-                    ['static_page_section_id' => $section->getKey(), ...$attributes],
-                );
+                $item = StaticPageItem::query()->firstOrNew(['code' => $code]);
+                $this->fillMissing($item, ['static_page_section_id' => $section->getKey(), ...$attributes])->save();
                 if ((int) $item->static_page_section_id !== (int) $section->getKey()) {
                     throw ValidationException::withMessages(['static_page_section_id' => "Элемент {$code} связан с неверным блоком."]);
                 }
@@ -57,8 +58,8 @@ class StaticPageContentSeeder extends Seeder
             StaticPageCode::About->value => [
                 'title' => 'О нас',
                 'subtitle' => null,
-                'primary_action_label' => 'Связаться',
-                'secondary_action_label' => 'Вернуться на главную',
+                'primary_action_label' => null,
+                'secondary_action_label' => null,
                 'is_active' => true,
                 'position' => 10,
             ],
@@ -66,7 +67,7 @@ class StaticPageContentSeeder extends Seeder
                 'title' => 'Как мы работаем',
                 'subtitle' => null,
                 'primary_action_label' => null,
-                'secondary_action_label' => 'Вернуться на главную',
+                'secondary_action_label' => null,
                 'is_active' => true,
                 'position' => 20,
             ],
@@ -74,23 +75,23 @@ class StaticPageContentSeeder extends Seeder
                 'title' => 'Оплата и доставка',
                 'subtitle' => null,
                 'primary_action_label' => null,
-                'secondary_action_label' => 'Вернуться на главную',
+                'secondary_action_label' => null,
                 'is_active' => true,
                 'position' => 30,
             ],
             StaticPageCode::Faq->value => [
                 'title' => 'Вопросы и ответы',
                 'subtitle' => 'Здесь вы найдете ответы на частые вопросы по нашему сервису',
-                'primary_action_label' => 'Бесплатная консультация',
-                'secondary_action_label' => 'Вернуться на главную',
+                'primary_action_label' => null,
+                'secondary_action_label' => null,
                 'is_active' => true,
                 'position' => 40,
             ],
             StaticPageCode::Partners->value => [
                 'title' => 'Преимущества работы с AVTOPOROGI.RU',
                 'subtitle' => 'Для постоянных клиентов действуют специальные условия на покупку и доставку кузовных запчастей',
-                'primary_action_label' => 'Сотрудничать',
-                'secondary_action_label' => 'Написать нам',
+                'primary_action_label' => null,
+                'secondary_action_label' => null,
                 'is_active' => true,
                 'position' => 50,
             ],
@@ -129,7 +130,7 @@ class StaticPageContentSeeder extends Seeder
                 'label' => 'Наша цель',
                 'title' => null,
                 'subtitle' => null,
-                'body' => 'Предлагать надежные и точные решения, которые экономят ваше время и деньги, сохраняя высокое качество ремонта.',
+                'body' => 'предлагать надежные и точные решения, которые экономят ваше время и деньги, сохраняя высокое качество ремонта.',
                 'is_active' => true,
                 'position' => 40,
             ],
@@ -187,21 +188,21 @@ class StaticPageContentSeeder extends Seeder
                 'position' => 20,
             ],
             StaticPageItemCode::AboutTechnologySteel->value => [
-                'label' => '01',
+                'label' => null,
                 'title' => null,
                 'text' => 'Качественная высокоуглеродистая сталь толщиной 0,8 - 1,5 мм, обеспечивающая прочность и долговечность.',
                 'is_active' => true,
                 'position' => 10,
             ],
             StaticPageItemCode::AboutTechnologyScan->value => [
-                'label' => '02',
+                'label' => null,
                 'title' => null,
                 'text' => '3D-сканирование для точного повторения сложных геометрий.',
                 'is_active' => true,
                 'position' => 20,
             ],
             StaticPageItemCode::AboutTechnologyCnc->value => [
-                'label' => '03',
+                'label' => null,
                 'title' => null,
                 'text' => 'Современное ЧПУ-оборудование для идеального раскроя и гибки.',
                 'is_active' => true,
@@ -209,42 +210,42 @@ class StaticPageContentSeeder extends Seeder
             ],
             StaticPageItemCode::HowStepChoose->value => [
                 'label' => null,
-                'title' => "Выбираете товар\nи оставляете заявку",
-                'text' => 'Оставьте заявку, самостоятельно подобрав товар в каталоге и оформив заказ через корзину, либо позвоните по бесплатному номеру.',
+                'title' => 'Выбираете товар и оставляете заявку',
+                'text' => 'Оставьте заявку, самостоятельно подобрав товар в каталоге и оформив заказ через корзину, либо позвоните по бесплатному номеру:',
                 'is_active' => true,
                 'position' => 10,
             ],
             StaticPageItemCode::HowStepConfirm->value => [
                 'label' => null,
-                'title' => "Перезваниваем\nи уточняем детали",
+                'title' => 'Перезваниваем и уточняем детали',
                 'text' => 'Компетентные менеджеры с опытом работы более 3 лет перезвонят, уточнят детали и ответят на все интересующие вас вопросы, чтобы сэкономить ваше время и деньги',
                 'is_active' => true,
                 'position' => 20,
             ],
             StaticPageItemCode::HowStepPrepare->value => [
                 'label' => null,
-                'title' => "Оформляем и готовим\nзаказ к отправке",
+                'title' => 'Оформляем и готовим заказ к отправке',
                 'text' => 'Каждому заказу присваивается внутренний номер, после чего он упаковывается нашими сотрудниками на складе в Санкт-Петербурге. Детали уточняйте при оформлении',
                 'is_active' => true,
                 'position' => 30,
             ],
             StaticPageItemCode::HowStepHandover->value => [
                 'label' => null,
-                'title' => "Передаем груз\nв службу доставки",
-                'text' => "Avtoporogi сотрудничает с крупнейшей ТК России — СДЭК.\nЭто позволяет предложить нам лучшие условия доставки, даже если вы живете в небольшом городке",
+                'title' => 'Передаем груз в службу доставки',
+                'text' => 'Avtoporogi сотрудничает с крупнейшей ТК России — СДЭК. Это позволяет предложить нам лучшие условия доставки, даже если вы живете в небольшом городке',
                 'is_active' => true,
                 'position' => 40,
             ],
             StaticPageItemCode::HowStepReceive->value => [
                 'label' => null,
-                'title' => "Курьер доставляет\nВаш заказ",
+                'title' => 'Курьер доставляет Ваш заказ',
                 'text' => 'Вы можете получить свой заказ в ближайшем пункте выдачи ТК или прямо из рук курьера по месту жительства',
                 'is_active' => true,
                 'position' => 50,
             ],
             StaticPageItemCode::HowStepPay->value => [
                 'label' => null,
-                'title' => "Оплачиваете покупку\nпри получении",
+                'title' => 'Оплачиваете покупку при получении',
                 'text' => 'Оплата заказа возможна наличными, картой и по счету (для юрлиц).',
                 'is_active' => true,
                 'position' => 60,
@@ -253,9 +254,9 @@ class StaticPageContentSeeder extends Seeder
             StaticPageItemCode::PartnersBenefitManager->value => ['label' => null, 'title' => 'Персональный менеджер', 'text' => null, 'is_active' => true, 'position' => 20],
             StaticPageItemCode::PartnersBenefitRussia->value => ['label' => null, 'title' => 'Работает по всей РФ', 'text' => null, 'is_active' => true, 'position' => 30],
             StaticPageItemCode::PartnersBenefitPriority->value => ['label' => null, 'title' => 'Приоритет в отправке', 'text' => null, 'is_active' => true, 'position' => 40],
-            StaticPageItemCode::PartnersTypeRetail->value => ['label' => null, 'title' => "Оптовые\nи роздничные сети", 'text' => null, 'is_active' => true, 'position' => 10],
-            StaticPageItemCode::PartnersTypeService->value => ['label' => null, 'title' => "СТО и частные\nкузовные сервисы", 'text' => null, 'is_active' => true, 'position' => 20],
-            StaticPageItemCode::PartnersTypeOnline->value => ['label' => null, 'title' => "Онлайн продавец\nзапчастей", 'text' => null, 'is_active' => true, 'position' => 30],
+            StaticPageItemCode::PartnersTypeRetail->value => ['label' => null, 'title' => 'Оптовые и роздничные сети', 'text' => null, 'is_active' => true, 'position' => 10],
+            StaticPageItemCode::PartnersTypeService->value => ['label' => null, 'title' => 'СТО и частные кузовные сервисы', 'text' => null, 'is_active' => true, 'position' => 20],
+            StaticPageItemCode::PartnersTypeOnline->value => ['label' => null, 'title' => 'Онлайн продавец запчастей', 'text' => null, 'is_active' => true, 'position' => 30],
             StaticPageItemCode::PartnersTypeDropshipping->value => ['label' => null, 'title' => 'Дропшиппинг', 'text' => null, 'is_active' => true, 'position' => 40],
             StaticPageItemCode::PartnersAboutProduction->value => ['label' => null, 'title' => null, 'text' => 'Собственное производство. Детали в наличии или изготовим за 1 день с момента обращения', 'is_active' => true, 'position' => 10],
             StaticPageItemCode::PartnersAboutMeasurements->value => ['label' => null, 'title' => null, 'text' => 'База замеров деталей на более 3000 автомобилей', 'is_active' => true, 'position' => 20],
