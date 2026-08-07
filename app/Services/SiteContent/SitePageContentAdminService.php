@@ -89,7 +89,7 @@ class SitePageContentAdminService
             ->where(function ($query) use ($currentId): void {
                 $query->where(fn ($active) => $active->where('is_active', true)->whereNull('deleted_at'));
                 if ($currentId !== null) {
-                    $query->orWhereKey($currentId);
+                    $query->orWhere($query->getModel()->getQualifiedKeyName(), $currentId);
                 }
             })
             ->orderBy('full_slug')
@@ -107,7 +107,7 @@ class SitePageContentAdminService
             ->where(function ($query) use ($currentId): void {
                 $query->where(fn ($active) => $active->where('is_active', true)->whereNull('deleted_at'));
                 if ($currentId !== null) {
-                    $query->orWhereKey($currentId);
+                    $query->orWhere($query->getModel()->getQualifiedKeyName(), $currentId);
                 }
             })
             ->orderBy('full_slug')

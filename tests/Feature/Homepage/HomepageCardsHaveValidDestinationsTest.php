@@ -138,3 +138,46 @@ test('current inactive or deleted homepage card relation remains selectable but 
         ->and($updated->title)->toBe('Обновлённые пороги')
         ->and($updated->is_active)->toBeFalse();
 })->with(['inactive' => ['inactive'], 'deleted' => ['deleted']]);
+
+test('homepage catalog option loaders include the current record for every lifecycle state', function (string $state): void {
+    $category = ProductCategory::factory()->create([
+        'title' => 'Тестовая категория',
+    ]);
+
+    $partType = PartType::factory()->create([
+        'title' => 'Тестовый тип',
+    ]);
+
+    if ($state === 'inactive') {
+        $category->forceFill(['is_active' => false])->save();
+        $partType->forceFill(['is_active' => false])->save();
+    }
+
+    if ($state === 'deleted') {
+        $category->delete();
+        $partType->delete();
+    }
+
+    $service = app(SitePageContentAdminService::class);
+
+    $categoryOptions = $service->productCategoryOptions(
+        (int) $category->getKey(),
+    );
+
+    $partTypeOptions = $service->partTypeOptions(
+        (int) $partType->getKey(),
+    );
+
+    expect(array_key_exists((int) $category->getKey(), $categoryOptions))->toBeTrue()
+        ->and(array_key_exists((int) $partType->getKey(), $partTypeOptions))->toBeTrue();
+
+    if ($state === 'inactive') {
+        expect($categoryOptions[(int) $category->getKey()])->toContain('(неактивно)')
+            ->and($partTypeOptions[(int) $partType->getKey()])->toContain('(неактивно)');
+    }
+
+    if ($state === 'deleted') {
+        expect($categoryOptions[(int) $category->getKey()])->toContain('(удалено)')
+            ->and($partTypeOptions[(int) $partType->getKey()])->toContain('(удалено)');
+    }
+})->with(['active', 'inactive', 'deleted']);
