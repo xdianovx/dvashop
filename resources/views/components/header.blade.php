@@ -1,60 +1,65 @@
+@props(['storefront' => null])
+
+@php
+    $topLinks = $storefront?->navigationFor(\App\Enums\NavigationZone::HeaderTop) ?? [];
+    $mainLinks = $storefront?->navigationFor(\App\Enums\NavigationZone::HeaderMain) ?? [];
+@endphp
+
 <header class="header">
-    <div class="header__top">
-        <div class="container header__top-inner">
-            <nav class="header__utils" aria-label="Дополнительное меню">
-                <a href="{{ route('partners') }}" class="header__util-link">Партнерам</a>
-                <a href="{{ route('about') }}" class="header__util-link">О нас</a>
-                <a href="{{ route('how') }}" class="header__util-link">Как мы работаем</a>
-                <a href="{{ route('payment') }}" class="header__util-link">Оплата и доставка</a>
-                <a href="{{ route('faq') }}" class="header__util-link">Вопросы и ответы</a>
-                <a href="#" class="header__util-link">Возвраты и обмен</a>
-            </nav>
+    @if ($topLinks !== [])
+        <div class="header__top">
+            <div class="container header__top-inner">
+                <nav class="header__utils" aria-label="Дополнительное меню">
+                    @foreach ($topLinks as $link)
+                        <a href="{{ $link->url }}" class="header__util-link"
+                            @if ($link->openInNewTab) target="_blank" rel="noopener noreferrer" @endif>{{ $link->title }}</a>
+                    @endforeach
+                </nav>
+            </div>
         </div>
-    </div>
+    @endif
 
     <div class="header__bar">
         <div class="container header__bar-inner">
-
             <x-burger />
 
-            <a href="/" class="header__logo" aria-label="2POROGA — на главную">
+            <a href="{{ route('home') }}" class="header__logo" aria-label="2POROGA — на главную">
                 <img src="/img/logo.svg" alt="AVTOPOROGI.ru" width="253" height="33">
             </a>
 
-            <nav class="header__nav" aria-label="Основное меню">
-                <span class="header__nav-sep" aria-hidden="true"></span>
-                <a href="#" class="header__nav-link">Каталог</a>
-                <a href="#" class="header__nav-link">Отзывы</a>
-                <a href="#" class="header__nav-link">Контакты</a>
-                <span class="header__nav-sep" aria-hidden="true"></span>
-            </nav>
-
+            @if ($mainLinks !== [])
+                <nav class="header__nav" aria-label="Основное меню">
+                    <span class="header__nav-sep" aria-hidden="true"></span>
+                    @foreach ($mainLinks as $link)
+                        <a href="{{ $link->url }}" class="header__nav-link"
+                            @if ($link->openInNewTab) target="_blank" rel="noopener noreferrer" @endif>{{ $link->title }}</a>
+                    @endforeach
+                    <span class="header__nav-sep" aria-hidden="true"></span>
+                </nav>
+            @endif
 
             <div class="header__left">
-
-                <a href="tel:88001005625" class="header__phone">
-                    <img class="header__phone-icon" src="/img/icons/header-call.svg" alt="" aria-hidden="true"
-                        width="28" height="27">
-                    <span class="header__phone-text">
-                        <span class="header__phone-number">8 800 100 56 25</span>
-                        <span class="header__phone-caption">Бесплатный звонок</span>
-                    </span>
-                </a>
+                @if ($storefront?->phoneUrl && $storefront?->phoneDisplay)
+                    <a href="{{ $storefront->phoneUrl }}" class="header__phone">
+                        <img class="header__phone-icon" src="/img/icons/header-call.svg" alt="" aria-hidden="true"
+                            width="28" height="27">
+                        <span class="header__phone-text">
+                            <span class="header__phone-number">{{ $storefront->phoneDisplay }}</span>
+                            @if ($storefront->phoneCaption)
+                                <span class="header__phone-caption">{{ $storefront->phoneCaption }}</span>
+                            @endif
+                        </span>
+                    </a>
+                @endif
 
                 <div class="header__actions">
-                    <a href="#" class="header__action" aria-label="Избранное">
-                        <img src="/img/icons/header-heart.svg" alt="" aria-hidden="true" width="42"
-                            height="36">
-                    </a>
-                    <a href="#" class="header__action" aria-label="Корзина">
-                        <img src="/img/icons/header-cart.svg" alt="" aria-hidden="true" width="47"
-                            height="39">
+                    <a href="{{ route('cart.show') }}" class="header__action" aria-label="Корзина">
+                        <img src="/img/icons/header-cart.svg" alt="" aria-hidden="true" width="47" height="39">
                     </a>
                 </div>
             </div>
-
         </div>
 
-        <x-mobile-menu />
+        <x-mobile-menu :storefront="$storefront" />
     </div>
 </header>
