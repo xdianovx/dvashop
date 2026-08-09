@@ -11,12 +11,14 @@ final readonly class HomepageViewData
      * @param  list<array{code:string,title:string,url:string,open_in_new_tab:bool,image:string}>  $quickLinks
      * @param  list<array{code:string,title:string,title_lines:list<string>,url:string,modifier:string,layers:list<array{src:string,class:string}>}>  $categoryCards
      * @param  list<array{code:string,prefix:?string,value:string,suffix:?string,text:string,icon:string}>  $metrics
+     * @param  list<array{title:string,slug:string,models:list<array{title:string,slug:string}>}>  $vehicleMakes
      */
     public function __construct(
         public array $sections,
         public array $quickLinks,
         public array $categoryCards,
         public array $metrics,
+        public array $vehicleMakes,
         public SeoData $seo,
     ) {}
 

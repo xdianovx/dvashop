@@ -2,6 +2,7 @@
 
 use App\Enums\HomepageCategoryCardCode;
 use App\Enums\HomepageQuickLinkCode;
+use App\Models\ProductVariant;
 use Database\Seeders\CheckoutMethodSettingsSeeder;
 use Database\Seeders\FaqSeeder;
 use Database\Seeders\HomepageContentSeeder;
@@ -21,30 +22,15 @@ test('storefront keeps the approved key classes assets and homepage block order'
         HomepageContentSeeder::class,
     ]);
 
-    DB::table('homepage_quick_links')
-        ->where('code', HomepageQuickLinkCode::Socials->value)
-        ->update([
-            'link_type' => 'route',
-            'route_name' => 'about',
-            'url' => null,
-            'open_in_new_tab' => false,
-            'is_active' => true,
-        ]);
+    DB::table('homepage_quick_links')->where('code', HomepageQuickLinkCode::Socials->value)->update([
+        'link_type' => 'route', 'route_name' => 'about', 'url' => null, 'open_in_new_tab' => false, 'is_active' => true,
+    ]);
+    DB::table('homepage_category_cards')->where('code', HomepageCategoryCardCode::BodyRepair->value)->update([
+        'link_type' => 'route', 'route_name' => 'catalog.index', 'product_category_id' => null,
+        'part_type_id' => null, 'url' => null, 'open_in_new_tab' => false, 'is_active' => true,
+    ]);
 
-    DB::table('homepage_category_cards')
-        ->where('code', HomepageCategoryCardCode::BodyRepair->value)
-        ->update([
-            'link_type' => 'route',
-            'route_name' => 'catalog.index',
-            'product_category_id' => null,
-            'part_type_id' => null,
-            'url' => null,
-            'open_in_new_tab' => false,
-            'is_active' => true,
-        ]);
-
-    $home = $this->get(route('home'))
-        ->assertOk()
+    $home = $this->get(route('home'))->assertOk()
         ->assertSee('hero-circles-section', false)
         ->assertSee('class="search"', false)
         ->assertSee('search__form', false)
@@ -57,7 +43,6 @@ test('storefront keeps the approved key classes assets and homepage block order'
     $searchPosition = strpos($html, 'class="search"');
     $categoriesPosition = strpos($html, 'class="categories"');
     $aboutPosition = strpos($html, 'class="about"');
-
     expect($quickLinksPosition)->toBeInt()
         ->and($searchPosition)->toBeInt()
         ->and($categoriesPosition)->toBeInt()
@@ -66,29 +51,26 @@ test('storefront keeps the approved key classes assets and homepage block order'
         ->and($searchPosition)->toBeLessThan($categoriesPosition)
         ->and($categoriesPosition)->toBeLessThan($aboutPosition);
 
-    $contracts = [
+    foreach ([
         'about' => ['about-page', 'about-hero', 'about-metrics', 'about-tech', 'about-goal'],
         'how' => ['how-page', 'how-page__grid', '/img/how/step-1.svg'],
         'payment' => ['payment-page', 'payment-page__grid', '/img/payment/cash.svg'],
         'faq' => ['faq-page', 'faq-page__tabs', 'data-faq-toggle'],
         'partners' => ['partners-page', 'partners-page__benefits', 'partners-page__coop', '/img/partners/team.jpg'],
-    ];
-
-    foreach ($contracts as $routeName => $needles) {
+    ] as $routeName => $needles) {
         $response = $this->get(route($routeName))->assertOk();
-
         foreach ($needles as $needle) {
             $response->assertSee($needle, false);
         }
     }
 });
 
-test('prompt 3 keeps the existing faq block on the part placeholder page', function (): void {
+test('product page does not render the legacy placeholder faq block', function (): void {
     $this->seed(ShopSettingsSeeder::class);
+    $variant = ProductVariant::factory()->create();
 
-    $this->get(route('products.show'))
+    $this->get(route('products.show', $variant->product->slug))
         ->assertOk()
-        ->assertSee('class="faq"', false)
-        ->assertSee('data-faq-toggle', false)
-        ->assertSee('У вас есть пороги на все модели авто?');
+        ->assertDontSee('class="faq"', false)
+        ->assertDontSee('data-faq-toggle', false);
 });

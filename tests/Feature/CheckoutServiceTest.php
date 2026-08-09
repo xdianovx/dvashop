@@ -8,6 +8,9 @@ use App\Enums\PaymentStatus;
 use App\Events\OrderCreated;
 use App\Listeners\SendOrderCreatedEmails;
 use App\Models\Cart;
+use App\Models\DeliveryMethodSetting;
+use App\Models\Order;
+use App\Models\PaymentMethodSetting;
 use App\Models\ProductVariant;
 use App\Models\User;
 use App\Services\CartManager;
@@ -22,6 +25,20 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Validation\ValidationException;
 
 uses(RefreshDatabase::class);
+
+beforeEach(function (): void {
+    DeliveryMethodSetting::factory()->create([
+        'code' => DeliveryMethod::TransportCompany,
+        'title' => 'Транспортная компания',
+        'base_price' => 700,
+        'is_active' => true,
+    ]);
+    PaymentMethodSetting::factory()->create([
+        'code' => PaymentMethod::Sbp,
+        'title' => 'СБП',
+        'is_active' => true,
+    ]);
+});
 
 function checkoutRequest(Cart $cart, ?User $user = null): Request
 {
@@ -53,6 +70,7 @@ function cartWithSnapshotItem(float $price = 2500, int $quantity = 2): array
         'title' => 'Комплект',
         'options' => ['material' => ['group' => 'Материал', 'value' => 'Оцинковка']],
         'price' => $price,
+        'stock_quantity' => null,
     ]);
     $cart = Cart::factory()->create();
     app(CartManager::class)->addItem(checkoutRequest($cart), $variant->getKey(), $quantity);
@@ -79,8 +97,8 @@ test('CheckoutService creates immutable order snapshots customer fields totals a
         ->and($order->customer_city)->toBe('Москва')
         ->and($order->customer_comment)->toBe('Позвонить заранее')
         ->and($order->subtotal)->toBe('5000.00')
-        ->and($order->delivery_price)->toBe('0.00')
-        ->and($order->total)->toBe('5000.00')
+        ->and($order->delivery_price)->toBe('700.00')
+        ->and($order->total)->toBe('5700.00')
         ->and($order->placed_at)->not->toBeNull()
         ->and($orderItem->title_snapshot)->toBe($cartItem->title_snapshot)
         ->and($orderItem->options_snapshot)->toBe($cartItem->options_snapshot)
@@ -100,6 +118,7 @@ test('CheckoutService creates immutable order snapshots customer fields totals a
 test('CheckoutService excludes technical variant management metadata from cart and order snapshots', function () {
     Event::fake([OrderCreated::class]);
     $variant = ProductVariant::factory()->create([
+        'stock_quantity' => null,
         'options' => [
             ...ProductVariant::technicalOptions(),
             'legacy' => ['group' => 'Legacy', 'value' => 'Публичное значение'],
@@ -131,7 +150,7 @@ test('CheckoutService can create an order from valid snapshots after catalog del
     expect($order->items)->toHaveCount(1)
         ->and($order->items->first()->product_id)->toBeNull()
         ->and($order->items->first()->product_variant_id)->toBeNull()
-        ->and($order->total)->toBe('1800.00');
+        ->and($order->total)->toBe('2500.00');
 });
 
 test('CheckoutService ignores a guest supplied user id', function () {
@@ -201,6 +220,36 @@ test('CheckoutService validates payment and delivery methods', function (array $
     'unknown payment method' => [['payment_method' => 'crypto']],
     'unknown delivery method' => [['delivery_method' => 'teleport']],
 ]);
+
+test('CheckoutService rejects inactive configured methods without creating an order', function (string $model): void {
+    [$cart] = cartWithSnapshotItem();
+    $model::query()->update(['is_active' => false]);
+
+    expect(fn () => app(CheckoutService::class)->createOrderFromCart(
+        checkoutRequest($cart),
+        validCheckoutData(),
+    ))->toThrow(ValidationException::class);
+
+    expect(DB::table('orders')->count())->toBe(0)
+        ->and($cart->refresh()->status)->toBe(CartStatus::Active);
+})->with([
+    'delivery' => [DeliveryMethodSetting::class],
+    'payment' => [PaymentMethodSetting::class],
+]);
+
+test('CheckoutService creates only one order when the same cart is submitted twice', function (): void {
+    Event::fake([OrderCreated::class]);
+    [$cart] = cartWithSnapshotItem();
+    $request = checkoutRequest($cart);
+
+    $firstOrder = app(CheckoutService::class)->createOrderFromCart($request, validCheckoutData());
+
+    expect(fn () => app(CheckoutService::class)->createOrderFromCart($request, validCheckoutData()))
+        ->toThrow(ValidationException::class);
+
+    expect(Order::query()->count())->toBe(1)
+        ->and(Order::query()->firstOrFail()->is($firstOrder))->toBeTrue();
+});
 
 test('CheckoutService rejects a non-positive item quantity', function () {
     Queue::fake();

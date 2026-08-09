@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Enums\CartStatus;
-use App\Enums\ProductStatus;
+use App\Enums\StockStatus;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\ProductVariant;
@@ -19,6 +19,10 @@ class CartManager
     private const COOKIE_MINUTES = 60 * 24 * 60;
 
     private const CART_TTL_DAYS = 60;
+
+    public function __construct(
+        private readonly StorefrontProductAvailability $availability,
+    ) {}
 
     public function current(Request $request): Cart
     {
@@ -53,12 +57,14 @@ class CartManager
 
         if ($item->exists) {
             $item->quantity += max(1, $quantity);
+            $this->assertAvailableQuantity($variant, $item->quantity);
             $item->save();
 
             return $item->refresh();
         }
 
         $item->quantity = max(1, $quantity);
+        $this->assertAvailableQuantity($variant, $item->quantity);
         $item->refreshSnapshotFromVariant($variant);
 
         $item->save();
@@ -70,6 +76,8 @@ class CartManager
     {
         $cart = $this->current($request);
         $this->ensureItemBelongsToCart($item, $cart);
+        $variant = $this->findAvailableVariant((int) $item->product_variant_id);
+        $this->assertAvailableQuantity($variant, max(1, $quantity));
 
         $item->update(['quantity' => max(1, $quantity)]);
 
@@ -130,8 +138,7 @@ class CartManager
         $variant = ProductVariant::query()
             ->with('product')
             ->whereKey($productVariantId)
-            ->where('is_active', true)
-            ->whereHas('product', fn ($query) => $query->where('status', ProductStatus::Active->value))
+            ->tap(fn ($query) => $this->availability->variants($query))
             ->first();
 
         if (! $variant) {
@@ -146,6 +153,18 @@ class CartManager
     private function ensureItemBelongsToCart(CartItem $item, Cart $cart): void
     {
         abort_unless((int) $item->cart_id === (int) $cart->getKey(), 404);
+    }
+
+    private function assertAvailableQuantity(ProductVariant $variant, int $quantity): void
+    {
+        if ($variant->stock_status === StockStatus::OutOfStock
+            || ($variant->stock_status === StockStatus::InStock
+                && $variant->stock_quantity !== null
+                && $quantity > $variant->stock_quantity)) {
+            throw ValidationException::withMessages([
+                'quantity' => 'Запрошенное количество товара сейчас недоступно.',
+            ]);
+        }
     }
 
     private function queueCookie(Cart $cart): void

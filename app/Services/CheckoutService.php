@@ -10,7 +10,9 @@ use App\Enums\PaymentStatus;
 use App\Events\OrderCreated;
 use App\Models\Cart;
 use App\Models\CartItem;
+use App\Models\DeliveryMethodSetting;
 use App\Models\Order;
+use App\Models\PaymentMethodSetting;
 use App\Models\ProductVariant;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -45,8 +47,30 @@ class CheckoutService
             }
 
             $this->validateCartItems($lockedCart);
+            $deliverySetting = DeliveryMethodSetting::query()
+                ->active()
+                ->where('code', $validated['delivery_method'])
+                ->lockForUpdate()
+                ->first();
+            $paymentSetting = PaymentMethodSetting::query()
+                ->active()
+                ->where('code', $validated['payment_method'])
+                ->lockForUpdate()
+                ->first();
+
+            if (! $deliverySetting instanceof DeliveryMethodSetting) {
+                throw ValidationException::withMessages([
+                    'delivery_method' => 'Выбранный способ доставки недоступен.',
+                ]);
+            }
+            if (! $paymentSetting instanceof PaymentMethodSetting) {
+                throw ValidationException::withMessages([
+                    'payment_method' => 'Выбранный способ оплаты недоступен.',
+                ]);
+            }
+
             $subtotal = $this->subtotal($lockedCart);
-            $deliveryPrice = 0.0;
+            $deliveryPrice = round((float) $deliverySetting->base_price, 2);
 
             $order = Order::query()->create([
                 'user_id' => $request->user()?->getAuthIdentifier(),
@@ -120,16 +144,14 @@ class CheckoutService
             'customer_city' => $data['customer_city'] ?? $data['delivery_city'] ?? null,
             'customer_address' => $data['customer_address'] ?? $data['delivery_address'] ?? null,
             'customer_comment' => $data['customer_comment'] ?? $data['comment'] ?? null,
-            'delivery_method' => $data['delivery_method'] ?? DeliveryMethod::Courier->value,
-            'payment_method' => $data['payment_method'] ?? PaymentMethod::Card->value,
         ];
 
         return Validator::make($payload, [
             'customer_name' => ['required', 'string', 'max:255'],
             'customer_phone' => ['required', 'string', 'max:255'],
             'customer_email' => ['nullable', 'email', 'max:255'],
-            'customer_city' => ['nullable', 'string', 'max:255'],
-            'customer_address' => ['nullable', 'string', 'max:255'],
+            'customer_city' => ['required', 'string', 'max:255'],
+            'customer_address' => ['required_unless:delivery_method,'.DeliveryMethod::Pickup->value, 'nullable', 'string', 'max:255'],
             'customer_comment' => ['nullable', 'string', 'max:5000'],
             'delivery_method' => ['required', Rule::enum(DeliveryMethod::class)],
             'payment_method' => ['required', Rule::enum(PaymentMethod::class)],

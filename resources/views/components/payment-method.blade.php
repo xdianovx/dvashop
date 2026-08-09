@@ -7,7 +7,7 @@
 ])
 
 <label class="pay">
-    <input type="radio" name="payment" value="{{ $value }}" @checked($checked)>
+    <input type="radio" name="payment_method" value="{{ $value }}" @checked($checked) required>
     <span class="pay__box">
         <span class="pay__icon">{{ $icon }}</span>
         <span class="pay__text">

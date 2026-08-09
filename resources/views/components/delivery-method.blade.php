@@ -6,17 +6,19 @@
     'title' => '',
     'desc' => '',
     'checked' => false,
+    'price' => null,
 ])
 
 <label class="ship">
-    <input type="radio" name="delivery" value="{{ $value }}" @checked($checked)>
+    <input type="radio" name="delivery_method" value="{{ $value }}" data-delivery-price="{{ number_format((float) ($price ?? 0), 2, '.', '') }}" @checked($checked) required>
     <span class="ship__box">
         <span class="ship__logo">
-            <img src="{{ $image }}" alt="" aria-hidden="true" width="{{ $imageWidth }}" height="{{ $imageHeight }}">
+            @if ($image)<img src="{{ $image }}" alt="" aria-hidden="true" width="{{ $imageWidth }}" height="{{ $imageHeight }}">@endif
         </span>
         <span class="ship__text">
             <span class="ship__title">{{ $title }}</span>
             <span class="ship__desc">{{ $desc }}</span>
+            @if ($price !== null)<span class="ship__desc">{{ (float) $price > 0 ? number_format((float) $price, 0, ',', ' ').' ₽' : 'Бесплатно' }}</span>@endif
         </span>
     </span>
 </label>

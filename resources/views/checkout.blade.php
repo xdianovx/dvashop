@@ -2,156 +2,88 @@
 
 @section('title', 'Оформление заказа — 2POROGA')
 
-@php
-    $shipping = [
-        [
-            'value' => 'cdek',
-            'image' => '/img/checkout/cdek.svg',
-            'imageWidth' => 75,
-            'imageHeight' => 21,
-            'title' => 'Пункт выдачи СДЕК',
-            'desc' => 'Наш менеджер подберёт ближайший пункт выдачи',
-            'checked' => true,
-        ],
-        [
-            'value' => 'pickup',
-            'image' => '/img/checkout/pickup.svg',
-            'imageWidth' => 39,
-            'imageHeight' => 38,
-            'title' => 'Самовывоз',
-            'desc' => 'Если вы из Санкт-Петербурга',
-        ],
-    ];
-
-    $payments = [
-        [
-            'value' => 'card',
-            'icon' => '💳',
-            'title' => 'Банковская карта',
-            'desc' => 'онлайн после подтверждения',
-            'checked' => true,
-        ],
-        ['value' => 'sbp', 'icon' => '⚡', 'title' => 'СБП', 'desc' => 'Перевод по QR или ссылке'],
-        ['value' => 'invoice', 'icon' => '📄', 'title' => 'Счёт для юрлиц', 'desc' => 'С НДС'],
-        ['value' => 'cash', 'icon' => '🤝', 'title' => 'При получении', 'desc' => 'курьеру / на складе'],
-    ];
-
-    $order = [
-        [
-            'name' => 'Кузовной порог для Alfa Romeo 33 (1990–1994)',
-            'opts' => 'Оцинковка · 1 мм · правый',
-            'qty' => '2 шт. × 1 750 руб.',
-            'sum' => '3 500 руб.',
-        ],
-        [
-            'name' => 'Арка для Alfa Romeo 33 (1990–1994)',
-            'opts' => 'Оцинковка · 1 мм · правый',
-            'qty' => '1 шт. × 1 750 руб.',
-            'sum' => '1 750 руб.',
-        ],
-    ];
-@endphp
-
 @section('content')
     <div class="container">
-        <x-breadcrumbs :items="[
-            ['label' => 'Главная', 'url' => '/'],
-            ['label' => 'Моя корзина', 'url' => '/cart'],
-            ['label' => 'Оформление заказа'],
-        ]" />
-
+        <x-breadcrumbs :items="[['label' => 'Главная', 'url' => route('home')], ['label' => 'Моя корзина', 'url' => route('cart.show')], ['label' => 'Оформление заказа']]" />
         <h1 class="checkout-title">Оформление заказа</h1>
+        @if ($errors->any())<div role="alert">{{ $errors->first() }}</div>@endif
 
-        <div class="checkout-layout">
-            <div class="checkout-main">
-                <section class="checkout-card">
-                    <header class="checkout-card__head">
-                        <h2 class="checkout-card__title">Ваши данные</h2>
-                        <span class="checkout-card__step">Шаг 1</span>
-                    </header>
-                    <form class="checkout-form">
-                        <x-form-field class="checkout-form__full" label="ФИО" name="name"
-                            placeholder="Иванов Иван Иванович" :required="true" />
-                        <x-form-field label="Телефон" name="phone" placeholder="+7 (___) ___‑__‑__" :required="true" />
-                        <x-form-field label="Email" name="email" placeholder="mail@yandex.ru" />
-                        <x-form-field class="checkout-form__full" label="Город" name="city" placeholder="Москва"
-                            :required="true" />
-                        <x-form-field class="checkout-form__full" label="Комментарий к заказу" name="comment"
-                            placeholder="Текст...." :textarea="true" />
-                    </form>
-                </section>
+        @if ($items->isEmpty())
+            <p>Корзина пуста. Добавьте товары перед оформлением заказа.</p>
+            <a href="{{ route('catalog.index') }}" class="btn btn--primary">Перейти в каталог</a>
+        @elseif ($deliveryMethods->isEmpty() || $paymentMethods->isEmpty())
+            <p role="alert">Оформление заказа временно недоступно. Свяжитесь с нами для уточнения условий.</p>
+        @else
+            <form class="checkout-layout" action="{{ route('checkout.store') }}" method="post">
+                @csrf
+                <div class="checkout-main">
+                    <section class="checkout-card">
+                        <header class="checkout-card__head"><h2 class="checkout-card__title">Ваши данные</h2><span class="checkout-card__step">Шаг 1</span></header>
+                        <div class="checkout-form">
+                            <x-form-field class="checkout-form__full" label="ФИО" name="customer_name" placeholder="Иванов Иван Иванович" :required="true" />
+                            <x-form-field label="Телефон" name="customer_phone" placeholder="+7 (___) ___-__-__" :required="true" />
+                            <x-form-field label="Email" name="customer_email" type="email" placeholder="mail@yandex.ru" />
+                            <x-form-field class="checkout-form__full" label="Город" name="customer_city" placeholder="Москва" :required="true" />
+                            <x-form-field class="checkout-form__full" label="Адрес" name="customer_address" placeholder="Улица, дом, квартира" />
+                            <x-form-field class="checkout-form__full" label="Комментарий к заказу" name="customer_comment" placeholder="Текст...." :textarea="true" />
+                        </div>
+                    </section>
 
-                <section class="checkout-card">
-                    <header class="checkout-card__head">
-                        <h2 class="checkout-card__title">Выбор способа получения</h2>
-                        <span class="checkout-card__step">Шаг 2</span>
-                    </header>
-                    <div class="checkout-shipping">
-                        @foreach ($shipping as $s)
-                            <x-delivery-method :value="$s['value']" :image="$s['image']" :image-width="$s['imageWidth']"
-                                :image-height="$s['imageHeight']" :title="$s['title']" :desc="$s['desc']"
-                                :checked="$s['checked'] ?? false" />
+                    <section class="checkout-card">
+                        <header class="checkout-card__head"><h2 class="checkout-card__title">Выбор способа получения</h2><span class="checkout-card__step">Шаг 2</span></header>
+                        <div class="checkout-shipping">
+                            @foreach ($deliveryMethods as $method)
+                                @php($presentation = $deliveryPresentation[$method->code->value] ?? null)
+                                <x-delivery-method
+                                    :value="$method->code->value"
+                                    :image="$presentation['image'] ?? ''"
+                                    :image-width="$presentation['width'] ?? ''"
+                                    :image-height="$presentation['height'] ?? ''"
+                                    :title="$method->title"
+                                    :desc="$method->description"
+                                    :price="$method->base_price"
+                                    :checked="old('delivery_method') === $method->code->value"
+                                />
+                            @endforeach
+                        </div>
+                        @error('delivery_method')<span class="field__error">{{ $message }}</span>@enderror
+                    </section>
+
+                    <section class="checkout-card">
+                        <header class="checkout-card__head"><h2 class="checkout-card__title">Оплата</h2><span class="checkout-card__step">Шаг 3</span></header>
+                        <div class="checkout-payments">
+                            @foreach ($paymentMethods as $method)
+                                <x-payment-method :value="$method->code->value" :icon="$paymentIcons[$method->code->value]" :title="$method->title" :desc="$method->description" :checked="old('payment_method') === $method->code->value" />
+                            @endforeach
+                        </div>
+                        @error('payment_method')<span class="field__error">{{ $message }}</span>@enderror
+                    </section>
+                </div>
+
+                <aside class="checkout-order">
+                    <h2 class="checkout-order__title">Ваш заказ</h2>
+                    <ul class="checkout-order__list">
+                        @foreach ($items as $item)
+                            <li class="checkout-order__item">
+                                <span class="checkout-order__thumb"><img src="{{ $item->image_snapshot }}" alt="" aria-hidden="true"></span>
+                                <div class="checkout-order__info"><p class="checkout-order__name">{{ $item->title_snapshot }}</p>@if ($item->optionSummary())<p class="checkout-order__opts">{{ $item->optionSummary() }}</p>@endif<p class="checkout-order__qty">{{ $item->quantity }} шт. × {{ number_format((float) $item->price_snapshot, 0, ',', ' ') }} ₽</p></div>
+                                <span class="checkout-order__sum">{{ number_format($item->lineTotal(), 0, ',', ' ') }} ₽</span>
+                            </li>
                         @endforeach
+                    </ul>
+                    <div class="checkout-order__row"><span>{{ $totals['items_count'] }} товар(ов) на сумму</span><span class="checkout-order__value">{{ number_format($totals['subtotal'], 0, ',', ' ') }} ₽</span></div>
+                    <div class="checkout-order__row"><span>Доставка</span><span class="checkout-order__value" data-checkout-delivery>—</span></div>
+                    <div class="checkout-order__total">
+                        <span>Итого</span>
+                        <span class="checkout-order__total-value" data-checkout-total data-checkout-subtotal="{{ number_format((float) $totals['subtotal'], 2, '.', '') }}">{{ number_format($totals['subtotal'], 0, ',', ' ') }} ₽</span>
                     </div>
-                </section>
-
-                <section class="checkout-card">
-                    <header class="checkout-card__head">
-                        <h2 class="checkout-card__title">Оплата</h2>
-                        <span class="checkout-card__step">Шаг 3</span>
-                    </header>
-                    <div class="checkout-payments">
-                        @foreach ($payments as $p)
-                            <x-payment-method :value="$p['value']" :icon="$p['icon']" :title="$p['title']" :desc="$p['desc']"
-                                :checked="$p['checked'] ?? false" />
-                        @endforeach
-                    </div>
-                </section>
-            </div>
-
-            <aside class="checkout-order">
-                <h2 class="checkout-order__title">Ваш заказ</h2>
-
-                <ul class="checkout-order__list">
-                    @foreach ($order as $item)
-                        <li class="checkout-order__item">
-                            <span class="checkout-order__thumb">
-                                <img src="/img/products/threshold.png" alt="" aria-hidden="true">
-                            </span>
-                            <div class="checkout-order__info">
-                                <p class="checkout-order__name">{{ $item['name'] }}</p>
-                                <p class="checkout-order__opts">{{ $item['opts'] }}</p>
-                                <p class="checkout-order__qty">{{ $item['qty'] }}</p>
-                            </div>
-                            <span class="checkout-order__sum">{{ $item['sum'] }}</span>
-                        </li>
-                    @endforeach
-                </ul>
-
-                <div class="checkout-order__row">
-                    <span>3 товара на сумму</span>
-                    <span class="checkout-order__value">5 250 руб.</span>
-                </div>
-                <div class="checkout-order__row">
-                    <span>Доставка</span>
-                    <span class="checkout-order__value">700 руб.</span>
-                </div>
-                <div class="checkout-order__total">
-                    <span>Итого</span>
-                    <span class="checkout-order__total-value">5 950 руб.</span>
-                </div>
-
-                <button type="submit" class="btn checkout-order__submit">Заказать</button>
-
-                <label class="checkout-order__agree">
-                    <input type="checkbox" checked>
-                    <span class="checkout-order__agree-box"></span>
-                    <span class="checkout-order__agree-text">
-                        Нажимая «Заказать», вы соглашаетесь на обработку персональных данных. Подробнее — в
-                        <a href="#">Политике</a>.
-                    </span>
-                </label>
-            </aside>
-        </div>
+                    <button type="submit" class="btn checkout-order__submit">Заказать</button>
+                    <label class="checkout-order__agree">
+                        <input type="checkbox" name="agree_terms" value="1" @checked(old('agree_terms')) required><span class="checkout-order__agree-box"></span>
+                        <span class="checkout-order__agree-text">Я согласен на обработку персональных данных и принимаю <a href="{{ route('legal.privacy-policy') }}">политику конфиденциальности</a>.</span>
+                    </label>
+                </aside>
+            </form>
+        @endif
     </div>
 @endsection
