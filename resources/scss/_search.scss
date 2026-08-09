@@ -52,6 +52,13 @@
     }
 }
 
+select.search__field-value {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+}
+
 .search__divider {
     flex-shrink: 0;
     width: 1px;

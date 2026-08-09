@@ -165,11 +165,35 @@ final readonly class HomepageViewDataProvider
             ->values()
             ->all();
 
+        $vehicleMakes = DB::table('vehicle_models as models')
+            ->join('vehicle_makes as makes', 'makes.id', '=', 'models.vehicle_make_id')
+            ->where('makes.is_active', true)
+            ->whereNull('makes.deleted_at')
+            ->where('models.is_active', true)
+            ->whereNull('models.deleted_at')
+            ->orderBy('makes.position')
+            ->orderBy('makes.title')
+            ->orderBy('models.position')
+            ->orderBy('models.title')
+            ->get(['makes.id as make_id', 'makes.title as make_title', 'makes.slug as make_slug', 'models.title as model_title', 'models.slug as model_slug'])
+            ->groupBy('make_id')
+            ->map(fn ($models): array => [
+                'title' => (string) $models->first()->make_title,
+                'slug' => (string) $models->first()->make_slug,
+                'models' => $models->map(fn (object $model): array => [
+                    'title' => (string) $model->model_title,
+                    'slug' => (string) $model->model_slug,
+                ])->values()->all(),
+            ])
+            ->values()
+            ->all();
+
         return new HomepageViewData(
             sections: $sections,
             quickLinks: $quickLinks,
             categoryCards: $categoryCards,
             metrics: $metrics,
+            vehicleMakes: $vehicleMakes,
             seo: $this->seo->home($this->global->storeName),
         );
     }

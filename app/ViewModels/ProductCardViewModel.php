@@ -3,10 +3,9 @@
 namespace App\ViewModels;
 
 use App\Models\Product;
-use App\Models\ProductImage;
 use App\Models\ProductVariant;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
+use App\Services\Media\MediaUrlService;
+use App\Services\StorefrontProductAvailability;
 
 class ProductCardViewModel
 {
@@ -23,34 +22,34 @@ class ProductCardViewModel
 
     public static function fromProduct(Product $product): self
     {
+        $availability = app(StorefrontProductAvailability::class);
+
+        if (! $product->relationLoaded('variants')) {
+            $product->setRelation('variants', $availability->variants($product->variants())
+                ->orderByDesc('is_default')
+                ->orderBy('id')
+                ->get());
+        }
+
         /** @var ProductVariant|null $variant */
-        $variant = $product->defaultVariant;
-        /** @var ProductImage|null $image */
-        $image = $product->images->sortByDesc('is_main')->sortBy('position')->first();
+        $variant = $product->variants->firstWhere('is_default', true) ?? $product->variants->first();
+        /** @var ProductVariant|null $quickAddVariant */
+        $quickAddVariant = $product->variants->count() === 1
+            && $variant instanceof ProductVariant
+            && $availability->isPurchasable($variant)
+                ? $variant
+                : null;
 
         return new self(
             id: (int) $product->getKey(),
             title: $product->title,
             url: route('products.show', $product->slug),
-            image: self::imageUrl($image?->path),
+            image: app(MediaUrlService::class)->productMainImageUrl($product),
             price: self::formatPrice($variant?->price ?? $product->price),
             oldPrice: $variant?->old_price !== null ? self::formatPrice($variant->old_price) : ($product->old_price !== null ? self::formatPrice($product->old_price) : null),
-            variantId: $variant?->getKey(),
+            variantId: $quickAddVariant?->getKey(),
             sku: $variant?->sku ?: $product->sku,
         );
-    }
-
-    public static function imageUrl(?string $path): string
-    {
-        if (! $path) {
-            return '/img/products/threshold.png';
-        }
-
-        if (Str::startsWith($path, ['http://', 'https://', '/'])) {
-            return $path;
-        }
-
-        return Storage::disk('public')->url($path);
     }
 
     public static function formatPrice(mixed $price): string

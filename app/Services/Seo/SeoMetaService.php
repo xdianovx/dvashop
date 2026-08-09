@@ -74,7 +74,7 @@ class SeoMetaService
         return new SeoData(
             $category->meta_title ?: $category->title.' — каталог товаров — 2POROGA',
             $category->meta_description ?: 'Каталог товаров категории «'.$category->title.'» в интернет-магазине 2POROGA.',
-            route('catalog.category', $category->full_slug),
+            route('catalog.index', ['category' => $category->full_slug]),
         );
     }
 

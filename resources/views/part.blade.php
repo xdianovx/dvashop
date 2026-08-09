@@ -1,205 +1,193 @@
 @extends('layouts.app')
 
-@section('title', 'Кузовной порог для Alfa Romeo 33 (1990–1994) — 2POROGA')
-
 @php
-    $gallery = [
-        '/img/products/threshold.png',
-        '/img/products/threshold.png',
-        '/img/products/threshold.png',
-        '/img/products/threshold.png',
-    ];
-
-    $profiles = ['Полный', 'Нижняя часть'];
-
-    $radioGroups = [
-        ['name' => 'position', 'label' => 'Положение:', 'items' => ['Левый', 'Правый', 'Левый + Правый']],
-        ['name' => 'material', 'label' => 'Материал:', 'items' => ['Оцинковка', 'Х/С сталь']],
-        ['name' => 'thickness', 'label' => 'Толщина металла', 'items' => ['1 мм', '1,5 мм']],
-    ];
-
-    $delivery = [
-        ['icon' => 'cost', 'text' => 'Стоимость доставки: от 490 руб.'],
-        ['icon' => 'deliver', 'text' => 'Расчётное время доставки: 1–3 дня'],
-        ['icon' => 'vozvrat', 'text' => 'Возврат товара: в течение 2 недель'],
-    ];
-
-    $related = [
-        ['name' => 'Внутренний порог', 'price' => '1 790', 'old' => '1 950'],
-        ['name' => 'Внутренний порог', 'price' => '1 790', 'old' => '1 950'],
-        ['name' => 'Внутренний порог', 'price' => '1 790', 'old' => '1 950'],
-        ['name' => 'Внутренний порог', 'price' => '1 790', 'old' => '1 950'],
-    ];
+    $selectedOptionValueIds = $variant->optionValues->pluck('id')->map(fn ($id) => (int) $id);
+    $selectedCanBePurchased = $variant->stock_status !== \App\Enums\StockStatus::OutOfStock
+        && ! ($variant->stock_status === \App\Enums\StockStatus::InStock && $variant->stock_quantity !== null && $variant->stock_quantity <= 0);
+    $selectedMaxQuantity = $variant->stock_status === \App\Enums\StockStatus::InStock && $variant->stock_quantity !== null
+        ? max(1, $variant->stock_quantity)
+        : 999;
+    $selectedStockModifier = match ($variant->stock_status) {
+        \App\Enums\StockStatus::InStock => 'in-stock',
+        \App\Enums\StockStatus::OutOfStock => 'out-of-stock',
+        \App\Enums\StockStatus::PreOrder => 'pre-order',
+    };
+    $descriptionLines = preg_split('/\R/u', (string) $description) ?: [];
 @endphp
 
 @section('content')
     <div class="container">
-        <x-breadcrumbs :items="[
-            ['label' => 'Главная', 'url' => '/'],
-            ['label' => 'Каталог', 'url' => '/catalog'],
-            ['label' => 'Alfa Romeo', 'url' => '#'],
-            ['label' => '33', 'url' => '#'],
-            ['label' => 'Кузовные пороги', 'url' => '#'],
-            ['label' => 'Кузовной порог для Alfa Romeo 33 (1990–1994)'],
-        ]" />
-
+        <x-breadcrumbs :items="$breadcrumbs" />
         <div class="part-top">
             <div class="part-gallery">
                 <div class="part-gallery__main-wrap">
                     <div class="swiper part-gallery__main" data-gallery-main>
                         <div class="swiper-wrapper">
-                            @foreach ($gallery as $img)
-                                <div class="swiper-slide part-gallery__slide">
-                                    <img src="{{ $img }}" alt="Кузовной порог" loading="lazy">
-                                </div>
+                            @foreach ($gallery as $image)
+                                <div class="swiper-slide part-gallery__slide"><img src="{{ $image['url'] }}" alt="{{ $image['alt'] }}" loading="lazy"></div>
                             @endforeach
                         </div>
                         <div class="part-gallery__pagination"></div>
                     </div>
-                    <button type="button" class="part-gallery__fav" aria-label="В избранное">
-                        <img src="/img/product/heart.svg" alt="" aria-hidden="true">
-                    </button>
                 </div>
-
-                <div class="swiper part-gallery__thumbs" data-gallery-thumbs>
-                    <div class="swiper-wrapper">
-                        @foreach ($gallery as $img)
-                            <div class="swiper-slide part-gallery__thumb">
-                                <img src="{{ $img }}" alt="" aria-hidden="true">
-                            </div>
+                @if ($gallery->count() > 1)
+                    <div class="swiper part-gallery__thumbs" data-gallery-thumbs><div class="swiper-wrapper">
+                        @foreach ($gallery as $image)
+                            <div class="swiper-slide part-gallery__thumb"><img src="{{ $image['url'] }}" alt="" aria-hidden="true"></div>
                         @endforeach
-                    </div>
-                </div>
+                    </div></div>
+                @endif
             </div>
 
             <div class="part-buy">
-                <div class="part-buy__rating">
-                    <span class="part-stars" aria-label="Рейтинг 5 из 5">
-                        @for ($i = 0; $i < 5; $i++)
-                            <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                <path d="m10 1 2.6 5.3 5.9.9-4.2 4.1 1 5.8L10 14.8 4.7 17.6l1-5.8L1.5 7.7l5.9-.9z" />
-                            </svg>
-                        @endfor
+                <h1 class="part-buy__title">{{ $product->title }}</h1>
+                <p class="part-buy__article">Артикул: <span data-selected-sku>{{ $variant->sku ?: $product->sku }}</span></p>
+                @if ($product->category)<p class="part-buy__article">Категория: {{ $product->category->title }}</p>@endif
+                @if ($product->partType)<p class="part-buy__article">Тип детали: {{ $product->partType->full_title ?: $product->partType->title }}</p>@endif
+                <p
+                    class="part-buy__stock part-buy__stock--{{ $selectedStockModifier }}"
+                    data-selected-stock
+                    data-in-stock-label="{{ \App\Enums\StockStatus::InStock->label() }}"
+                    data-out-of-stock-label="{{ \App\Enums\StockStatus::OutOfStock->label() }}"
+                    data-pre-order-label="{{ \App\Enums\StockStatus::PreOrder->label() }}"
+                    data-unavailable-label="Такой комбинации нет"
+                >
+                    <span class="part-buy__stock-icon" aria-hidden="true">
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="10" cy="10" r="8.5" />
+                            <path d="m6.5 10 2.5 2.5 4.5-5" />
+                        </svg>
                     </span>
-                    <a href="#" class="part-buy__reviews-link">5 оценок</a>
-                </div>
-
-                <h1 class="part-buy__title">Кузовной порог для Alfa Romeo 33 (1990–1994)</h1>
-                <p class="part-buy__article">Артикул: 01.AR0033XXXX.ALL.0.00</p>
-                <p class="part-buy__stock">
-                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round" aria-hidden="true">
-                        <circle cx="10" cy="10" r="8.5" />
-                        <path d="m6.5 10 2.5 2.5 4.5-5" />
-                    </svg>
-                    Готово к отправке
+                    <span data-selected-stock-label>{{ $variant->stock_status->label() }}</span>
                 </p>
-                <p class="part-buy__price">1 990 руб.</p>
+                <p class="part-buy__price" data-selected-price>{{ \App\ViewModels\ProductCardViewModel::formatPrice($variant->price ?? $product->price) }} руб.</p>
 
-                <div class="part-option-group">
-                    <span class="part-option-group__label">Профиль:</span>
-                    <div class="part-tabs">
-                        @foreach ($profiles as $i => $profile)
-                            <button type="button"
-                                class="part-tab @if ($i === 0) part-tab--active @endif">
-                                {{ $profile }}
-                            </button>
+                <form action="{{ route('cart.items.store') }}" method="post" @if ($optionGroups->isNotEmpty() || $variants->count() > 1) data-product-options @endif>
+                    @csrf
+                    @if ($optionGroups->isNotEmpty())
+                        <input type="hidden" name="product_variant_id" value="{{ $variant->getKey() }}" data-selected-variant required>
+                        @foreach ($optionGroups as $optionGroup)
+                            <div class="part-option-group" data-option-group="{{ $optionGroup['id'] }}">
+                                <span class="part-option-group__label">{{ $optionGroup['title'] }}:</span>
+                                @if ($optionGroup['code'] === 'profile')
+                                    <div class="part-tabs">
+                                        @foreach ($optionGroup['values'] as $optionValue)
+                                            <button
+                                                type="button"
+                                                class="part-tab @if ($selectedOptionValueIds->contains($optionValue['id'])) part-tab--active @endif"
+                                                data-product-option
+                                                data-option-group="{{ $optionGroup['id'] }}"
+                                                data-option-value="{{ $optionValue['id'] }}"
+                                                aria-pressed="{{ $selectedOptionValueIds->contains($optionValue['id']) ? 'true' : 'false' }}"
+                                            >{{ $optionValue['title'] }}</button>
+                                        @endforeach
+                                    </div>
+                                @elseif ($optionGroup['input_type'] === 'select')
+                                    <select class="part-option-select" data-product-option data-option-group="{{ $optionGroup['id'] }}">
+                                        @foreach ($optionGroup['values'] as $optionValue)
+                                            <option value="{{ $optionValue['id'] }}" @selected($selectedOptionValueIds->contains($optionValue['id']))>{{ $optionValue['title'] }}</option>
+                                        @endforeach
+                                    </select>
+                                @else
+                                    <div class="part-radios">
+                                        @foreach ($optionGroup['values'] as $optionValue)
+                                            <label class="part-radio">
+                                                <input
+                                                    type="radio"
+                                                    name="option_group_{{ $optionGroup['id'] }}"
+                                                    value="{{ $optionValue['id'] }}"
+                                                    data-product-option
+                                                    data-option-group="{{ $optionGroup['id'] }}"
+                                                    data-option-value="{{ $optionValue['id'] }}"
+                                                    @checked($selectedOptionValueIds->contains($optionValue['id']))
+                                                >
+                                                <span class="part-radio__dot" aria-hidden="true"></span>
+                                                <span class="part-radio__label">{{ $optionValue['title'] }}</span>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                @endif
+                            </div>
                         @endforeach
-                    </div>
-                </div>
-
-                @foreach ($radioGroups as $group)
-                    <div class="part-option-group">
-                        <span class="part-option-group__label">{{ $group['label'] }}</span>
-                        <div class="part-radios">
-                            @foreach ($group['items'] as $i => $item)
-                                <label class="part-radio">
-                                    <input type="radio" name="{{ $group['name'] }}"
-                                        @if ($i === 0) checked @endif>
-                                    <span class="part-radio__dot"></span>
-                                    <span class="part-radio__label">{{ $item }}</span>
-                                </label>
-                            @endforeach
+                    @elseif ($variants->count() > 1)
+                        <div class="part-option-group">
+                            <label class="part-option-group__label" for="product-variant">Вариант:</label>
+                            <select id="product-variant" name="product_variant_id" data-product-variant-fallback required>
+                                @foreach ($variants as $availableVariant)
+                                    <option value="{{ $availableVariant->getKey() }}" @selected($availableVariant->is($variant))>
+                                        {{ $availableVariant->title ?: $availableVariant->optionSummary() ?: $availableVariant->sku }} — {{ \App\ViewModels\ProductCardViewModel::formatPrice($availableVariant->price ?? $product->price) }} ₽
+                                    </option>
+                                @endforeach
+                            </select>
                         </div>
+                    @else
+                        <input type="hidden" name="product_variant_id" value="{{ $variant->getKey() }}">
+                    @endif
+                    @if ($optionGroups->isNotEmpty() || $variants->count() > 1)
+                        <script type="application/json" data-variant-matrix>@json($variantMatrix)</script>
+                    @endif
+                    <label class="part-option-group__label" for="product-quantity">Количество:</label>
+                    <input id="product-quantity" type="number" name="quantity" value="1" min="1" max="{{ $selectedMaxQuantity }}" data-product-quantity required>
+                    <div class="part-buy__actions">
+                        <button type="submit" class="btn part-buy__cart" data-add-to-cart @disabled(! $selectedCanBePurchased)>Добавить в корзину</button>
                     </div>
-                @endforeach
+                </form>
 
-                <ul class="part-delivery">
-                    @foreach ($delivery as $row)
-                        <li class="part-delivery__row">
-                            <span class="part-delivery__info">
-                                <span class="part-delivery__icon" aria-hidden="true">
-                                    <img src="/img/part/{{ $row['icon'] }}.svg" alt="">
+                @if ($deliveryMethods->isNotEmpty())
+                    <ul class="part-delivery">
+                        @foreach ($deliveryMethods as $method)
+                            <li class="part-delivery__row">
+                                <span class="part-delivery__info">
+                                    <span class="part-delivery__icon" aria-hidden="true"><img src="/img/part/deliver.svg" alt=""></span>
+                                    {{ $method->title }} — {{ (float) $method->base_price > 0 ? number_format((float) $method->base_price, 0, ',', ' ').' ₽' : 'Бесплатно' }}
                                 </span>
-                                {{ $row['text'] }}
-                            </span>
-                            <a href="#" class="part-delivery__more">Подробнее ›</a>
-                        </li>
-                    @endforeach
-                </ul>
-
-                <div class="part-buy__actions">
-                    <button type="button" class="btn part-buy__cart">Добавить в корзину</button>
-                    <button type="button" class="btn btn--outline part-buy__consult">Получить консультацию</button>
-                </div>
+                                <a href="{{ route('payment') }}" class="part-delivery__more">Подробнее ›</a>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
             </div>
         </div>
 
-        <section class="part-info">
-            <div class="part-info__col">
-                <h2 class="part-info__heading">Описание</h2>
-                <p class="part-desc">
-                    Ремкомплекты порогов для <strong>Alfa Romeo 33</strong> предназначены для ремонта внешних порогов
-                    при коррозии, а также деформации и незначительном повреждении при мелких ДТП. Имеют
-                    <strong>запас по длине 5 см</strong> для упрощения подгонки при установке. Ремкомплекты порогов
-                    выполнены <strong>из высококачественной стали ГОСТ 19904-90,</strong> что гарантирует срок службы
-                    до 10 лет.
-                </p>
-                <p class="part-desc">
-                    Благодаря использованию современного оборудования и усиленному контролю качества,
-                    <strong>вся продукция полностью соответствует оригинальным деталям,</strong> и единственная на
-                    рынке имеет сертификат РосТест №0304639.
-                </p>
-            </div>
+        @if (filled($description) || $product->characteristics->isNotEmpty())
+            <section class="part-info">
+                @if (filled($description))
+                    <div class="part-info__col">
+                        <h2 class="part-info__heading">Описание</h2>
+                        <div class="part-desc">@foreach ($descriptionLines as $line){{ $line }}@unless ($loop->last)<br>@endunless @endforeach</div>
+                    </div>
+                @endif
+                @if ($product->characteristics->isNotEmpty())
+                    <div class="part-info__col">
+                        <h2 class="part-info__heading">Характеристики</h2>
+                        <dl class="part-specs">
+                            @foreach ($product->characteristics as $characteristic)
+                                <div class="part-specs__row"><dt class="part-specs__key">{{ $characteristic->name }}</dt><dd class="part-specs__val">{{ $characteristic->value }}@if ($characteristic->unit) {{ $characteristic->unit }}@endif</dd></div>
+                            @endforeach
+                        </dl>
+                    </div>
+                @endif
+            </section>
+        @endif
 
-            <div class="part-info__col">
-                <h2 class="part-info__heading">Характеристики</h2>
-                <dl class="part-specs">
-                    <div class="part-specs__row">
-                        <dt class="part-specs__key">Артикул</dt>
-                        <dd class="part-specs__val">01.AR0033XXXX.ALL.0.00</dd>
-                    </div>
-                    <div class="part-specs__row">
-                        <dt class="part-specs__key">Марка</dt>
-                        <dd class="part-specs__val">Автопороги.ру</dd>
-                    </div>
-                    <div class="part-specs__row">
-                        <dt class="part-specs__key">Производство</dt>
-                        <dd class="part-specs__val">Россия</dd>
-                    </div>
-                    <div class="part-specs__row">
-                        <dt class="part-specs__key">Материал</dt>
-                        <dd class="part-specs__val">Сталь ГОСТ 19904-90</dd>
-                    </div>
-                    <div class="part-specs__row">
-                        <dt class="part-specs__key">Сертификат</dt>
-                        <dd class="part-specs__val">№0098556</dd>
-                    </div>
-                </dl>
-            </div>
-        </section>
+        @if ($product->fitments->isNotEmpty())
+            <section class="part-info">
+                <div class="part-info__col">
+                    <h2 class="part-info__heading">Применимость</h2>
+                    <ul>
+                        @foreach ($product->fitments as $fitment)
+                            <li>{{ $fitment->generation?->display_title }}@if ($fitment->note) — {{ $fitment->note }}@endif</li>
+                        @endforeach
+                    </ul>
+                </div>
+            </section>
+        @endif
 
-        <section class="part-related">
-            <h2 class="part-related__title">С этим товаром покупают</h2>
-            <ul class="products">
-                @foreach ($related as $product)
-                    <li class="products__item">
-                        <x-product-card :name="$product['name']" :price="$product['price']" :old="$product['old']" />
-                    </li>
-                @endforeach
-            </ul>
-        </section>
+        @if ($related->isNotEmpty())
+            <section class="part-related">
+                <h2 class="part-related__title">С этим товаром покупают</h2>
+                <ul class="products">@foreach ($related as $relatedProduct)<li class="products__item"><x-product-card :product="$relatedProduct" /></li>@endforeach</ul>
+            </section>
+        @endif
     </div>
-
-    <x-faq />
 @endsection

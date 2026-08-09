@@ -6,7 +6,7 @@
     @endif
 
     @if ($pageData->hasSection(\App\Enums\HomepageSectionCode::VehicleSearch->value))
-        <x-search :title="$pageData->sectionTitle(\App\Enums\HomepageSectionCode::VehicleSearch->value)" />
+        <x-search :title="$pageData->sectionTitle(\App\Enums\HomepageSectionCode::VehicleSearch->value)" :makes="$pageData->vehicleMakes" />
     @endif
 
     @if ($pageData->hasSection(\App\Enums\HomepageSectionCode::CategoryCards->value) && $pageData->categoryCards !== [])

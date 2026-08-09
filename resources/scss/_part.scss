@@ -164,7 +164,30 @@
     font-family: var(--font-display);
     font-weight: var(--fw-semibold);
     font-size: 14px;
+}
+
+.part-buy__stock--in-stock {
     color: #33ba27;
+}
+
+.part-buy__stock--out-of-stock {
+    color: var(--color-danger);
+}
+
+.part-buy__stock--pre-order {
+    color: var(--color-primary);
+}
+
+.part-buy__stock--unavailable {
+    color: var(--color-muted);
+}
+
+.part-buy__stock-icon {
+    display: none;
+}
+
+.part-buy__stock--in-stock .part-buy__stock-icon {
+    display: block;
 }
 
 .part-buy__stock svg {
