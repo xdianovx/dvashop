@@ -9,6 +9,8 @@ use App\Enums\NavigationLinkType;
 use App\Models\HomepageMetric;
 use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
+use App\Models\VehicleMake;
+use App\Services\PublicCatalogCache;
 use App\ViewData\Storefront\GlobalStorefrontData;
 use App\ViewData\Storefront\HomepageViewData;
 use App\ViewData\Storefront\StorefrontLinkData;
@@ -29,6 +31,7 @@ final readonly class HomepageViewDataProvider
         private StorefrontDestinationResolver $destinations,
         private StorefrontSeoFactory $seo,
         private StorefrontTextPresenter $text,
+        private PublicCatalogCache $catalogCache,
     ) {}
 
     public function load(): HomepageViewData
@@ -165,25 +168,10 @@ final readonly class HomepageViewDataProvider
             ->values()
             ->all();
 
-        $vehicleMakes = DB::table('vehicle_models as models')
-            ->join('vehicle_makes as makes', 'makes.id', '=', 'models.vehicle_make_id')
-            ->where('makes.is_active', true)
-            ->whereNull('makes.deleted_at')
-            ->where('models.is_active', true)
-            ->whereNull('models.deleted_at')
-            ->orderBy('makes.position')
-            ->orderBy('makes.title')
-            ->orderBy('models.position')
-            ->orderBy('models.title')
-            ->get(['makes.id as make_id', 'makes.title as make_title', 'makes.slug as make_slug', 'models.title as model_title', 'models.slug as model_slug'])
-            ->groupBy('make_id')
-            ->map(fn ($models): array => [
-                'title' => (string) $models->first()->make_title,
-                'slug' => (string) $models->first()->make_slug,
-                'models' => $models->map(fn (object $model): array => [
-                    'title' => (string) $model->model_title,
-                    'slug' => (string) $model->model_slug,
-                ])->values()->all(),
+        $vehicleMakes = $this->catalogCache->activeMakes()
+            ->map(fn (VehicleMake $make): array => [
+                'title' => (string) $make->title,
+                'slug' => (string) $make->slug,
             ])
             ->values()
             ->all();

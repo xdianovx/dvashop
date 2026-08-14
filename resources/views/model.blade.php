@@ -4,7 +4,7 @@
     <section class="model-page">
         <div class="container">
             <x-breadcrumbs :items="$breadcrumbs" />
-            <h1 class="model-page__title">Поколения модели <span>{{ $make->title }} {{ $model->title }}</span></h1>
+            <h1 class="model-page__title">{{ $seoH1 ?? 'Поколения модели '.$make->title.' '.$model->title }}</h1>
             @foreach ($generationGroups as $generationGroup)
                 <h2 class="model-page__gen">
                     @if ($generationGroup['generations']->pluck('body')->filter()->isNotEmpty())
@@ -36,12 +36,14 @@
                                 :href="route('catalog.model', [$make->slug, $otherModel->slug])"
                                 :name="$otherModel->title"
                                 :sub="$otherModel->generations_count.' поколений'"
+                                :img="$otherModelImages->get($otherModel->getKey())"
                                 variant="other"
                             />
                         </li>
                     @endforeach
                 </ul>
             @endif
+            <x-storefront-seo-text :text="$seoText ?? null" />
         </div>
     </section>
 @endsection

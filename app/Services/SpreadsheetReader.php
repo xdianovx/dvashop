@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Services\Import\CatalogImportHeaderParser;
 use App\Support\CatalogText;
 use InvalidArgumentException;
+use OpenSpout\Reader\XLSX\Options as XlsxOptions;
 use OpenSpout\Reader\XLSX\Reader as XlsxReader;
 use SplFileObject;
 
@@ -111,6 +112,7 @@ class SpreadsheetReader
 
             if ($dataIndex < $offset) {
                 $dataIndex++;
+
                 continue;
             }
 
@@ -158,7 +160,10 @@ class SpreadsheetReader
     /** @return iterable<int, array<int, mixed>> */
     private function iterateXlsxRows(string $path): iterable
     {
-        $reader = new XlsxReader();
+        $options = new XlsxOptions;
+        $options->SHOULD_FORMAT_DATES = true;
+
+        $reader = new XlsxReader($options);
         $reader->open($path);
 
         try {

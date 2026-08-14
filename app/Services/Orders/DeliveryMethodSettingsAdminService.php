@@ -3,6 +3,7 @@
 namespace App\Services\Orders;
 
 use App\Enums\DeliveryMethod;
+use App\Enums\DeliveryPriceMode;
 use App\Models\DeliveryMethodSetting;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -22,6 +23,7 @@ class DeliveryMethodSettingsAdminService
         'page_title',
         'page_description',
         'base_price',
+        'price_mode',
         'is_active',
         'position',
     ];
@@ -99,6 +101,9 @@ class DeliveryMethodSettingsAdminService
         $candidate['code'] = $candidate['code'] instanceof DeliveryMethod
             ? $candidate['code']->value
             : $candidate['code'];
+        $candidate['price_mode'] = $candidate['price_mode'] instanceof DeliveryPriceMode
+            ? $candidate['price_mode']->value
+            : $candidate['price_mode'];
 
         foreach (['title', 'description', 'page_title', 'page_description'] as $field) {
             if (is_string($candidate[$field] ?? null)) {
@@ -131,6 +136,7 @@ class DeliveryMethodSettingsAdminService
             'page_title' => ['nullable', 'string', 'max:255', $plainText],
             'page_description' => ['nullable', 'string', 'max:5000', $plainText],
             'base_price' => ['required', 'numeric', 'min:0', 'decimal:0,2'],
+            'price_mode' => ['required', Rule::enum(DeliveryPriceMode::class)],
             'is_active' => ['required', 'boolean'],
             'position' => ['required', 'integer', 'min:0'],
         ], [
@@ -150,11 +156,28 @@ class DeliveryMethodSettingsAdminService
             'page_title' => 'заголовок на странице «Оплата и доставка»',
             'page_description' => 'описание на странице «Оплата и доставка»',
             'base_price' => 'базовая стоимость',
+            'price_mode' => 'режим стоимости',
             'is_active' => 'активность',
             'position' => 'позиция',
         ])->validate();
 
         $validated['base_price'] = number_format((float) $validated['base_price'], 2, '.', '');
+
+        $mode = DeliveryPriceMode::from($validated['price_mode']);
+        $price = round((float) $validated['base_price'], 2);
+
+        if ($mode === DeliveryPriceMode::Fixed && $price <= 0) {
+            throw ValidationException::withMessages([
+                'base_price' => 'Для фиксированной доставки укажите стоимость больше нуля.',
+            ]);
+        }
+
+        if ($mode !== DeliveryPriceMode::Fixed && $price !== 0.0) {
+            throw ValidationException::withMessages([
+                'base_price' => 'Для бесплатной доставки и доставки по запросу стоимость должна быть равна нулю.',
+            ]);
+        }
+
         $validated['is_active'] = (bool) $validated['is_active'];
         $validated['position'] = (int) $validated['position'];
 

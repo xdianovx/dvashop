@@ -271,7 +271,7 @@ test('admin import page opens and upload action creates import run', function ()
     Livewire::test(CatalogImportPage::class)
         ->set('file', UploadedFile::fake()->createWithContent('catalog.csv', importCsvContent()))
         ->set('type', 'catalog')
-        ->set('chunkSize', 100)
+        ->set('chunkSize', 20)
         ->set('startAfterUpload', true)
         ->call('submitImport')
         ->assertHasNoErrors();
@@ -280,7 +280,7 @@ test('admin import page opens and upload action creates import run', function ()
 
     expect($run->original_name)->toBe('catalog.csv')
         ->and($run->type)->toBe('catalog')
-        ->and($run->chunk_size)->toBe(100);
+        ->and($run->chunk_size)->toBe(20);
 
     Storage::disk('local')->assertExists($run->stored_path);
     Queue::assertPushed(CatalogImportStartJob::class);

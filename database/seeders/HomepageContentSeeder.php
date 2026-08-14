@@ -96,7 +96,7 @@ class HomepageContentSeeder extends Seeder
             ],
             HomepageCategoryCardCode::Commercial->value => [
                 'title' => 'Коммерческий транспорт',
-                'target' => null,
+                'target' => 'catalog',
                 'position' => 20,
             ],
             HomepageCategoryCardCode::BodyRepair->value => [
@@ -122,6 +122,7 @@ class HomepageContentSeeder extends Seeder
     {
         $record = HomepageCategoryCard::query()->firstOrNew(['code' => $code]);
         $wasNew = ! $record->exists;
+        $upgradeUntouchedCommercial = $this->isUntouchedLegacyCommercial($record, $definition);
         $destinationWasMissing = $record->exists && $this->hasNoCategoryDestination($record);
         $destination = $this->categoryDestination($definition['target']);
         $destinationWasResolved = $this->hasResolvedCategoryDestination($destination);
@@ -131,11 +132,29 @@ class HomepageContentSeeder extends Seeder
             'position' => $definition['position'],
         ]);
 
+        if ($code === HomepageCategoryCardCode::Commercial->value
+            && $destinationWasMissing
+            && ! $upgradeUntouchedCommercial) {
+            $safeChanges = array_intersect_key($record->getDirty(), array_flip(['title', 'position']));
+
+            if ($safeChanges !== []) {
+                DB::table($record->getTable())
+                    ->where($record->getKeyName(), $record->getKey())
+                    ->update([...$safeChanges, 'updated_at' => now()]);
+            }
+
+            return;
+        }
+
         if ($wasNew) {
             $record->fill($destination);
         } elseif ($destinationWasMissing && $destinationWasResolved) {
             unset($destination['is_active']);
             $this->fillMissing($record, $destination);
+
+            if ($upgradeUntouchedCommercial) {
+                $record->is_active = true;
+            }
         }
 
         if (! $wasNew && $destinationWasMissing && ! $destinationWasResolved) {
@@ -213,6 +232,18 @@ class HomepageContentSeeder extends Seeder
             && blank($record->url)
             && $record->product_category_id === null
             && $record->part_type_id === null;
+    }
+
+    /** @param array{title:string,target:?string,position:int} $definition */
+    private function isUntouchedLegacyCommercial(HomepageCategoryCard $record, array $definition): bool
+    {
+        return $record->exists
+            && $record->code === HomepageCategoryCardCode::Commercial
+            && $record->title === $definition['title']
+            && $record->position === $definition['position']
+            && $record->is_active === false
+            && $record->open_in_new_tab === false
+            && $this->hasNoCategoryDestination($record);
     }
 
     /** @param array<string, mixed> $destination */

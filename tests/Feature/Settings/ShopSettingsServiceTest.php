@@ -44,6 +44,7 @@ test('shop settings update trims normalizes and persists only allowed fields tra
         'phone_caption' => '  Звонок бесплатный  ',
         'public_email' => '  SALES@EXAMPLE.RU  ',
         'order_notification_email' => '  ORDERS@EXAMPLE.RU  ',
+        'inquiry_notification_email' => '  INQUIRIES@EXAMPLE.RU  ',
         'work_hours' => '  Пн–Пт 09:00–18:00  ',
         'legal_name' => '  ООО «МагазПороги»  ',
         'inn' => '1234567890',
@@ -59,6 +60,7 @@ test('shop settings update trims normalizes and persists only allowed fields tra
         ->and($setting->phone_href)->toBe('+79991112233')
         ->and($setting->public_email)->toBe('sales@example.ru')
         ->and($setting->order_notification_email)->toBe('orders@example.ru')
+        ->and($setting->inquiry_notification_email)->toBe('inquiries@example.ru')
         ->and($setting->legal_address)->toBe('Москва')
         ->and(ShopSetting::query()->count())->toBe(1);
 
@@ -86,6 +88,7 @@ test('shop settings reject unsafe and malformed values without partial updates',
     'phone too short' => ['phone_href', '+7 (12) 34'],
     'public email' => ['public_email', 'not-an-email'],
     'notification email array' => ['order_notification_email', []],
+    'inquiry email malformed' => ['inquiry_notification_email', 'not-an-email'],
     'inn length' => ['inn', '12345678901'],
     'ogrn length' => ['ogrn', '12345678901234'],
     'vk javascript' => ['vk_url', 'javascript:alert(1)'],

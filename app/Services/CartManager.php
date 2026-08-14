@@ -16,6 +16,8 @@ class CartManager
 {
     public const COOKIE_NAME = 'cart_token';
 
+    public const PRICE_UNAVAILABLE_MESSAGE = 'Цена товара пока не указана. Оставьте заявку для уточнения стоимости.';
+
     private const COOKIE_MINUTES = 60 * 24 * 60;
 
     private const CART_TTL_DAYS = 60;
@@ -46,10 +48,23 @@ class CartManager
         return $cart;
     }
 
+    /**
+     * Read the current cart totals without creating a cart or refreshing its cookie.
+     *
+     * @return array{items_count: int, subtotal: float}
+     */
+    public function summaryForRequest(Request $request): array
+    {
+        $cart = $this->findActiveCart((string) $request->cookie(self::COOKIE_NAME));
+
+        return $cart ? $this->totals($cart) : $this->emptySummary();
+    }
+
     public function addItem(Request $request, int $productVariantId, int $quantity = 1): CartItem
     {
         $cart = $this->current($request);
         $variant = $this->findAvailableVariant($productVariantId);
+        $this->assertSellablePrice($variant);
 
         $item = $cart->items()->firstOrNew([
             'product_variant_id' => $variant->getKey(),
@@ -77,6 +92,7 @@ class CartManager
         $cart = $this->current($request);
         $this->ensureItemBelongsToCart($item, $cart);
         $variant = $this->findAvailableVariant((int) $item->product_variant_id);
+        $this->assertSellablePrice($variant);
         $this->assertAvailableQuantity($variant, max(1, $quantity));
 
         $item->update(['quantity' => max(1, $quantity)]);
@@ -84,17 +100,22 @@ class CartManager
         return $item->refresh();
     }
 
-    public function removeItem(Request $request, CartItem $item): void
+    public function removeItem(Request $request, CartItem $item): Cart
     {
         $cart = $this->current($request);
         $this->ensureItemBelongsToCart($item, $cart);
 
         $item->delete();
+
+        return $cart;
     }
 
-    public function clear(Request $request): void
+    public function clear(Request $request): Cart
     {
-        $this->current($request)->items()->delete();
+        $cart = $this->current($request);
+        $cart->items()->delete();
+
+        return $cart;
     }
 
     /**
@@ -122,6 +143,15 @@ class CartManager
             ->active()
             ->where('token', $token)
             ->first();
+    }
+
+    /** @return array{items_count: int, subtotal: float} */
+    private function emptySummary(): array
+    {
+        return [
+            'items_count' => 0,
+            'subtotal' => 0.0,
+        ];
     }
 
     private function createCart(?Authenticatable $user): Cart
@@ -163,6 +193,15 @@ class CartManager
                 && $quantity > $variant->stock_quantity)) {
             throw ValidationException::withMessages([
                 'quantity' => 'Запрошенное количество товара сейчас недоступно.',
+            ]);
+        }
+    }
+
+    private function assertSellablePrice(ProductVariant $variant): void
+    {
+        if (! $this->availability->hasSellablePrice($variant)) {
+            throw ValidationException::withMessages([
+                'product_variant_id' => self::PRICE_UNAVAILABLE_MESSAGE,
             ]);
         }
     }

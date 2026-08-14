@@ -91,6 +91,7 @@ class ShopSettingsPage extends Page
                         TextInput::make('phone_caption')->label('Подпись телефона')->placeholder('Не заполнено')->maxLength(255),
                         TextInput::make('public_email')->label('Публичный email')->placeholder('Не заполнено')->email()->maxLength(255),
                         TextInput::make('order_notification_email')->label('Email уведомлений о заказах')->placeholder('Не заполнено')->email()->maxLength(255),
+                        TextInput::make('inquiry_notification_email')->label('Email уведомлений о заявках')->placeholder('Используется значение из ENV')->email()->maxLength(255),
                     ])->columns(2),
                 Section::make('Реквизиты')
                     ->schema([

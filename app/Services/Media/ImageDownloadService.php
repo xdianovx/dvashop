@@ -9,6 +9,8 @@ use RuntimeException;
 
 class ImageDownloadService
 {
+    public const USER_AGENT = 'DvashopImageImporter/1.0';
+
     public function __construct(private readonly ImageProcessingService $images) {}
 
     public function download(string $url, string $profile, string $directory): ProcessedImage
@@ -17,7 +19,10 @@ class ImageDownloadService
             throw new InvalidArgumentException('Некорректный URL изображения.');
         }
 
-        $response = Http::timeout(20)->retry(2, 300)->get($url);
+        $response = Http::withUserAgent(self::USER_AGENT)
+            ->timeout(20)
+            ->retry(2, 300)
+            ->get($url);
 
         if (! $response->successful()) {
             throw new RuntimeException('Не удалось скачать изображение. HTTP '.$response->status());

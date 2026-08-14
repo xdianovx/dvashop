@@ -10,7 +10,7 @@
     <tr><td align="center">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:720px;background:#fff;border:1px solid #d7dbe0;">
             <tr><td style="padding:26px 30px;background:#262b31;color:#fff;">
-                <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#f0b64c;">Новый заказ</div>
+                <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#f0b64c;">{{ $storeName }} · новый заказ</div>
                 <h1 style="margin:7px 0 0;font-size:25px;">{{ $order->number }}</h1>
                 <div style="margin-top:7px;color:#cbd0d6;">{{ ($order->placed_at ?? $order->created_at)?->format('d.m.Y H:i') }}</div>
             </td></tr>
@@ -22,8 +22,9 @@
                     <tr><td style="color:#68717b;">Город</td><td>{{ $order->customer_city ?: '—' }}</td></tr>
                     <tr><td style="color:#68717b;">Адрес</td><td>{{ $order->customer_address ?: '—' }}</td></tr>
                     <tr><td style="color:#68717b;">Комментарий</td><td>{!! nl2br(e($order->customer_comment ?: '—')) !!}</td></tr>
-                    <tr><td style="color:#68717b;">Оплата</td><td>{{ $order->payment_method?->label() ?? 'Не указана' }}</td></tr>
-                    <tr><td style="color:#68717b;">Доставка</td><td>{{ $order->delivery_method?->label() ?? 'Не указана' }}</td></tr>
+                    <tr><td style="color:#68717b;">Оплата</td><td>{{ $order->payment_method_title_snapshot ?: 'Не указана' }}</td></tr>
+                    <tr><td style="color:#68717b;">Доставка</td><td>{{ $order->delivery_method_title_snapshot ?: 'Не указана' }}</td></tr>
+                    <tr><td style="color:#68717b;">Стоимость доставки</td><td>{{ $order->deliveryPriceText() }}</td></tr>
                 </table>
 
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="8" style="margin-top:20px;border-collapse:collapse;font-size:14px;">
@@ -49,7 +50,7 @@
                     @endforeach
                     </tbody>
                 </table>
-                <div style="margin-top:20px;text-align:right;font-size:20px;"><strong>Итого: {{ number_format((float) $order->total, 2, ',', ' ') }} ₽</strong></div>
+                <div style="margin-top:20px;text-align:right;font-size:20px;"><strong>{{ $order->total_is_final ? 'Итого' : 'Сумма товаров (без доставки)' }}: {{ number_format((float) $order->total, 2, ',', ' ') }} ₽</strong></div>
             </td></tr>
         </table>
     </td></tr>

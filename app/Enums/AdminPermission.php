@@ -20,6 +20,7 @@ enum AdminPermission: string
     case ResetProductGallery = 'reset_product_gallery';
     case ViewOrders = 'view_orders';
     case UpdateOrders = 'update_orders';
+    case ViewInquiries = 'view_inquiries';
     case ManageCatalogImports = 'manage_catalog_imports';
     case ViewStoreSettings = 'view_store_settings';
     case UpdateStoreSettings = 'update_store_settings';

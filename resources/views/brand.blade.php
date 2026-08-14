@@ -4,7 +4,7 @@
     <section class="brand-page">
         <div class="container brand-page__body">
             <div class="brand-page__crumbs"><x-breadcrumbs :items="$breadcrumbs" /></div>
-            <h1 class="brand-page__title">Модели автомобилей {{ $make->title }}</h1>
+            <h1 class="brand-page__title">{{ $seoH1 ?? 'Модели автомобилей '.$make->title }}</h1>
             <h2 class="brand-page__subtitle">Выберите модель</h2>
             <form class="brand-page__search" action="{{ route('catalog.index') }}" method="get">
                 <input type="search" class="brand-page__search-input" placeholder="Поиск по каталогу" name="q">
@@ -15,9 +15,10 @@
             </form>
             <ul class="model-grid brand-page__grid">
                 @foreach ($models as $vehicleModel)
-                    <li><x-model-card :href="route('catalog.model', [$make->slug, $vehicleModel->slug])" :name="$vehicleModel->title" :sub="$vehicleModel->generations_count.' поколений'" variant="model" /></li>
+                    <li><x-model-card :href="route('catalog.model', [$make->slug, $vehicleModel->slug])" :name="$vehicleModel->title" :sub="$vehicleModel->generations_count.' поколений'" :img="$modelImages->get($vehicleModel->getKey())" variant="model" /></li>
                 @endforeach
             </ul>
+            <x-storefront-seo-text :text="$seoText ?? null" />
         </div>
     </section>
 @endsection

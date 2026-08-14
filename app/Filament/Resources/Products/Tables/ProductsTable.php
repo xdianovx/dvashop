@@ -84,8 +84,13 @@ final class ProductsTable
                     ->searchable(query: function (Builder $query, string $search): Builder {
                         return $query->where(function (Builder $skuQuery) use ($search): void {
                             $skuQuery
-                                ->where('sku', 'like', '%'.$search.'%')
+                                ->where(fn (Builder $productSkuQuery): Builder => $productSkuQuery
+                                    ->whereNotNull('sku')
+                                    ->where('sku', '<>', '')
+                                    ->where('sku', 'like', '%'.$search.'%'))
                                 ->orWhereHas('variants', fn (Builder $variantQuery): Builder => $variantQuery
+                                    ->whereNotNull('sku')
+                                    ->where('sku', '<>', '')
                                     ->where('sku', 'like', '%'.$search.'%'));
                         });
                     })

@@ -53,7 +53,7 @@ enum StaticPageItemCode: string
             self::PartnersTypeDropshipping => 'Дропшиппинг',
             self::PartnersAboutProduction => 'Собственное производство',
             self::PartnersAboutMeasurements => 'База замеров',
-            self::PartnersAboutPayment => 'Оплата при получении',
+            self::PartnersAboutPayment => 'Условия оплаты',
             self::PartnersAboutMaterials => 'Материалы',
             self::PartnersAboutReturns => 'Обмен и возврат',
         };

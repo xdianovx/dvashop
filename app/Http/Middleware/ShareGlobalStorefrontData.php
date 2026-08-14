@@ -2,6 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\CartManager;
+use App\Services\FavoritesManager;
 use App\ViewData\Storefront\GlobalStorefrontData;
 use Closure;
 use Illuminate\Http\Request;
@@ -10,6 +12,11 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class ShareGlobalStorefrontData
 {
+    public function __construct(
+        private readonly CartManager $cartManager,
+        private readonly FavoritesManager $favoritesManager,
+    ) {}
+
     /** @var list<string> */
     private const EXACT_ROUTE_NAMES = [
         'home',
@@ -18,6 +25,7 @@ final class ShareGlobalStorefrontData
         'payment',
         'faq',
         'partners',
+        'favorites.show',
         'cart.show',
         'checkout.show',
         'checkout.success',
@@ -31,7 +39,12 @@ final class ShareGlobalStorefrontData
         if ($request->isMethodSafe()
             && is_string($routeName)
             && $this->usesStorefrontLayout($routeName)) {
+            $favorites = $this->favoritesManager->summaryForRequest($request);
+
             View::share('storefront', app(GlobalStorefrontData::class));
+            View::share('cartCount', $this->cartManager->summaryForRequest($request)['items_count']);
+            View::share('favoritesCount', $favorites['count']);
+            View::share('favoriteProductIds', $favorites['product_ids']);
         }
 
         return $next($request);

@@ -10,7 +10,7 @@
     <tr><td align="center">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:680px;background:#fff;border:1px solid #deded8;">
             <tr><td style="padding:28px 32px 20px;border-bottom:4px solid #d99a21;">
-                <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#7a756b;">2POROGA · заказ принят</div>
+                <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#7a756b;">{{ $storeName }} · заказ принят</div>
                 <h1 style="margin:8px 0 0;font-size:26px;line-height:1.2;">Заказ {{ $order->number }}</h1>
                 <p style="margin:8px 0 0;color:#666;">{{ ($order->placed_at ?? $order->created_at)?->format('d.m.Y H:i') }}</p>
             </td></tr>
@@ -40,9 +40,10 @@
                     </tbody>
                 </table>
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="4" style="margin-top:18px;font-size:14px;">
-                    <tr><td>Способ оплаты</td><td align="right">{{ $order->payment_method?->label() ?? 'Не указан' }}</td></tr>
-                    <tr><td>Способ доставки</td><td align="right">{{ $order->delivery_method?->label() ?? 'Не указан' }}</td></tr>
-                    <tr><td style="padding-top:10px;font-size:18px;"><strong>Итого</strong></td><td align="right" style="padding-top:10px;font-size:18px;"><strong>{{ number_format((float) $order->total, 2, ',', ' ') }} ₽</strong></td></tr>
+                    <tr><td>Способ оплаты</td><td align="right">{{ $order->payment_method_title_snapshot ?: 'Не указан' }}</td></tr>
+                    <tr><td>Способ доставки</td><td align="right">{{ $order->delivery_method_title_snapshot ?: 'Не указан' }}</td></tr>
+                    <tr><td>Стоимость доставки</td><td align="right">{{ $order->deliveryPriceText() }}</td></tr>
+                    <tr><td style="padding-top:10px;font-size:18px;"><strong>{{ $order->total_is_final ? 'Итого' : 'Сумма товаров (без доставки)' }}</strong></td><td align="right" style="padding-top:10px;font-size:18px;"><strong>{{ number_format((float) $order->total, 2, ',', ' ') }} ₽</strong></td></tr>
                 </table>
                 <p style="margin:24px 0 0;padding:16px;background:#fff7e7;border-left:4px solid #d99a21;">Мы свяжемся с вами для подтверждения заказа.</p>
             </td></tr>

@@ -19,8 +19,6 @@ class DatabaseSeeder extends Seeder
             ProductCatalogSeeder::class,
             PartTypeSeeder::class,
             ProductOptionSeeder::class,
-            VehicleCatalogSeeder::class,
-            ProductSeeder::class,
             ShopSettingsSeeder::class,
             CheckoutMethodSettingsSeeder::class,
             HomepageContentSeeder::class,

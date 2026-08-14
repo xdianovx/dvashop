@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Оформление заказа — 2POROGA')
+@section('title', 'Оформление заказа — '.(($storefront ?? null)?->storeName ?? 'AVTOPOROGI.ru'))
 
 @section('content')
     <div class="container">
@@ -42,6 +42,7 @@
                                     :title="$method->title"
                                     :desc="$method->description"
                                     :price="$method->base_price"
+                                    :price-mode="$method->price_mode->value"
                                     :checked="old('delivery_method') === $method->code->value"
                                 />
                             @endforeach
@@ -74,7 +75,7 @@
                     <div class="checkout-order__row"><span>{{ $totals['items_count'] }} товар(ов) на сумму</span><span class="checkout-order__value">{{ number_format($totals['subtotal'], 0, ',', ' ') }} ₽</span></div>
                     <div class="checkout-order__row"><span>Доставка</span><span class="checkout-order__value" data-checkout-delivery>—</span></div>
                     <div class="checkout-order__total">
-                        <span>Итого</span>
+                        <span data-checkout-total-label>Сумма товаров</span>
                         <span class="checkout-order__total-value" data-checkout-total data-checkout-subtotal="{{ number_format((float) $totals['subtotal'], 2, '.', '') }}">{{ number_format($totals['subtotal'], 0, ',', ' ') }} ₽</span>
                     </div>
                     <button type="submit" class="btn checkout-order__submit">Заказать</button>

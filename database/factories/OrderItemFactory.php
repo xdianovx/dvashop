@@ -32,6 +32,8 @@ class OrderItemFactory extends Factory
             'title' => $variant->product->title.($variant->title ? ' — '.$variant->title : ''),
             'sku' => $variant->sku ?: $variant->product->sku,
             'quantity' => $quantity,
+            'stock_was_decremented' => false,
+            'stock_restored_at' => null,
             'price' => $price,
             'total' => round($price * $quantity, 2),
         ];

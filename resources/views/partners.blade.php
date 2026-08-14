@@ -58,9 +58,7 @@
                 </ul>
             @endif
 
-            @if (($storefront ?? null)?->phoneUrl)
-                <a href="{{ $storefront->phoneUrl }}" class="btn partners-page__mob-cta">Сотрудничать</a>
-            @endif
+            <a href="#storefront-inquiry" class="btn partners-page__mob-cta" data-inquiry-open>Сотрудничать</a>
 
             @if ($pageData->facts !== [])
                 <div class="partners-page__about">
@@ -84,9 +82,13 @@
                 </div>
             @endif
 
-            @if (($storefront ?? null)?->phoneUrl)
-                <a href="{{ $storefront->phoneUrl }}" class="btn partners-page__mob-cta">Написать нам</a>
-            @endif
+            <a href="#storefront-inquiry" class="btn partners-page__mob-cta" data-inquiry-open>Написать нам</a>
         </div>
     </section>
+
+    <x-storefront-inquiry-modal
+        :type="\App\Enums\StorefrontInquiryType::Partnership->value"
+        source-code="partners"
+        title="Заявка на сотрудничество"
+    />
 @endsection

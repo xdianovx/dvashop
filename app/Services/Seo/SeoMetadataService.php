@@ -51,6 +51,23 @@ final readonly class SeoMetadataService
         ];
     }
 
+    public function forView(Model $model, string $fallbackCanonical): SeoData
+    {
+        $metadata = $this->resolve($model);
+
+        return new SeoData(
+            title: $metadata['meta_title'],
+            description: $metadata['meta_description'],
+            canonical: $metadata['canonical_url'] ?? $fallbackCanonical,
+            h1: $metadata['h1'],
+            seoText: $metadata['seo_text'],
+            noindex: $metadata['noindex'],
+            ogTitle: $metadata['og_title'],
+            ogDescription: $metadata['og_description'],
+            ogImage: $metadata['og_image'],
+        );
+    }
+
     private function entityTitle(Model $model): string
     {
         return match (true) {

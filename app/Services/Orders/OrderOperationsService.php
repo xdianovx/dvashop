@@ -14,6 +14,8 @@ use Illuminate\Validation\ValidationException;
 
 class OrderOperationsService
 {
+    public function __construct(private readonly OrderInventoryService $inventory) {}
+
     /** @var list<string> */
     private const EDITABLE_FIELDS = [
         'status',
@@ -87,6 +89,12 @@ class OrderOperationsService
             $firstPaidTransition = $locked->payment_status !== PaymentStatus::Paid
                 && $targetPaymentStatus === PaymentStatus::Paid
                 && $locked->paid_at === null;
+            $firstCancellation = $locked->status !== OrderStatus::Canceled
+                && $targetStatus === OrderStatus::Canceled;
+
+            if ($firstCancellation) {
+                $this->inventory->restoreForCancellation($locked);
+            }
 
             $locked->forceFill([
                 'status' => $targetStatus,

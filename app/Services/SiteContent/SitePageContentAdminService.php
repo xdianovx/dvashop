@@ -446,6 +446,7 @@ class SitePageContentAdminService
                     'page_title' => $record->page_title,
                     'page_description' => $record->page_description,
                     'base_price' => $record->base_price,
+                    'price_mode' => $record->price_mode->value,
                     'is_active' => $record->is_active,
                 ])->all(),
         ];
@@ -486,7 +487,7 @@ class SitePageContentAdminService
             $deliveryRows = $this->fixedRows(
                 $data['delivery_methods'] ?? null,
                 $deliveries,
-                ['id', 'title', 'description', 'page_title', 'page_description', 'base_price', 'is_active'],
+                ['id', 'title', 'description', 'page_title', 'page_description', 'base_price', 'price_mode', 'is_active'],
                 'delivery_methods',
             );
             foreach ($deliveryRows as $index => [$record, $row]) {
@@ -496,6 +497,7 @@ class SitePageContentAdminService
                     'page_title' => $row['page_title'] ?? null,
                     'page_description' => $row['page_description'] ?? null,
                     'base_price' => $this->requiredValue($row, 'base_price', "delivery_methods.{$index}"),
+                    'price_mode' => $this->requiredValue($row, 'price_mode', "delivery_methods.{$index}"),
                     'is_active' => $this->requiredValue($row, 'is_active', "delivery_methods.{$index}"),
                 ]));
             }

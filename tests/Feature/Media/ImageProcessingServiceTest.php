@@ -1,21 +1,22 @@
 <?php
 
-use App\Models\Product;
-use App\Services\ImportStatusService;
-use App\Services\ImportLogger;
-use App\Models\ImportRun;
-use App\Models\ImportLog;
-use App\Jobs\DownloadVehicleGenerationImageJob;
-use App\Jobs\DownloadProductImageJob;
-use App\Enums\ImportRunStatus;
 use App\Enums\ImportLogLevel;
+use App\Enums\ImportRunStatus;
+use App\Jobs\DownloadProductImageJob;
+use App\Jobs\DownloadVehicleGenerationImageJob;
+use App\Models\ImportLog;
+use App\Models\ImportRun;
+use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Services\Import\ImportImageDownloader;
+use App\Services\ImportLogger;
+use App\Services\ImportStatusService;
 use App\Services\Media\ImageDownloadService;
 use App\Services\Media\ImageProcessingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
@@ -162,6 +163,9 @@ test('import product image creates processed product image record', function () 
         ->and($image->mime)->toBe('image/webp')
         ->and($image->path)->toStartWith('uploads/products/'.$product->getKey().'/')
         ->and($image->conversions)->toHaveKeys(['thumb', 'card']);
+
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://example.test/product.jpg'
+        && $request->hasHeader('User-Agent', ImageDownloadService::USER_AGENT));
 });
 
 test('import vehicle generation image updates generation image with processed webp', function () {
@@ -178,8 +182,10 @@ test('import vehicle generation image updates generation image with processed we
     expect($generation->image)->toStartWith('uploads/vehicles/generations/'.$generation->getKey().'/')
         ->and($generation->image)->toEndWith('.webp')
         ->and($generation->image_source_url)->toBe('https://example.test/car.png');
-});
 
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://example.test/car.png'
+        && $request->hasHeader('User-Agent', ImageDownloadService::USER_AGENT));
+});
 
 test('repeated import of same product image does not leave orphan files', function () {
     Http::fake([
@@ -256,7 +262,6 @@ test('product image deletion removes file and conversions', function () {
     Storage::disk('public')->assertMissing($mainPath);
     Storage::disk('public')->assertMissing($thumbPath);
 });
-
 
 test('image job with missing product is counted as failed and can finish import', function () {
     $run = ImportRun::factory()->create([

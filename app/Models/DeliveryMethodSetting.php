@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\DeliveryMethod;
+use App\Enums\DeliveryPriceMode;
 use Database\Factories\DeliveryMethodSettingFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,6 +19,7 @@ use Illuminate\Validation\ValidationException;
     'page_title',
     'page_description',
     'base_price',
+    'price_mode',
     'is_active',
     'position',
 ])]
@@ -42,6 +44,29 @@ class DeliveryMethodSetting extends Model
                     'code' => 'Системный код способа доставки нельзя изменять.',
                 ]);
             }
+
+            $rawMode = $setting->getAttributes()['price_mode'] ?? null;
+            $mode = is_string($rawMode) ? DeliveryPriceMode::tryFrom($rawMode) : null;
+
+            if ($mode === null) {
+                throw ValidationException::withMessages([
+                    'price_mode' => 'Выбран неизвестный режим стоимости доставки.',
+                ]);
+            }
+
+            $price = round((float) $setting->base_price, 2);
+
+            if ($mode === DeliveryPriceMode::Fixed && $price <= 0) {
+                throw ValidationException::withMessages([
+                    'base_price' => 'Для фиксированной доставки укажите стоимость больше нуля.',
+                ]);
+            }
+
+            if ($mode !== DeliveryPriceMode::Fixed && $price !== 0.0) {
+                throw ValidationException::withMessages([
+                    'base_price' => 'Для бесплатной доставки и доставки по запросу стоимость должна быть равна нулю.',
+                ]);
+            }
         });
     }
 
@@ -53,6 +78,11 @@ class DeliveryMethodSetting extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);
+    }
+
+    public function priceLabel(): string
+    {
+        return $this->price_mode->storefrontPriceText($this->base_price);
     }
 
     public function delete(): ?bool
@@ -101,6 +131,35 @@ class DeliveryMethodSetting extends Model
                 }
 
                 return $rawCode;
+            },
+        );
+    }
+
+    /** @return Attribute<DeliveryPriceMode, DeliveryPriceMode|string> */
+    protected function priceMode(): Attribute
+    {
+        return Attribute::make(
+            get: function (mixed $value): DeliveryPriceMode {
+                $mode = is_string($value) ? DeliveryPriceMode::tryFrom($value) : null;
+
+                if ($mode === null) {
+                    throw ValidationException::withMessages([
+                        'price_mode' => 'Выбран неизвестный режим стоимости доставки.',
+                    ]);
+                }
+
+                return $mode;
+            },
+            set: function (mixed $value): string {
+                $rawMode = $value instanceof DeliveryPriceMode ? $value->value : $value;
+
+                if (! is_string($rawMode) || DeliveryPriceMode::tryFrom($rawMode) === null) {
+                    throw ValidationException::withMessages([
+                        'price_mode' => 'Выбран неизвестный режим стоимости доставки.',
+                    ]);
+                }
+
+                return $rawMode;
             },
         );
     }

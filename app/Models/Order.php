@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\DeliveryMethod;
+use App\Enums\DeliveryPriceMode;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
@@ -21,7 +22,12 @@ use Illuminate\Support\Str;
     'status',
     'payment_status',
     'payment_method',
+    'payment_method_title_snapshot',
+    'payment_method_description_snapshot',
     'delivery_method',
+    'delivery_method_title_snapshot',
+    'delivery_method_description_snapshot',
+    'delivery_price_mode_snapshot',
     'customer_name',
     'customer_phone',
     'customer_email',
@@ -35,8 +41,13 @@ use Illuminate\Support\Str;
     'subtotal',
     'delivery_price',
     'total',
+    'total_is_final',
     'placed_at',
     'paid_at',
+    'customer_email_sent_at',
+    'manager_email_sent_at',
+    'bitrix_sent_at',
+    'bitrix_entity_id',
 ])]
 class Order extends Model
 {
@@ -63,10 +74,18 @@ class Order extends Model
         $subtotal = round((float) $this->items()->sum('total_snapshot'), 2);
         $deliveryPrice = round((float) $this->delivery_price, 2);
 
+        $totalIsFinal = $this->delivery_price_mode_snapshot !== DeliveryPriceMode::OnRequest;
+
         $this->forceFill([
             'subtotal' => $subtotal,
             'total' => round($subtotal + $deliveryPrice, 2),
+            'total_is_final' => $totalIsFinal,
         ])->save();
+    }
+
+    public function deliveryPriceText(): string
+    {
+        return $this->delivery_price_mode_snapshot->orderDeliveryText($this->delivery_price);
     }
 
     protected static function booted(): void
@@ -92,11 +111,16 @@ class Order extends Model
             'payment_status' => PaymentStatus::class,
             'payment_method' => PaymentMethod::class,
             'delivery_method' => DeliveryMethod::class,
+            'delivery_price_mode_snapshot' => DeliveryPriceMode::class,
             'subtotal' => 'decimal:2',
             'delivery_price' => 'decimal:2',
             'total' => 'decimal:2',
+            'total_is_final' => 'boolean',
             'placed_at' => 'datetime',
             'paid_at' => 'datetime',
+            'customer_email_sent_at' => 'datetime',
+            'manager_email_sent_at' => 'datetime',
+            'bitrix_sent_at' => 'datetime',
         ];
     }
 

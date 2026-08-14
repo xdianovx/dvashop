@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Enums\DeliveryMethod;
+use App\Enums\DeliveryPriceMode;
 use App\Models\DeliveryMethodSetting;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -20,6 +21,7 @@ class DeliveryMethodSettingFactory extends Factory
             'title' => $method->label(),
             'description' => null,
             'base_price' => 0,
+            'price_mode' => DeliveryPriceMode::Free,
             'is_active' => true,
             'position' => fake()->numberBetween(0, 100),
         ];

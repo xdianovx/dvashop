@@ -44,10 +44,17 @@
                 @endforeach
             @endif
 
-            @if (($storefront ?? null)?->phoneUrl)
-                <a href="{{ $storefront->phoneUrl }}" class="btn faq__cta faq-page__cta">Бесплатная консультация</a>
+            <a href="#storefront-inquiry" class="btn faq__cta faq-page__cta" data-inquiry-open>Бесплатная консультация</a>
+            @if (($storefront ?? null)?->phoneUrl && $storefront?->phoneDisplay)
+                <a href="{{ $storefront->phoneUrl }}" class="faq-page__phone">Позвонить: {{ $storefront->phoneDisplay }}</a>
             @endif
             <a href="{{ route('home') }}" class="btn faq__cta faq-page__cta-home">Вернуться на главную</a>
         </div>
     </section>
+
+    <x-storefront-inquiry-modal
+        :type="\App\Enums\StorefrontInquiryType::GeneralConsultation->value"
+        source-code="faq"
+        title="Бесплатная консультация"
+    />
 @endsection

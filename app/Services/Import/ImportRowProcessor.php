@@ -37,10 +37,11 @@ class ImportRowProcessor
         private readonly ImportPartTypeResolver $partTypes,
         private readonly ImportRunStats $stats,
         private readonly ImportStatusService $statusService,
+        private readonly VehicleGenerationImageDispatchGuard $vehicleImageDispatches,
     ) {}
 
     /**
-     * @param array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, category_id?:int, category_full_slug?:string, category_full_path?:string}> $detailColumns
+     * @param  array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, category_id?:int, category_full_slug?:string, category_full_path?:string}>  $detailColumns
      * @return array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, part_type_id:int, part_type_full_slug:string, part_type_full_title:string, product_category_id:int, product_category_full_slug:string, product_category_full_path:string, part_type_used_fallback:bool}>
      */
     public function prepareDetailColumns(ImportRun $run, array $detailColumns): array
@@ -75,8 +76,8 @@ class ImportRowProcessor
     }
 
     /**
-     * @param array<int, mixed> $row
-     * @param array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, part_type_id?:int, product_category_id?:int, part_type_used_fallback?:bool, category_id?:int}> $detailColumns
+     * @param  array<int, mixed>  $row
+     * @param  array<int, array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string, part_type_id?:int, product_category_id?:int, part_type_used_fallback?:bool, category_id?:int}>  $detailColumns
      */
     public function process(ImportRun $run, array $row, array $detailColumns, int $rowNumber): void
     {
@@ -139,7 +140,7 @@ class ImportRowProcessor
     }
 
     /**
-     * @param array{parent_title?:string|null,group?:string|null,detail_title?:string|null,title?:string|null,full_detail_title?:string|null,category_title?:string|null,part_type_id?:int,product_category_id?:int,part_type_used_fallback?:bool,category_id?:int} $detailHeader
+     * @param  array{parent_title?:string|null,group?:string|null,detail_title?:string|null,title?:string|null,full_detail_title?:string|null,category_title?:string|null,part_type_id?:int,product_category_id?:int,part_type_used_fallback?:bool,category_id?:int}  $detailHeader
      */
     private function detailResolution(
         ImportRun $run,
@@ -308,7 +309,7 @@ class ImportRowProcessor
                 $imageUrl = null;
             } else {
                 $generationAttributes['image_source_url'] = $imageUrl;
-                $shouldQueueImage = $this->shouldQueueVehicleImage($generation, $imageUrl, $run, $previousImageSourceUrl, $previousImagePath);
+                $shouldQueueImage = $this->shouldQueueVehicleImage($generation, $imageUrl, $previousImageSourceUrl, $previousImagePath);
             }
         }
 
@@ -324,7 +325,9 @@ class ImportRowProcessor
             }
         }
 
-        if ($imageUrl !== null && $shouldQueueImage) {
+        if ($imageUrl !== null
+            && $shouldQueueImage
+            && ($run === null || $this->vehicleImageDispatches->reserve($run, $generation, $imageUrl))) {
             if ($run !== null) {
                 $this->statusService->imageQueued($run);
             }
@@ -411,10 +414,6 @@ class ImportRowProcessor
         return filter_var(trim($value), FILTER_VALIDATE_URL) !== false;
     }
 
-
-    /** @var array<string, bool> */
-    private array $queuedVehicleImages = [];
-
     /** @var array<string, bool> */
     private array $manualVehicleImageWarnings = [];
 
@@ -450,23 +449,14 @@ class ImportRowProcessor
     private function shouldQueueVehicleImage(
         VehicleGeneration $generation,
         string $url,
-        ?ImportRun $run,
         ?string $previousImageSourceUrl = null,
         ?string $previousImagePath = null,
     ): bool {
-        $key = ($run?->getKey() ?? 0).':'.($generation->getKey() ?: 'new').':'.sha1($url);
-
-        if (isset($this->queuedVehicleImages[$key])) {
-            return false;
-        }
-
         $path = $previousImagePath ?? $generation->image;
 
         if ($previousImageSourceUrl === $url && is_string($path) && $path !== '' && Storage::disk('public')->exists($path)) {
             return false;
         }
-
-        $this->queuedVehicleImages[$key] = true;
 
         return true;
     }

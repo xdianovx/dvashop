@@ -245,8 +245,8 @@ class StaticPageContentSeeder extends Seeder
             ],
             StaticPageItemCode::HowStepPay->value => [
                 'label' => null,
-                'title' => 'Оплачиваете покупку при получении',
-                'text' => 'Оплата заказа возможна наличными, картой и по счету (для юрлиц).',
+                'title' => 'Оплачиваете заказ доступным способом',
+                'text' => 'После подтверждения заказа менеджером оплатите его выбранным доступным способом.',
                 'is_active' => true,
                 'position' => 60,
             ],
@@ -260,7 +260,7 @@ class StaticPageContentSeeder extends Seeder
             StaticPageItemCode::PartnersTypeDropshipping->value => ['label' => null, 'title' => 'Дропшиппинг', 'text' => null, 'is_active' => true, 'position' => 40],
             StaticPageItemCode::PartnersAboutProduction->value => ['label' => null, 'title' => null, 'text' => 'Собственное производство. Детали в наличии или изготовим за 1 день с момента обращения', 'is_active' => true, 'position' => 10],
             StaticPageItemCode::PartnersAboutMeasurements->value => ['label' => null, 'title' => null, 'text' => 'База замеров деталей на более 3000 автомобилей', 'is_active' => true, 'position' => 20],
-            StaticPageItemCode::PartnersAboutPayment->value => ['label' => null, 'title' => null, 'text' => 'Оплата при получении. Проверяете, потом оплачиваете', 'is_active' => true, 'position' => 30],
+            StaticPageItemCode::PartnersAboutPayment->value => ['label' => null, 'title' => null, 'text' => 'Условия оплаты согласуем при подтверждении заказа: доступны СБП, карта по ссылке, счёт для юридических лиц и активные способы при получении.', 'is_active' => true, 'position' => 30],
             StaticPageItemCode::PartnersAboutMaterials->value => ['label' => null, 'title' => null, 'text' => 'Используем металл ХКС и цинк от 0,8 до 1.5 мм', 'is_active' => true, 'position' => 40],
             StaticPageItemCode::PartnersAboutReturns->value => ['label' => null, 'title' => null, 'text' => 'Удобный обмен и лёгкий возврат по заказам', 'is_active' => true, 'position' => 50],
         ];

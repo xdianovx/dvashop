@@ -4,6 +4,7 @@ use App\Enums\HomepageCategoryCardCode;
 use App\Enums\HomepageMetricCode;
 use App\Enums\HomepageQuickLinkCode;
 use App\Enums\HomepageSectionCode;
+use App\Enums\NavigationLinkType;
 use App\Models\HomepageCategoryCard;
 use App\Models\HomepageMetric;
 use App\Models\HomepageQuickLink;
@@ -59,7 +60,8 @@ test('homepage content seeder is idempotent and creates exact editable defaults 
         ->and(HomepageCategoryCard::query()->where('code', HomepageCategoryCardCode::FrontArches)->firstOrFail()->part_type_id)->toBe($targets['front']->getKey())
         ->and(HomepageCategoryCard::query()->where('code', HomepageCategoryCardCode::RearArches)->firstOrFail()->part_type_id)->toBe($targets['rear']->getKey())
         ->and(HomepageCategoryCard::query()->where('code', HomepageCategoryCardCode::BodyRepair)->firstOrFail()->product_category_id)->toBe($targets['repair']->getKey())
-        ->and(HomepageCategoryCard::query()->where('code', HomepageCategoryCardCode::Commercial)->firstOrFail()->is_active)->toBeFalse();
+        ->and(HomepageCategoryCard::query()->where('code', HomepageCategoryCardCode::Commercial)->firstOrFail()->is_active)->toBeTrue()
+        ->and(HomepageCategoryCard::query()->where('code', HomepageCategoryCardCode::Commercial)->firstOrFail()->route_name)->toBe('catalog.index');
 
     $sinceYear = HomepageMetric::query()->where('code', HomepageMetricCode::SinceYear)->firstOrFail();
     expect(HomepageSection::query()->where('code', HomepageSectionCode::VehicleSearch)->value('title'))->toBe('Быстрый поиск запчастей')
@@ -160,6 +162,8 @@ test('homepage content seeder fills a completely absent destination without chan
         ->and(DB::table('homepage_category_cards')->where('code', HomepageCategoryCardCode::Commercial->value)->first())->toMatchObject([
             'title' => 'Коммерческий транспорт',
             'is_active' => 1,
+            'link_type' => null,
+            'route_name' => null,
             'product_category_id' => null,
             'part_type_id' => null,
         ]);
@@ -204,7 +208,55 @@ test('missing exact catalog targets leave new cards inactive and seeder never cr
     $this->seed(HomepageContentSeeder::class);
 
     expect([ProductCategory::query()->count(), PartType::query()->count()])->toBe($before)
-        ->and(HomepageCategoryCard::query()->where('is_active', true)->exists())->toBeFalse()
+        ->and(HomepageCategoryCard::query()->where('is_active', true)->pluck('code')->map->value->all())->toBe([
+            HomepageCategoryCardCode::Commercial->value,
+        ])
         ->and(HomepageCategoryCard::query()->whereNotNull('product_category_id')->exists())->toBeFalse()
         ->and(HomepageCategoryCard::query()->whereNotNull('part_type_id')->exists())->toBeFalse();
+});
+
+test('homepage content seeder upgrades only the exact untouched legacy commercial card', function (): void {
+    HomepageCategoryCard::query()->create([
+        'code' => HomepageCategoryCardCode::Commercial,
+        'title' => 'Коммерческий транспорт',
+        'link_type' => null,
+        'route_name' => null,
+        'product_category_id' => null,
+        'part_type_id' => null,
+        'url' => null,
+        'open_in_new_tab' => false,
+        'is_active' => false,
+        'position' => 20,
+    ]);
+
+    $this->seed(HomepageContentSeeder::class);
+
+    expect(HomepageCategoryCard::query()->where('code', HomepageCategoryCardCode::Commercial)->firstOrFail())
+        ->is_active->toBeTrue()
+        ->link_type->toBe(NavigationLinkType::Route)
+        ->route_name->toBe('catalog.index')
+        ->url->toBeNull();
+});
+
+test('homepage content seeder preserves an explicit commercial admin override', function (): void {
+    HomepageCategoryCard::query()->create([
+        'code' => HomepageCategoryCardCode::Commercial,
+        'title' => 'Коммерческий транспорт для бизнеса',
+        'link_type' => null,
+        'route_name' => null,
+        'product_category_id' => null,
+        'part_type_id' => null,
+        'url' => null,
+        'open_in_new_tab' => false,
+        'is_active' => false,
+        'position' => 20,
+    ]);
+
+    $this->seed(HomepageContentSeeder::class);
+
+    expect(HomepageCategoryCard::query()->where('code', HomepageCategoryCardCode::Commercial)->firstOrFail())
+        ->title->toBe('Коммерческий транспорт для бизнеса')
+        ->is_active->toBeFalse()
+        ->link_type->toBeNull()
+        ->route_name->toBeNull();
 });

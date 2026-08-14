@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\DeliveryMethod;
+use App\Enums\DeliveryPriceMode;
 use App\Enums\PaymentMethod;
 use App\Models\DeliveryMethodSetting;
 use App\Models\PaymentMethodSetting;
@@ -15,7 +16,7 @@ test('checkout method settings seeder is idempotent and creates exact checkout a
 
     $before = [
         'delivery' => DB::table('delivery_method_settings')->orderBy('id')->get([
-            'code', 'title', 'description', 'page_title', 'page_description', 'base_price', 'is_active', 'position',
+            'code', 'title', 'description', 'page_title', 'page_description', 'base_price', 'price_mode', 'is_active', 'position',
         ])->map(fn ($row): array => (array) $row)->all(),
         'payment' => DB::table('payment_method_settings')->orderBy('id')->get([
             'code', 'title', 'description', 'page_title', 'page_description', 'is_active', 'position',
@@ -31,7 +32,7 @@ test('checkout method settings seeder is idempotent and creates exact checkout a
         ])->and(PaymentMethodSetting::query()->ordered()->pluck('code')->map->value->all())->toBe([
             'card', 'sbp', 'invoice', 'cash_on_delivery',
         ])->and(DB::table('delivery_method_settings')->orderBy('id')->get([
-            'code', 'title', 'description', 'page_title', 'page_description', 'base_price', 'is_active', 'position',
+            'code', 'title', 'description', 'page_title', 'page_description', 'base_price', 'price_mode', 'is_active', 'position',
         ])->map(fn ($row): array => (array) $row)->all())->toBe($before['delivery'])
         ->and(DB::table('payment_method_settings')->orderBy('id')->get([
             'code', 'title', 'description', 'page_title', 'page_description', 'is_active', 'position',
@@ -43,6 +44,7 @@ test('checkout method settings seeder is idempotent and creates exact checkout a
         'page_title' => 'Доставка транспортной компанией',
         'page_description' => 'При получении товара на нашем складе, в пункте выдачи транспортной компании в Вашем городе или при доставке товара по указанному вами адресу',
         'base_price' => 0,
+        'price_mode' => DeliveryPriceMode::OnRequest->value,
         'is_active' => 1,
         'position' => 10,
     ])->and(DB::table('delivery_method_settings')->where('code', DeliveryMethod::Pickup->value)->first())->toMatchObject([
@@ -51,6 +53,7 @@ test('checkout method settings seeder is idempotent and creates exact checkout a
         'page_title' => null,
         'page_description' => null,
         'base_price' => 0,
+        'price_mode' => DeliveryPriceMode::Free->value,
         'is_active' => 1,
         'position' => 20,
     ])->and(DB::table('delivery_method_settings')->where('code', DeliveryMethod::Courier->value)->first())->toMatchObject([
@@ -59,6 +62,7 @@ test('checkout method settings seeder is idempotent and creates exact checkout a
         'page_title' => null,
         'page_description' => null,
         'base_price' => 0,
+        'price_mode' => DeliveryPriceMode::OnRequest->value,
         'is_active' => 0,
         'position' => 30,
     ])->and(DB::table('delivery_method_settings')->where('code', DeliveryMethod::Post->value)->first())->toMatchObject([
@@ -67,6 +71,7 @@ test('checkout method settings seeder is idempotent and creates exact checkout a
         'page_title' => null,
         'page_description' => null,
         'base_price' => 0,
+        'price_mode' => DeliveryPriceMode::OnRequest->value,
         'is_active' => 0,
         'position' => 40,
     ]);
@@ -116,6 +121,9 @@ test('checkout method seeder preserves old non blank defaults and fills only nul
             'page_title' => $code === DeliveryMethod::TransportCompany->value ? '   ' : null,
             'page_description' => null,
             'base_price' => $basePrice,
+            'price_mode' => $code === DeliveryMethod::Pickup->value
+                ? DeliveryPriceMode::Free
+                : DeliveryPriceMode::OnRequest,
             'is_active' => $isActive,
             'position' => $position,
         ]);
@@ -179,6 +187,7 @@ test('checkout method settings seeder preserves every manual business field and 
         'page_title' => 'Ручной заголовок страницы',
         'page_description' => 'Ручное полное описание страницы',
         'base_price' => 777.25,
+        'price_mode' => DeliveryPriceMode::Fixed->value,
         'is_active' => true,
         'position' => 99,
     ]);

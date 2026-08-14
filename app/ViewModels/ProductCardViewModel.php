@@ -15,6 +15,8 @@ class ProductCardViewModel
         public readonly string $url,
         public readonly string $image,
         public readonly string $price,
+        public readonly bool $priceAvailable,
+        public readonly string $priceLabel,
         public readonly ?string $oldPrice,
         public readonly ?int $variantId,
         public readonly ?string $sku,
@@ -33,6 +35,13 @@ class ProductCardViewModel
 
         /** @var ProductVariant|null $variant */
         $variant = $product->variants->firstWhere('is_default', true) ?? $product->variants->first();
+        $product->variants->each(
+            fn (ProductVariant $availableVariant): ProductVariant => $availableVariant->setRelation('product', $product)
+        );
+        $effectivePrice = $variant instanceof ProductVariant
+            ? $availability->effectivePrice($variant)
+            : (float) ($product->price ?? 0);
+        $priceAvailable = $variant instanceof ProductVariant && $availability->hasSellablePrice($variant);
         /** @var ProductVariant|null $quickAddVariant */
         $quickAddVariant = $product->variants->count() === 1
             && $variant instanceof ProductVariant
@@ -45,8 +54,12 @@ class ProductCardViewModel
             title: $product->title,
             url: route('products.show', $product->slug),
             image: app(MediaUrlService::class)->productMainImageUrl($product),
-            price: self::formatPrice($variant?->price ?? $product->price),
-            oldPrice: $variant?->old_price !== null ? self::formatPrice($variant->old_price) : ($product->old_price !== null ? self::formatPrice($product->old_price) : null),
+            price: self::formatPrice($effectivePrice),
+            priceAvailable: $priceAvailable,
+            priceLabel: self::priceLabel($effectivePrice),
+            oldPrice: $priceAvailable
+                ? ($variant?->old_price !== null ? self::formatPrice($variant->old_price) : ($product->old_price !== null ? self::formatPrice($product->old_price) : null))
+                : null,
             variantId: $quickAddVariant?->getKey(),
             sku: $variant?->sku ?: $product->sku,
         );
@@ -55,5 +68,10 @@ class ProductCardViewModel
     public static function formatPrice(mixed $price): string
     {
         return number_format((float) $price, 0, ',', ' ');
+    }
+
+    public static function priceLabel(float $price, string $currency = '₽'): string
+    {
+        return $price > 0 ? self::formatPrice($price).' '.$currency : 'Цена по запросу';
     }
 }

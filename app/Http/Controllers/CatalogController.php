@@ -9,7 +9,10 @@ use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Models\VehicleModel;
 use App\Services\PublicCatalogCache;
+use App\Services\PublicVehicleCatalogVisibility;
+use App\Services\Seo\SeoMetadataService;
 use App\Services\Seo\SeoMetaService;
+use App\Services\Storefront\VehicleModelCardImageResolver;
 use App\Services\StorefrontProductAvailability;
 use App\ViewModels\ProductCardViewModel;
 use Illuminate\Contracts\View\View;
@@ -22,9 +25,12 @@ use Illuminate\Support\Collection;
 class CatalogController extends Controller
 {
     public function __construct(
-        private readonly SeoMetaService $seo,
+        private readonly SeoMetaService $genericSeo,
+        private readonly SeoMetadataService $entitySeo,
         private readonly PublicCatalogCache $catalogCache,
         private readonly StorefrontProductAvailability $availability,
+        private readonly PublicVehicleCatalogVisibility $vehicleVisibility,
+        private readonly VehicleModelCardImageResolver $modelCardImages,
     ) {}
 
     public function index(Request $request): View|RedirectResponse
@@ -37,10 +43,14 @@ class CatalogController extends Controller
         }
 
         if ($makeSlug !== '') {
-            $make = VehicleMake::query()->active()->where('slug', $makeSlug)->firstOrFail();
+            $make = $this->vehicleVisibility->makes(VehicleMake::query())
+                ->where('slug', $makeSlug)
+                ->firstOrFail();
 
             if ($modelSlug !== '') {
-                $model = $make->models()->active()->where('slug', $modelSlug)->firstOrFail();
+                $model = $this->vehicleVisibility->models($make->models())
+                    ->where('slug', $modelSlug)
+                    ->firstOrFail();
 
                 return redirect()->route('catalog.model', [$make->slug, $model->slug]);
             }
@@ -56,51 +66,78 @@ class CatalogController extends Controller
 
         if ($query !== '' || $category instanceof ProductCategory || $partType instanceof PartType) {
             $heading = $category?->title ?? $partType?->title ?? 'Результаты поиска';
-            $seo = $category instanceof ProductCategory ? $this->seo->category($category) : $this->seo->search($query ?: $heading);
+            $seo = match (true) {
+                $category instanceof ProductCategory => $this->entitySeo->forView(
+                    $category,
+                    route('catalog.index', ['category' => $category->full_slug]),
+                ),
+                $partType instanceof PartType => $this->entitySeo->forView(
+                    $partType,
+                    route('catalog.index', ['part_type' => $partType->full_slug]),
+                ),
+                default => $this->genericSeo->search($query ?: $heading),
+            };
+            $seoViewData = $seo->toViewData();
+            $vehicleResults = $query === '' ? $this->emptyVehicleSearchResults() : $this->searchVehicleItems($query);
 
-            return view('catalog', array_merge($seo->toViewData(), [
-                'headingTitle' => $heading,
+            return view('catalog', array_merge($seoViewData, [
+                'headingTitle' => $seoViewData['seoH1'] ?? $heading,
                 'searchQuery' => $query,
                 'breadcrumbs' => $this->breadcrumbs(),
-                'items' => $query === '' ? collect() : $this->searchVehicleItems($query),
+                'vehicleMakes' => $vehicleResults['makes'],
+                'vehicleModels' => $vehicleResults['models'],
+                'vehicleGenerations' => $vehicleResults['generations'],
                 'products' => $this->filteredProducts($query, $category, $partType),
             ]));
         }
 
         $makes = $this->catalogCache->activeMakes();
 
-        return view('catalog', array_merge($this->seo->catalog()->toViewData(), [
+        return view('catalog', array_merge($this->genericSeo->catalog()->toViewData(), [
             'headingTitle' => 'Выберите марку',
             'searchQuery' => '',
             'breadcrumbs' => $this->breadcrumbs(),
-            'items' => $makes->map(fn (VehicleMake $make): array => [
+            'vehicleMakes' => $makes->map(fn (VehicleMake $make): array => [
                 'title' => $make->title,
                 'url' => route('catalog.make', $make->slug),
                 'image' => $make->image_url,
             ]),
+            'vehicleModels' => collect(),
+            'vehicleGenerations' => collect(),
             'products' => collect(),
         ]));
     }
 
     public function make(string $makeSlug): View
     {
-        $make = VehicleMake::query()->active()->where('slug', $makeSlug)->firstOrFail();
-        $models = $make->models()->active()
-            ->withCount(['generations' => fn ($query) => $query->active()])
+        $make = $this->vehicleVisibility->makes(VehicleMake::query())
+            ->where('slug', $makeSlug)
+            ->firstOrFail();
+        $models = $this->vehicleVisibility->models($make->models())
+            ->withCount(['generations' => fn (Builder $query) => $this->vehicleVisibility->generations($query)])
             ->orderBy('position')->orderBy('title')->get();
+        $modelImages = $this->modelCardImages->resolve($models);
 
-        return view('brand', array_merge($this->seo->make($make)->toViewData(), [
+        return view('brand', array_merge($this->entitySeo->forView(
+            $make,
+            route('catalog.make', $make->slug),
+        )->toViewData(), [
             'make' => $make,
             'models' => $models,
+            'modelImages' => $modelImages,
             'breadcrumbs' => $this->breadcrumbs([['label' => $make->title]]),
         ]));
     }
 
     public function model(string $makeSlug, string $modelSlug): View
     {
-        $make = VehicleMake::query()->active()->where('slug', $makeSlug)->firstOrFail();
-        $model = $make->models()->active()->where('slug', $modelSlug)->firstOrFail();
-        $generations = $model->generations()->active()
+        $make = $this->vehicleVisibility->makes(VehicleMake::query())
+            ->where('slug', $makeSlug)
+            ->firstOrFail();
+        $model = $this->vehicleVisibility->models($make->models())
+            ->where('slug', $modelSlug)
+            ->firstOrFail();
+        $generations = $this->vehicleVisibility->generations($model->generations())
             ->orderBy('position')
             ->orderBy('title')
             ->orderBy('years_label')
@@ -120,21 +157,26 @@ class CatalogController extends Controller
                 ];
             })
             ->values();
-        $otherModels = $make->models()->active()
+        $otherModels = $this->vehicleVisibility->models($make->models())
             ->whereKeyNot($model->getKey())
-            ->withCount(['generations' => fn ($query) => $query->active()])
+            ->withCount(['generations' => fn (Builder $query) => $this->vehicleVisibility->generations($query)])
             ->orderBy('position')
             ->orderBy('title')
             ->orderBy('id')
             ->limit(8)
             ->get();
+        $otherModelImages = $this->modelCardImages->resolve($otherModels);
 
-        return view('model', array_merge($this->seo->model($make, $model)->toViewData(), [
+        return view('model', array_merge($this->entitySeo->forView(
+            $model,
+            route('catalog.model', [$make->slug, $model->slug]),
+        )->toViewData(), [
             'make' => $make,
             'model' => $model,
             'generations' => $generations,
             'generationGroups' => $generationGroups,
             'otherModels' => $otherModels,
+            'otherModelImages' => $otherModelImages,
             'breadcrumbs' => $this->breadcrumbs([
                 ['label' => $make->title, 'url' => route('catalog.make', $make->slug)],
                 ['label' => $model->title],
@@ -144,9 +186,15 @@ class CatalogController extends Controller
 
     public function generation(Request $request, string $makeSlug, string $modelSlug, string $generationSlug): View
     {
-        $make = VehicleMake::query()->active()->where('slug', $makeSlug)->firstOrFail();
-        $model = $make->models()->active()->where('slug', $modelSlug)->firstOrFail();
-        $generation = $model->generations()->active()->where('slug', $generationSlug)->firstOrFail();
+        $make = $this->vehicleVisibility->makes(VehicleMake::query())
+            ->where('slug', $makeSlug)
+            ->firstOrFail();
+        $model = $this->vehicleVisibility->models($make->models())
+            ->where('slug', $modelSlug)
+            ->firstOrFail();
+        $generation = $this->vehicleVisibility->generations($model->generations())
+            ->where('slug', $generationSlug)
+            ->firstOrFail();
         $search = trim((string) $request->query('q', ''));
         $categorySlug = trim((string) $request->query('category', ''));
         $partTypeSlug = trim((string) $request->query('part_type', ''));
@@ -173,11 +221,16 @@ class CatalogController extends Controller
                 ->whereHas('fitments', fn (Builder $fitmentQuery): Builder => $fitmentQuery->where('vehicle_generation_id', $generation->getKey())))
             ->orderBy('position')->orderBy('title')->get();
 
-        return view('car', array_merge($this->seo->generation($make, $model, $generation)->toViewData(), [
+        $seoViewData = $this->entitySeo->forView(
+            $generation,
+            route('catalog.generation', [$make->slug, $model->slug, $generation->slug]),
+        )->toViewData();
+
+        return view('car', array_merge($seoViewData, [
             'make' => $make,
             'model' => $model,
             'generation' => $generation,
-            'headingTitle' => 'Кузовные элементы для '.$make->title.' '.$model->title,
+            'headingTitle' => $seoViewData['seoH1'] ?? 'Кузовные элементы для '.$make->title.' '.$model->title,
             'breadcrumbs' => $this->breadcrumbs([
                 ['label' => $make->title, 'url' => route('catalog.make', $make->slug)],
                 ['label' => $model->title, 'url' => route('catalog.model', [$make->slug, $model->slug])],
@@ -200,6 +253,7 @@ class CatalogController extends Controller
                 'variants' => fn ($query) => $this->availability->variants($query)
                     ->orderByDesc('is_default')
                     ->orderBy('id'),
+                'variants.optionValues.group',
                 'mainImage',
                 'visibleImages',
                 'category',
@@ -242,24 +296,77 @@ class CatalogController extends Controller
             ->all();
     }
 
-    /** @return Collection<int, array{title:string,url:string,image:string}> */
-    private function searchVehicleItems(string $query): Collection
+    /**
+     * @return array{
+     *     makes: Collection<int, array{title:string,url:string,image:string}>,
+     *     models: Collection<int, array{make_title:string,model_title:string,url:string,generation_count:int,image:?string}>,
+     *     generations: Collection<int, array{make_title:string,model_title:string,title:string,body:string,years_label:string,image:string,url:string}>
+     * }
+     */
+    private function searchVehicleItems(string $query): array
     {
-        $makes = VehicleMake::query()->active()->where('title', 'like', '%'.$query.'%')
+        $makes = $this->vehicleVisibility->makes(VehicleMake::query())->where('title', 'like', '%'.$query.'%')
             ->orderBy('position')->orderBy('title')->limit(10)->get()
+            ->toBase()
             ->map(fn (VehicleMake $make): array => ['title' => $make->title, 'url' => route('catalog.make', $make->slug), 'image' => $make->image_url]);
-        $models = VehicleModel::query()->active()
-            ->where(fn ($builder) => $builder->where('title', 'like', '%'.$query.'%')->orWhereHas('make', fn ($makeQuery) => $makeQuery->active()->where('title', 'like', '%'.$query.'%')))
-            ->whereHas('make', fn ($makeQuery) => $makeQuery->active())->with('make')
-            ->orderBy('position')->orderBy('title')->limit(10)->get()
-            ->map(fn (VehicleModel $model): array => ['title' => $model->make->title.' '.$model->title, 'url' => route('catalog.model', [$model->make->slug, $model->slug]), 'image' => $model->make->image_url]);
-        $generations = VehicleGeneration::query()->active()
-            ->where(fn ($builder) => $builder->where('title', 'like', '%'.$query.'%')->orWhere('years_label', 'like', '%'.$query.'%')->orWhere('body', 'like', '%'.$query.'%'))
-            ->whereHas('model', fn ($modelQuery) => $modelQuery->active()->whereHas('make', fn ($makeQuery) => $makeQuery->active()))
+        $modelRecords = $this->vehicleVisibility->models(VehicleModel::query())
+            ->where(fn (Builder $builder): Builder => $builder
+                ->where('title', 'like', '%'.$query.'%')
+                ->orWhereHas('make', fn (Builder $makeQuery): Builder => $makeQuery->active()->where('title', 'like', '%'.$query.'%')))
+            ->with('make')
+            ->withCount(['generations' => fn (Builder $generationQuery) => $this->vehicleVisibility->generations($generationQuery)])
+            ->orderBy('position')->orderBy('title')->limit(10)->get();
+        $modelImages = $this->modelCardImages->resolve($modelRecords);
+        $models = $modelRecords
+            ->toBase()
+            ->map(fn (VehicleModel $model): array => [
+                'make_title' => $model->make->title,
+                'model_title' => $model->title,
+                'url' => route('catalog.model', [$model->make->slug, $model->slug]),
+                'generation_count' => (int) $model->generations_count,
+                'image' => $modelImages->get((int) $model->getKey()),
+            ]);
+        $generations = $this->vehicleVisibility->generations(VehicleGeneration::query())
+            ->where(fn (Builder $builder): Builder => $builder
+                ->where('title', 'like', '%'.$query.'%')
+                ->orWhere('years_label', 'like', '%'.$query.'%')
+                ->orWhere('body', 'like', '%'.$query.'%')
+                ->orWhereHas('model', fn (Builder $modelQuery): Builder => $modelQuery
+                    ->where('title', 'like', '%'.$query.'%')
+                    ->orWhereHas('make', fn (Builder $makeQuery): Builder => $makeQuery->where('title', 'like', '%'.$query.'%'))))
             ->with('model.make')->orderBy('position')->orderBy('title')->limit(10)->get()
-            ->map(fn (VehicleGeneration $generation): array => ['title' => $generation->display_title, 'url' => route('catalog.generation', [$generation->model->make->slug, $generation->model->slug, $generation->slug]), 'image' => $generation->image_url]);
+            ->toBase()
+            ->map(fn (VehicleGeneration $generation): array => [
+                'make_title' => $generation->model->make->title,
+                'model_title' => $generation->model->title,
+                'title' => $generation->title,
+                'body' => (string) $generation->body,
+                'years_label' => (string) $generation->years_label,
+                'image' => $generation->image_url,
+                'url' => route('catalog.generation', [$generation->model->make->slug, $generation->model->slug, $generation->slug]),
+            ]);
 
-        return $makes->merge($models)->merge($generations)->values();
+        return [
+            'makes' => $makes,
+            'models' => $models,
+            'generations' => $generations,
+        ];
+    }
+
+    /**
+     * @return array{
+     *     makes: Collection<int, array{title:string,url:string,image:string}>,
+     *     models: Collection<int, array{make_title:string,model_title:string,url:string,generation_count:int,image:?string}>,
+     *     generations: Collection<int, array{make_title:string,model_title:string,title:string,body:string,years_label:string,image:string,url:string}>
+     * }
+     */
+    private function emptyVehicleSearchResults(): array
+    {
+        return [
+            'makes' => collect(),
+            'models' => collect(),
+            'generations' => collect(),
+        ];
     }
 
     private function filteredProducts(string $query, ?ProductCategory $category, ?PartType $partType): LengthAwarePaginator
@@ -281,9 +388,20 @@ class CatalogController extends Controller
 
     private function applyProductSearch(Builder $products, string $query): void
     {
-        $products->where(fn ($productQuery) => $productQuery->where('title', 'like', '%'.$query.'%')
-            ->orWhere('sku', 'like', '%'.$query.'%')
-            ->orWhereHas('variants', fn (Builder $variantQuery): Builder => $this->availability->variants($variantQuery)
-                ->where('sku', 'like', '%'.$query.'%')));
+        $pattern = '%'.$query.'%';
+        $candidateIds = Product::query()
+            ->where(fn (Builder $productQuery): Builder => $productQuery
+                ->where('title', 'like', $pattern)
+                ->orWhere(fn (Builder $skuQuery): Builder => $skuQuery
+                    ->whereNotNull('sku')
+                    ->where('sku', '<>', '')
+                    ->where('sku', 'like', $pattern))
+                ->orWhereHas('variants', fn (Builder $variantQuery): Builder => $this->availability->variants($variantQuery)
+                    ->whereNotNull('sku')
+                    ->where('sku', '<>', '')
+                    ->where('sku', 'like', $pattern)))
+            ->pluck('products.id');
+
+        $products->whereKey($candidateIds);
     }
 }

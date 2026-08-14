@@ -4,6 +4,7 @@ use App\Models\Cart;
 use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
+use App\Models\ProductFitment;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
@@ -177,11 +178,47 @@ test('cart page query count does not grow with the number of cart items', functi
 test('model page query count does not grow with the number of generations', function (): void {
     $make = VehicleMake::factory()->create();
     $model = VehicleModel::factory()->forMake($make)->create();
-    VehicleGeneration::factory()->forVehicleModel($model)->create();
+    $firstGeneration = VehicleGeneration::factory()->forVehicleModel($model)->create();
+    $firstProduct = Product::factory()->withDefaultVariant()->create();
+    ProductFitment::factory()->forProduct($firstProduct)->forVehicleGeneration($firstGeneration)->create();
     $url = route('catalog.model', [$make->slug, $model->slug]);
     $one = storefrontCommerceQueries($this, $url);
 
-    VehicleGeneration::factory()->forVehicleModel($model)->count(19)->create();
+    VehicleGeneration::factory()->forVehicleModel($model)->count(19)->create()->each(function (VehicleGeneration $generation): void {
+        $product = Product::factory()->withDefaultVariant()->create();
+        ProductFitment::factory()->forProduct($product)->forVehicleGeneration($generation)->create();
+    });
+    $twenty = storefrontCommerceQueries($this, $url);
+
+    expect($twenty['count'])->toBeLessThanOrEqual($one['count'] + 2);
+});
+
+test('make page model image lookup stays bounded as model count grows', function (): void {
+    $make = VehicleMake::factory()->create(['title' => 'Bounded model images']);
+    $createPublicModel = function (int $index) use ($make): void {
+        $model = VehicleModel::factory()->forMake($make)->create([
+            'title' => sprintf('Image model %02d', $index),
+            'position' => $index,
+        ]);
+        $generation = VehicleGeneration::factory()->forVehicleModel($model)->create([
+            'title' => sprintf('Image generation %02d', $index),
+            'image' => sprintf('https://cdn.example.test/model-%02d.jpg', $index),
+            'position' => 1,
+        ]);
+        $product = Product::factory()->withDefaultVariant()->create([
+            'title' => sprintf('Image product %02d', $index),
+        ]);
+        ProductFitment::factory()->forProduct($product)->forVehicleGeneration($generation)->create();
+    };
+
+    $createPublicModel(1);
+    $url = route('catalog.make', $make->slug);
+    $one = storefrontCommerceQueries($this, $url);
+
+    foreach (range(2, 20) as $index) {
+        $createPublicModel($index);
+    }
+
     $twenty = storefrontCommerceQueries($this, $url);
 
     expect($twenty['count'])->toBeLessThanOrEqual($one['count'] + 2);

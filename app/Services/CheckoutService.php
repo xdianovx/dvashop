@@ -4,9 +4,11 @@ namespace App\Services;
 
 use App\Enums\CartStatus;
 use App\Enums\DeliveryMethod;
+use App\Enums\DeliveryPriceMode;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
+use App\Enums\StockStatus;
 use App\Events\OrderCreated;
 use App\Models\Cart;
 use App\Models\CartItem;
@@ -22,7 +24,10 @@ use Illuminate\Validation\ValidationException;
 
 class CheckoutService
 {
-    public function __construct(private readonly CartManager $cartManager) {}
+    public function __construct(
+        private readonly CartManager $cartManager,
+        private readonly StorefrontProductAvailability $availability,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $data
@@ -70,7 +75,11 @@ class CheckoutService
             }
 
             $subtotal = $this->subtotal($lockedCart);
-            $deliveryPrice = round((float) $deliverySetting->base_price, 2);
+            $deliveryPrice = $deliverySetting->price_mode === DeliveryPriceMode::Fixed
+                ? round((float) $deliverySetting->base_price, 2)
+                : 0.0;
+            $totalIsFinal = $deliverySetting->price_mode !== DeliveryPriceMode::OnRequest;
+            $stockDecrementedByCartItem = $this->reserveFiniteStock($lockedCart);
 
             $order = Order::query()->create([
                 'user_id' => $request->user()?->getAuthIdentifier(),
@@ -78,7 +87,12 @@ class CheckoutService
                 'status' => OrderStatus::New,
                 'payment_status' => PaymentStatus::Pending,
                 'payment_method' => $validated['payment_method'],
+                'payment_method_title_snapshot' => $paymentSetting->title,
+                'payment_method_description_snapshot' => $paymentSetting->description,
                 'delivery_method' => $validated['delivery_method'],
+                'delivery_method_title_snapshot' => $deliverySetting->title,
+                'delivery_method_description_snapshot' => $deliverySetting->description,
+                'delivery_price_mode_snapshot' => $deliverySetting->price_mode,
                 'customer_name' => $validated['customer_name'],
                 'customer_phone' => $validated['customer_phone'],
                 'customer_email' => $validated['customer_email'] ?? null,
@@ -92,6 +106,7 @@ class CheckoutService
                 'subtotal' => $subtotal,
                 'delivery_price' => $deliveryPrice,
                 'total' => round($subtotal + $deliveryPrice, 2),
+                'total_is_final' => $totalIsFinal,
                 'placed_at' => now(),
             ]);
 
@@ -110,6 +125,7 @@ class CheckoutService
                     'title' => $item->title_snapshot,
                     'sku' => $item->sku_snapshot,
                     'quantity' => $item->quantity,
+                    'stock_was_decremented' => $stockDecrementedByCartItem[$item->getKey()] ?? false,
                     'price' => $item->price_snapshot,
                     'total' => $item->lineTotal(),
                 ]);
@@ -164,6 +180,18 @@ class CheckoutService
 
     private function validateCartItems(Cart $cart): void
     {
+        $variantIds = $cart->items
+            ->pluck('product_variant_id')
+            ->filter(fn (mixed $id): bool => $id !== null)
+            ->map(fn (mixed $id): int => (int) $id)
+            ->unique()
+            ->values();
+        $existingVariants = ProductVariant::query()
+            ->with(['product.category', 'product.partType', 'optionValues.group'])
+            ->whereKey($variantIds->all())
+            ->get()
+            ->keyBy(fn (ProductVariant $variant): int => (int) $variant->getKey());
+
         foreach ($cart->items as $item) {
             if ($item->quantity <= 0) {
                 throw ValidationException::withMessages([
@@ -176,6 +204,88 @@ class CheckoutService
                     'cart' => 'В корзине есть товар без обязательного снимка названия или цены.',
                 ]);
             }
+
+            if ((float) $item->price_snapshot <= 0) {
+                throw ValidationException::withMessages([
+                    'cart' => CartManager::PRICE_UNAVAILABLE_MESSAGE,
+                ]);
+            }
+
+            if ($item->product_variant_id !== null) {
+                $variant = $existingVariants->get((int) $item->product_variant_id);
+
+                if ($variant instanceof ProductVariant && ! $this->availability->isPubliclyAvailable($variant)) {
+                    throw ValidationException::withMessages([
+                        'cart' => 'Один из товаров в корзине больше недоступен. Обновите корзину.',
+                    ]);
+                }
+            }
         }
+    }
+
+    /** @return array<int, true> */
+    private function reserveFiniteStock(Cart $cart): array
+    {
+        $itemsByVariant = $cart->items
+            ->filter(fn (CartItem $item): bool => $item->product_variant_id !== null)
+            ->groupBy(fn (CartItem $item): int => (int) $item->product_variant_id);
+
+        if ($itemsByVariant->isEmpty()) {
+            return [];
+        }
+
+        $variantIds = $itemsByVariant->keys()->map(fn (mixed $id): int => (int) $id)->sort()->values();
+        $variants = ProductVariant::query()
+            ->whereKey($variantIds->all())
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy(fn (ProductVariant $variant): int => (int) $variant->getKey());
+        $decremented = [];
+
+        foreach ($variantIds as $variantId) {
+            $variant = $variants->get($variantId);
+
+            // A deleted catalog row is intentionally allowed by the historical snapshot checkout contract.
+            if (! $variant instanceof ProductVariant) {
+                continue;
+            }
+
+            $items = $itemsByVariant->get($variantId, collect());
+            $quantity = (int) $items->sum('quantity');
+
+            if ($variant->stock_status === StockStatus::OutOfStock) {
+                throw ValidationException::withMessages([
+                    'cart' => 'Один из товаров в корзине закончился. Обновите корзину.',
+                ]);
+            }
+
+            if ($variant->stock_status === StockStatus::PreOrder || $variant->stock_quantity === null) {
+                continue;
+            }
+
+            if ((int) $variant->stock_quantity < $quantity) {
+                throw ValidationException::withMessages([
+                    'cart' => 'Запрошенное количество одного из товаров сейчас недоступно.',
+                ]);
+            }
+
+            $updated = ProductVariant::query()
+                ->whereKey($variantId)
+                ->where('stock_quantity', '>=', $quantity)
+                ->decrement('stock_quantity', $quantity);
+
+            if ($updated !== 1) {
+                throw ValidationException::withMessages([
+                    'cart' => 'Остаток товара изменился. Обновите корзину и повторите заказ.',
+                ]);
+            }
+
+            foreach ($items as $item) {
+                $decremented[(int) $item->getKey()] = true;
+            }
+        }
+
+        return $decremented;
     }
 }

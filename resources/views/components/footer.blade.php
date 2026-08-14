@@ -21,7 +21,7 @@
         <div class="container">
             <div class="footer__inner">
                 <div class="footer__col footer__col--brand">
-                    <a href="{{ route('home') }}" class="footer__logo" aria-label="2POROGA — на главную">
+                    <a href="{{ route('home') }}" class="footer__logo" aria-label="{{ $storefront?->storeName ?? 'AVTOPOROGI.ru' }} — на главную">
                         <img src="/img/logo-white.svg" alt="AVTOPOROGI.ru" width="258" height="39">
                     </a>
 
@@ -103,7 +103,7 @@
 
     <div class="footer__mobile">
         <div class="container footer__mobile-top">
-            <a href="{{ route('home') }}" class="footer__logo" aria-label="2POROGA — на главную">
+            <a href="{{ route('home') }}" class="footer__logo" aria-label="{{ $storefront?->storeName ?? 'AVTOPOROGI.ru' }} — на главную">
                 <img src="/img/logo-white.svg" alt="AVTOPOROGI.ru" width="258" height="39">
             </a>
 

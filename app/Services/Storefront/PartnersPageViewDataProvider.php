@@ -87,7 +87,7 @@ final readonly class PartnersPageViewDataProvider
         $factDefinitions = [
             StaticPageItemCode::PartnersAboutProduction->value => ['Собственное производство.', '1 день'],
             StaticPageItemCode::PartnersAboutMeasurements->value => ['3000'],
-            StaticPageItemCode::PartnersAboutPayment->value => ['Оплата при получении.'],
+            StaticPageItemCode::PartnersAboutPayment->value => ['Условия оплаты', 'СБП'],
             StaticPageItemCode::PartnersAboutMaterials->value => ['от 0,8 до 1.5 мм'],
             StaticPageItemCode::PartnersAboutReturns->value => ['обмен', 'возврат'],
         ];
