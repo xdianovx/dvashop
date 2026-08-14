@@ -1,0 +1,100 @@
+name: Deploy production
+
+on:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+concurrency:
+  group: dvashop-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy production
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      DVASHOP_SSH_KEY: ${{ secrets.DVASHOP_PROD_SSH_KEY }}
+      DVASHOP_KNOWN_HOSTS: ${{ secrets.DVASHOP_PROD_KNOWN_HOSTS }}
+
+    steps:
+      - name: Deploy exact GitHub commit
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+
+          HOST='80.78.246.72'
+          USER='deploy'
+
+          SSH_DIR="$HOME/.ssh"
+          KEY="$SSH_DIR/dvashop-production"
+          KNOWN_HOSTS="$SSH_DIR/dvashop-production-known-hosts"
+
+          cleanup()
+          {
+              rm -f "$KEY" "$KNOWN_HOSTS"
+          }
+
+          trap cleanup EXIT
+
+          echo '=== GITHUB -> DVASHOP PRODUCTION ==='
+          echo "github_sha=$GITHUB_SHA"
+
+          if [[ ! "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo 'ERROR: invalid GITHUB_SHA'
+              exit 64
+          fi
+
+          test -n "${DVASHOP_SSH_KEY:-}"
+          test -n "${DVASHOP_KNOWN_HOSTS:-}"
+
+          mkdir -p "$SSH_DIR"
+          chmod 700 "$SSH_DIR"
+
+          # Remove possible CR characters introduced through clipboard input.
+          printf '%s\n' "$DVASHOP_SSH_KEY" \
+            | tr -d '\r' \
+            > "$KEY"
+
+          printf '%s\n' "$DVASHOP_KNOWN_HOSTS" \
+            | tr -d '\r' \
+            > "$KNOWN_HOSTS"
+
+          chmod 600 "$KEY" "$KNOWN_HOSTS"
+
+          echo '=== VALIDATE SSH MATERIAL ==='
+
+          ssh-keygen \
+            -y \
+            -f "$KEY" \
+            >/dev/null
+
+          ssh-keygen \
+            -F "$HOST" \
+            -f "$KNOWN_HOSTS" \
+            >/dev/null
+
+          echo 'SSH_MATERIAL=PASS'
+
+          echo
+          echo '=== DEPLOY EXACT SHA ==='
+
+          ssh \
+            -i "$KEY" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$KNOWN_HOSTS" \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            "${USER}@${HOST}" \
+            "deploy ${GITHUB_SHA}"
+
+          echo
+          echo 'GITHUB_TO_PRODUCTION_DEPLOY=PASS'
