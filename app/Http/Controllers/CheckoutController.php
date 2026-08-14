@@ -9,6 +9,8 @@ use App\Models\Order;
 use App\Models\PaymentMethodSetting;
 use App\Services\CartManager;
 use App\Services\CheckoutService;
+use App\Services\Seo\SeoData;
+use App\ViewData\Storefront\GlobalStorefrontData;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -31,6 +33,10 @@ class CheckoutController extends Controller
             'paymentMethods' => PaymentMethodSetting::query()->active()->ordered()->get(),
             'deliveryPresentation' => $this->deliveryPresentation(),
             'paymentIcons' => $this->paymentIcons(),
+            'seo' => SeoData::technicalPage(
+                'Оформление заказа — '.app(GlobalStorefrontData::class)->storeName,
+                route('checkout.show'),
+            ),
         ]);
     }
 
@@ -62,6 +68,10 @@ class CheckoutController extends Controller
 
         return view('thanks', [
             'order' => $order->load('items'),
+            'seo' => SeoData::technicalPage(
+                'Заказ оформлен — '.app(GlobalStorefrontData::class)->storeName,
+                route('checkout.success', ['order' => $order->number]),
+            ),
         ]);
     }
 

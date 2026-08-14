@@ -87,6 +87,13 @@
     background-image: linear-gradient(-84deg, #1750b7 15%, #022253 143%);
 }
 
+.about-hero__phone {
+    width: fit-content;
+    color: var(--color-on-dark);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
 .about-metrics {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

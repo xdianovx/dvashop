@@ -7,6 +7,7 @@ use App\Services\Import\ImportProductFactory;
 use App\Services\Import\ImportRowProcessor;
 use App\Services\ImportLogger;
 use App\Services\ImportStatusService;
+use App\Services\PublicCatalogCache;
 use App\Services\SpreadsheetReader;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -25,14 +26,20 @@ class CatalogImportChunkJob implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
+    public int $timeout = 600;
+
     private const PROGRESS_CHECKPOINT_SIZE = 20;
+
+    private const OVERLAP_LOCK_EXPIRES_AFTER = 630;
 
     public function __construct(public int $importRunId) {}
 
     public function middleware(): array
     {
         return [
-            (new WithoutOverlapping('catalog-import-chunk-'.$this->importRunId))->releaseAfter(10),
+            (new WithoutOverlapping('catalog-import-chunk-'.$this->importRunId))
+                ->releaseAfter(10)
+                ->expireAfter(self::OVERLAP_LOCK_EXPIRES_AFTER),
         ];
     }
 
@@ -48,6 +55,8 @@ class CatalogImportChunkJob implements ShouldQueue
         if (! $run->status?->isRowsRunning()) {
             return;
         }
+
+        $catalogMutated = false;
 
         try {
             $absolutePath = Storage::disk('local')->path($run->stored_path);
@@ -79,6 +88,7 @@ class CatalogImportChunkJob implements ShouldQueue
                             rowNumber: $rowNumber,
                         );
                     });
+                    $catalogMutated = true;
                 } catch (Throwable $e) {
                     $logger->error($run, 'Ошибка обработки строки импорта', [
                         'row' => $rowNumber,
@@ -125,6 +135,7 @@ class CatalogImportChunkJob implements ShouldQueue
                     ]);
                 } elseif ($run->status?->isRowsRunning()) {
                     $archived = $products->archiveMissingProducts($run);
+                    $catalogMutated = $catalogMutated || $archived > 0;
                 }
 
                 $statusService->markRowsDone($run);
@@ -143,6 +154,10 @@ class CatalogImportChunkJob implements ShouldQueue
             }
         } catch (Throwable $e) {
             $statusService->fail($run, $e->getMessage());
+        } finally {
+            if ($catalogMutated) {
+                app(PublicCatalogCache::class)->invalidateVehicleNavigation();
+            }
         }
     }
 }

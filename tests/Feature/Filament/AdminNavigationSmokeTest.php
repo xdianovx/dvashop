@@ -18,6 +18,7 @@ use App\Filament\Resources\ProductOptionGroups\RelationManagers\ValuesRelationMa
 use App\Filament\Resources\ProductOptionTemplates\ProductOptionTemplateResource;
 use App\Filament\Resources\Products\ProductResource;
 use App\Filament\Resources\SiteNavigationItems\SiteNavigationItemResource;
+use App\Filament\Resources\StorefrontInquiries\StorefrontInquiryResource;
 use App\Filament\Resources\Users\UserResource;
 use App\Filament\Resources\VehicleGenerations\VehicleGenerationResource;
 use App\Filament\Resources\VehicleMakes\VehicleMakeResource;
@@ -29,6 +30,7 @@ use App\Models\ProductCategory;
 use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
 use App\Models\SiteNavigationItem;
+use App\Models\StorefrontInquiry;
 use App\Models\User;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
@@ -116,6 +118,7 @@ test('filament discovery contains no deleted technical resources and every disco
         ProductOptionTemplateResource::class,
         ProductResource::class,
         SiteNavigationItemResource::class,
+        StorefrontInquiryResource::class,
         UserResource::class,
         VehicleGenerationResource::class,
         VehicleMakeResource::class,
@@ -292,6 +295,7 @@ test('every discovered resource and content page route follows the explicit role
         ProductOptionTemplateResource::class => ProductOptionTemplate::factory()->create(),
         ProductResource::class => Product::factory()->create(),
         SiteNavigationItemResource::class => SiteNavigationItem::factory()->create(),
+        StorefrontInquiryResource::class => StorefrontInquiry::factory()->create(),
         UserResource::class => User::factory()->create(),
         VehicleGenerationResource::class => VehicleGeneration::factory()->create(),
         VehicleMakeResource::class => VehicleMake::factory()->create(),
@@ -308,7 +312,7 @@ test('every discovered resource and content page route follows the explicit role
                 'super_admin' => true,
                 'admin' => $resource !== UserResource::class,
                 'manager' => match ($resource) {
-                    ProductResource::class, OrderResource::class => true,
+                    ProductResource::class, OrderResource::class, StorefrontInquiryResource::class => true,
                     UserResource::class => false,
                     default => in_array($page, ['index', 'view'], true),
                 },

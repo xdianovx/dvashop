@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\DeliveryMethod;
+use App\Enums\DeliveryPriceMode;
 use App\Enums\PaymentMethod;
 use App\Models\DeliveryMethodSetting;
 use App\Models\PaymentMethodSetting;
@@ -34,6 +35,7 @@ test('payment page preserves the approved three card presentation contract', fun
             'title' => 'CHECKOUT ONLY DELIVERY TITLE',
             'description' => 'CHECKOUT ONLY DELIVERY DESCRIPTION',
             'base_price' => 1490,
+            'price_mode' => DeliveryPriceMode::Fixed,
         ])
         ->save();
 

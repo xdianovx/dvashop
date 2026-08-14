@@ -16,6 +16,7 @@ use Illuminate\Validation\ValidationException;
     'phone_caption',
     'public_email',
     'order_notification_email',
+    'inquiry_notification_email',
     'work_hours',
     'legal_name',
     'inn',

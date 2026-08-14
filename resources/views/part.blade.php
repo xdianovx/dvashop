@@ -2,8 +2,7 @@
 
 @php
     $selectedOptionValueIds = $variant->optionValues->pluck('id')->map(fn ($id) => (int) $id);
-    $selectedCanBePurchased = $variant->stock_status !== \App\Enums\StockStatus::OutOfStock
-        && ! ($variant->stock_status === \App\Enums\StockStatus::InStock && $variant->stock_quantity !== null && $variant->stock_quantity <= 0);
+    $variantPresentationById = collect($variantMatrix)->keyBy('variant_id');
     $selectedMaxQuantity = $variant->stock_status === \App\Enums\StockStatus::InStock && $variant->stock_quantity !== null
         ? max(1, $variant->stock_quantity)
         : 999;
@@ -13,6 +12,7 @@
         \App\Enums\StockStatus::PreOrder => 'pre-order',
     };
     $descriptionLines = preg_split('/\R/u', (string) $description) ?: [];
+    $displaySku = $variant->sku ?: $product->sku;
 @endphp
 
 @section('content')
@@ -29,6 +29,11 @@
                         </div>
                         <div class="part-gallery__pagination"></div>
                     </div>
+                    <x-favorite-toggle
+                        :product-id="$product->getKey()"
+                        :is-favorite="in_array((int) $product->getKey(), $favoriteProductIds ?? [], true)"
+                        button-class="part-gallery__fav"
+                    />
                 </div>
                 @if ($gallery->count() > 1)
                     <div class="swiper part-gallery__thumbs" data-gallery-thumbs><div class="swiper-wrapper">
@@ -40,8 +45,14 @@
             </div>
 
             <div class="part-buy">
-                <h1 class="part-buy__title">{{ $product->title }}</h1>
-                <p class="part-buy__article">Артикул: <span data-selected-sku>{{ $variant->sku ?: $product->sku }}</span></p>
+                <h1 class="part-buy__title">{{ $seoH1 ?? $product->title }}</h1>
+                <p
+                    class="part-buy__article"
+                    data-selected-sku-row
+                    @if (blank($displaySku)) hidden @endif
+                >
+                    Артикул: <span data-selected-sku>{{ $displaySku }}</span>
+                </p>
                 @if ($product->category)<p class="part-buy__article">Категория: {{ $product->category->title }}</p>@endif
                 @if ($product->partType)<p class="part-buy__article">Тип детали: {{ $product->partType->full_title ?: $product->partType->title }}</p>@endif
                 <p
@@ -60,9 +71,9 @@
                     </span>
                     <span data-selected-stock-label>{{ $variant->stock_status->label() }}</span>
                 </p>
-                <p class="part-buy__price" data-selected-price>{{ \App\ViewModels\ProductCardViewModel::formatPrice($variant->price ?? $product->price) }} руб.</p>
+                <p class="part-buy__price" data-selected-price>{{ $selectedPriceLabel }}</p>
 
-                <form action="{{ route('cart.items.store') }}" method="post" @if ($optionGroups->isNotEmpty() || $variants->count() > 1) data-product-options @endif>
+                <form action="{{ route('cart.items.store') }}" method="post" data-cart-add @if ($optionGroups->isNotEmpty() || $variants->count() > 1) data-product-options @endif>
                     @csrf
                     @if ($optionGroups->isNotEmpty())
                         <input type="hidden" name="product_variant_id" value="{{ $variant->getKey() }}" data-selected-variant required>
@@ -115,7 +126,7 @@
                             <select id="product-variant" name="product_variant_id" data-product-variant-fallback required>
                                 @foreach ($variants as $availableVariant)
                                     <option value="{{ $availableVariant->getKey() }}" @selected($availableVariant->is($variant))>
-                                        {{ $availableVariant->title ?: $availableVariant->optionSummary() ?: $availableVariant->sku }} — {{ \App\ViewModels\ProductCardViewModel::formatPrice($availableVariant->price ?? $product->price) }} ₽
+                                        {{ $availableVariant->title ?: $availableVariant->optionSummary() ?: $availableVariant->sku }} — {{ $variantPresentationById->get($availableVariant->getKey())['price_label'] }}
                                     </option>
                                 @endforeach
                             </select>
@@ -129,7 +140,10 @@
                     <label class="part-option-group__label" for="product-quantity">Количество:</label>
                     <input id="product-quantity" type="number" name="quantity" value="1" min="1" max="{{ $selectedMaxQuantity }}" data-product-quantity required>
                     <div class="part-buy__actions">
-                        <button type="submit" class="btn part-buy__cart" data-add-to-cart @disabled(! $selectedCanBePurchased)>Добавить в корзину</button>
+                        <button type="submit" class="btn part-buy__cart" data-add-to-cart @disabled(! $selectedCanBePurchased)>
+                            <span data-cart-button-label>Добавить в корзину</span>
+                        </button>
+                        <a href="#storefront-inquiry" class="btn part-buy__consult" data-inquiry-open>Получить консультацию</a>
                     </div>
                 </form>
 
@@ -139,7 +153,7 @@
                             <li class="part-delivery__row">
                                 <span class="part-delivery__info">
                                     <span class="part-delivery__icon" aria-hidden="true"><img src="/img/part/deliver.svg" alt=""></span>
-                                    {{ $method->title }} — {{ (float) $method->base_price > 0 ? number_format((float) $method->base_price, 0, ',', ' ').' ₽' : 'Бесплатно' }}
+                                    {{ $method->title }} — {{ $method->priceLabel() }}
                                 </span>
                                 <a href="{{ route('payment') }}" class="part-delivery__more">Подробнее ›</a>
                             </li>
@@ -170,24 +184,20 @@
             </section>
         @endif
 
-        @if ($product->fitments->isNotEmpty())
-            <section class="part-info">
-                <div class="part-info__col">
-                    <h2 class="part-info__heading">Применимость</h2>
-                    <ul>
-                        @foreach ($product->fitments as $fitment)
-                            <li>{{ $fitment->generation?->display_title }}@if ($fitment->note) — {{ $fitment->note }}@endif</li>
-                        @endforeach
-                    </ul>
-                </div>
-            </section>
-        @endif
-
         @if ($related->isNotEmpty())
             <section class="part-related">
                 <h2 class="part-related__title">С этим товаром покупают</h2>
                 <ul class="products">@foreach ($related as $relatedProduct)<li class="products__item"><x-product-card :product="$relatedProduct" /></li>@endforeach</ul>
             </section>
         @endif
+        <x-storefront-seo-text :text="$seoText ?? null" />
     </div>
+
+    <x-storefront-inquiry-modal
+        :type="\App\Enums\StorefrontInquiryType::ProductConsultation->value"
+        source-code="product"
+        :product-id="$product->getKey()"
+        :product-variant-id="$variant->getKey()"
+        title="Консультация по товару"
+    />
 @endsection

@@ -20,6 +20,7 @@ class ShopSettingsService
         'phone_caption',
         'public_email',
         'order_notification_email',
+        'inquiry_notification_email',
         'work_hours',
         'legal_name',
         'inn',
@@ -42,6 +43,7 @@ class ShopSettingsService
             'phone_caption' => 'Бесплатный звонок',
             'public_email' => null,
             'order_notification_email' => null,
+            'inquiry_notification_email' => null,
             'work_hours' => null,
             'legal_name' => 'ООО «АРТ ГРУПП»',
             'inn' => '7814593546',
@@ -125,7 +127,7 @@ class ShopSettingsService
             }
         }
 
-        foreach (['public_email', 'order_notification_email'] as $field) {
+        foreach (['public_email', 'order_notification_email', 'inquiry_notification_email'] as $field) {
             if (is_string($candidate[$field] ?? null)) {
                 $candidate[$field] = mb_strtolower($candidate[$field]);
             }
@@ -172,6 +174,7 @@ class ShopSettingsService
             'phone_caption' => ['nullable', 'string', 'max:255', $plainText],
             'public_email' => ['nullable', 'string', 'email:filter', 'max:255'],
             'order_notification_email' => ['nullable', 'string', 'email:filter', 'max:255'],
+            'inquiry_notification_email' => ['nullable', 'string', 'email:filter', 'max:255'],
             'work_hours' => ['nullable', 'string', 'max:255', $plainText],
             'legal_name' => ['nullable', 'string', 'max:255', $plainText],
             'inn' => ['nullable', 'string', 'regex:/^(?:\d{10}|\d{12})$/'],
@@ -196,6 +199,7 @@ class ShopSettingsService
             'phone_caption' => 'подпись телефона',
             'public_email' => 'публичный email',
             'order_notification_email' => 'email уведомлений о заказах',
+            'inquiry_notification_email' => 'email уведомлений о заявках',
             'work_hours' => 'режим работы',
             'legal_name' => 'юридическое название',
             'inn' => 'ИНН',

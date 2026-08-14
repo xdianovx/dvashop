@@ -2,6 +2,7 @@
 
 use App\Enums\LegalDocumentCode;
 use App\Models\LegalDocument;
+use App\Models\Order;
 use Database\Seeders\CheckoutMethodSettingsSeeder;
 use Database\Seeders\FaqSeeder;
 use Database\Seeders\HomepageContentSeeder;
@@ -51,4 +52,35 @@ test('every connected information page exposes title description and canonical w
         preg_match('/<link rel="canonical" href="([^"]+)">/u', $html, $matches);
         expect($matches[1] ?? '')->not->toContain('untrusted=');
     }
+});
+
+test('robots response blocks private commerce paths and points to the sitemap', function (): void {
+    $this->get(route('robots'))
+        ->assertOk()
+        ->assertHeader('Content-Type', 'text/plain; charset=UTF-8')
+        ->assertSeeText('Disallow: /admin')
+        ->assertSeeText('Disallow: /cart')
+        ->assertSeeText('Disallow: /checkout')
+        ->assertSeeText('Disallow: /thanks')
+        ->assertSeeText('Sitemap: '.route('sitemap'));
+});
+
+test('cart checkout and thanks pages are noindex nofollow', function (): void {
+    $robotsMeta = '<meta name="robots" content="noindex, nofollow">';
+
+    $this->get(route('cart.show'))
+        ->assertOk()
+        ->assertSee($robotsMeta, false);
+
+    $this->get(route('checkout.show'))
+        ->assertOk()
+        ->assertSee($robotsMeta, false);
+
+    $order = Order::factory()->create();
+    $token = 'secure-thanks-token';
+
+    $this->withSession(['checkout_success.'.$order->getKey() => $token])
+        ->get(route('checkout.success', ['order' => $order->number, 'token' => $token]))
+        ->assertOk()
+        ->assertSee($robotsMeta, false);
 });

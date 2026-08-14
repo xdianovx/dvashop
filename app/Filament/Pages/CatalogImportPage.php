@@ -51,7 +51,7 @@ class CatalogImportPage extends Page implements HasTable
 
     public string $type = 'catalog';
 
-    public int $chunkSize = 300;
+    public int $chunkSize = 10;
 
     public bool $startAfterUpload = true;
 
@@ -274,7 +274,7 @@ class CatalogImportPage extends Page implements HasTable
                 [
                     'file' => ['required', 'file', 'mimes:csv,xlsx', 'max:51200'],
                     'type' => ['required', 'string', 'max:64', 'regex:/^[a-z0-9][a-z0-9_-]{0,63}$/'],
-                    'chunkSize' => ['required', 'integer', 'in:100,300,500'],
+                    'chunkSize' => ['required', 'integer', 'in:10,20,30'],
                     'startAfterUpload' => ['boolean'],
                 ],
                 [

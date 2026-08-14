@@ -10,7 +10,7 @@ use App\Models\ProductOptionValue;
 use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
 use App\Services\Media\MediaUrlService;
-use App\Services\Seo\SeoMetaService;
+use App\Services\Seo\SeoMetadataService;
 use App\Services\StorefrontProductAvailability;
 use App\ViewModels\ProductCardViewModel;
 use Illuminate\Contracts\View\View;
@@ -20,7 +20,7 @@ use Illuminate\Support\Collection;
 class ProductController extends Controller
 {
     public function __construct(
-        private readonly SeoMetaService $seo,
+        private readonly SeoMetadataService $seo,
         private readonly MediaUrlService $media,
         private readonly StorefrontProductAvailability $availability,
     ) {}
@@ -53,6 +53,9 @@ class ProductController extends Controller
         /** @var ProductVariant|null $variant */
         $variant = $product->variants->firstWhere('is_default', true) ?? $product->variants->first();
         abort_unless($variant instanceof ProductVariant, 404);
+        $product->variants->each(
+            fn (ProductVariant $availableVariant): ProductVariant => $availableVariant->setRelation('product', $product)
+        );
 
         [$optionGroups, $availableValues, $variantMatrix] = $this->optionPresentation($product, $product->variants);
         $primaryFitment = $product->fitments->sortByDesc('is_primary')->first();
@@ -86,6 +89,7 @@ class ProductController extends Controller
                 'variants' => fn ($query) => $this->availability->variants($query)
                     ->orderByDesc('is_default')
                     ->orderBy('id'),
+                'variants.optionValues.group',
                 'mainImage',
                 'visibleImages',
                 'category',
@@ -94,13 +98,18 @@ class ProductController extends Controller
             ->orderBy('position')->orderBy('title')->limit(4)->get()
             ->map(fn (Product $relatedProduct): ProductCardViewModel => ProductCardViewModel::fromProduct($relatedProduct));
 
-        return view('part', array_merge($this->seo->product($product)->toViewData(), [
+        return view('part', array_merge($this->seo->forView(
+            $product,
+            route('products.show', $product->slug),
+        )->toViewData(), [
             'product' => $product,
             'variant' => $variant,
             'variants' => $product->variants,
             'optionGroups' => $optionGroups,
             'availableValues' => $availableValues,
             'variantMatrix' => $variantMatrix,
+            'selectedCanBePurchased' => $this->availability->isPurchasable($variant),
+            'selectedPriceLabel' => ProductCardViewModel::priceLabel($this->availability->effectivePrice($variant), 'руб.'),
             'deliveryMethods' => DeliveryMethodSetting::query()->active()->ordered()->get(),
             'gallery' => $gallery,
             'related' => $related,
@@ -117,7 +126,7 @@ class ProductController extends Controller
      * @return array{
      *     0: Collection<int, array{id:int, code:string, title:string, input_type:string, values:Collection<int, array{id:int, code:string, title:string}>}>,
      *     1: Collection<int, array{id:int, code:string, title:string, group_id:int}>,
-     *     2: array<int, array{variant_id:int, option_values:array<int, array{group_id:int, value_id:int, code:string}>, sku:string, price:string, old_price:?string, stock_status:string, stock_quantity:?int}>
+     *     2: array<int, array{variant_id:int, option_values:array<int, array{group_id:int, value_id:int, code:string}>, sku:string, price:string, price_available:bool, price_label:string, purchasable:bool, old_price:?string, stock_status:string, stock_quantity:?int}>
      * }
      */
     private function optionPresentation(Product $product, Collection $variants): array
@@ -164,25 +173,32 @@ class ProductController extends Controller
             })
             ->values();
 
-        $variantMatrix = $variants->map(fn (ProductVariant $availableVariant): array => [
-            'variant_id' => (int) $availableVariant->getKey(),
-            'option_values' => $availableVariant->optionValues
-                ->sortBy(fn (ProductOptionValue $value): int => (int) $value->product_option_group_id)
-                ->map(fn (ProductOptionValue $value): array => [
-                    'group_id' => (int) $value->product_option_group_id,
-                    'value_id' => (int) $value->getKey(),
-                    'code' => (string) ($value->code ?: $value->slug ?: $value->getKey()),
-                ])
-                ->values()
-                ->all(),
-            'sku' => (string) ($availableVariant->sku ?: $product->sku),
-            'price' => (string) ($availableVariant->price ?? $product->price),
-            'old_price' => $availableVariant->old_price !== null
-                ? (string) $availableVariant->old_price
-                : ($product->old_price !== null ? (string) $product->old_price : null),
-            'stock_status' => $availableVariant->stock_status->value,
-            'stock_quantity' => $availableVariant->stock_quantity,
-        ])->values()->all();
+        $variantMatrix = $variants->map(function (ProductVariant $availableVariant) use ($product): array {
+            $effectivePrice = $this->availability->effectivePrice($availableVariant);
+
+            return [
+                'variant_id' => (int) $availableVariant->getKey(),
+                'option_values' => $availableVariant->optionValues
+                    ->sortBy(fn (ProductOptionValue $value): int => (int) $value->product_option_group_id)
+                    ->map(fn (ProductOptionValue $value): array => [
+                        'group_id' => (int) $value->product_option_group_id,
+                        'value_id' => (int) $value->getKey(),
+                        'code' => (string) ($value->code ?: $value->slug ?: $value->getKey()),
+                    ])
+                    ->values()
+                    ->all(),
+                'sku' => (string) ($availableVariant->sku ?: $product->sku),
+                'price' => number_format($effectivePrice, 2, '.', ''),
+                'price_available' => $this->availability->hasSellablePrice($availableVariant),
+                'price_label' => ProductCardViewModel::priceLabel($effectivePrice, 'руб.'),
+                'purchasable' => $this->availability->isPurchasable($availableVariant),
+                'old_price' => $availableVariant->old_price !== null
+                    ? (string) $availableVariant->old_price
+                    : ($product->old_price !== null ? (string) $product->old_price : null),
+                'stock_status' => $availableVariant->stock_status->value,
+                'stock_quantity' => $availableVariant->stock_quantity,
+            ];
+        })->values()->all();
 
         return [$optionGroups, $availableValues, $variantMatrix];
     }

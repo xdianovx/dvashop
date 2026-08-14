@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\DeliveryMethod;
+use App\Enums\DeliveryPriceMode;
 use App\Enums\PaymentMethod;
 use App\Enums\StockStatus;
 use App\Models\Cart;
@@ -41,6 +42,8 @@ test('catalog routes enforce the active vehicle hierarchy and keep their page te
     $make = VehicleMake::factory()->create(['title' => 'Volga', 'slug' => 'volga']);
     $model = VehicleModel::factory()->forMake($make)->create(['title' => 'Nova', 'slug' => 'nova']);
     $generation = VehicleGeneration::factory()->forVehicleModel($model)->create(['title' => 'First', 'slug' => 'first']);
+    $publicProduct = Product::factory()->withDefaultVariant()->create(['title' => 'Volga public product']);
+    ProductFitment::factory()->forProduct($publicProduct)->forVehicleGeneration($generation)->create();
     $otherMake = VehicleMake::factory()->create(['slug' => 'other']);
 
     $this->get(route('catalog.make', $make->slug))->assertOk()->assertSee('brand-page', false)->assertSee('Nova');
@@ -106,12 +109,18 @@ test('public catalog and product page hide products with inactive or deleted rel
 test('public product uses an active alternative when its default variant is not public', function (): void {
     $inactiveDefaultProduct = Product::factory()->create(['title' => 'Inactive default public alternative']);
     $inactiveDefault = ProductVariant::factory()->forProduct($inactiveDefaultProduct)->default()->create(['sku' => 'HIDDEN-DEFAULT']);
-    $activeAlternative = ProductVariant::factory()->forProduct($inactiveDefaultProduct)->create(['sku' => 'PUBLIC-ALTERNATIVE']);
+    $activeAlternative = ProductVariant::factory()->forProduct($inactiveDefaultProduct)->create([
+        'sku' => 'PUBLIC-ALTERNATIVE',
+        'stock_quantity' => null,
+    ]);
     DB::table('product_variants')->where('id', $inactiveDefault->getKey())->update(['is_active' => false]);
 
     $inactiveValueProduct = Product::factory()->create(['title' => 'Inactive value public alternative']);
     $inactiveValueDefault = ProductVariant::factory()->forProduct($inactiveValueProduct)->default()->create(['sku' => 'HIDDEN-VALUE-DEFAULT']);
-    $activeValueAlternative = ProductVariant::factory()->forProduct($inactiveValueProduct)->create(['sku' => 'PUBLIC-VALUE-ALTERNATIVE']);
+    $activeValueAlternative = ProductVariant::factory()->forProduct($inactiveValueProduct)->create([
+        'sku' => 'PUBLIC-VALUE-ALTERNATIVE',
+        'stock_quantity' => null,
+    ]);
     $group = ProductOptionGroup::factory()->create();
     $inactiveValue = ProductOptionValue::factory()->forGroup($group)->create();
     ProductVariantOptionValue::factory()->create([
@@ -206,6 +215,8 @@ test('product page renders only visible media and submits only variant and quant
         ->assertSee('Реальный порог')
         ->assertSee('https://cdn.example.test/visible.jpg', false)
         ->assertDontSee('https://cdn.example.test/hidden.jpg', false)
+        ->assertSee('data-gallery-main', false)
+        ->assertDontSee('data-gallery-thumbs', false)
         ->assertSee('name="product_variant_id"', false)
         ->assertSee('name="quantity"', false)
         ->assertDontSee('name="price"', false);
@@ -225,7 +236,10 @@ test('product gallery places the visible main image first without duplication', 
         'is_visible' => true,
     ]);
 
-    $response = $this->get(route('products.show', $product->slug))->assertOk();
+    $response = $this->get(route('products.show', $product->slug))
+        ->assertOk()
+        ->assertSee('data-gallery-main', false)
+        ->assertSee('data-gallery-thumbs', false);
     $galleryUrls = $response->viewData('gallery')->pluck('url')->all();
 
     expect($galleryUrls)->toBe([
@@ -249,11 +263,41 @@ test('product gallery falls back to real part type and generic category default 
     $this->get(route('products.show', $partTypeProduct->slug))
         ->assertOk()
         ->assertSee('/img/products_default/porog.png', false)
+        ->assertSee('data-gallery-main', false)
+        ->assertDontSee('data-gallery-thumbs', false)
         ->assertDontSee('/img/placeholders/image.svg', false);
     $this->get(route('products.show', $genericProduct->slug))
         ->assertOk()
         ->assertSee('/img/products_default/porog.png', false)
         ->assertDontSee('/img/placeholders/image.svg', false);
+});
+
+test('product sku row is hidden only when both product and selected variant skus are empty', function (): void {
+    $withoutSku = Product::factory()->create(['sku' => null]);
+    ProductVariant::factory()->forProduct($withoutSku)->default()->create([
+        'sku' => null,
+        'stock_quantity' => null,
+    ]);
+
+    $withoutSkuHtml = $this->get(route('products.show', $withoutSku->slug))->assertOk()->getContent();
+    preg_match('/<p[^>]*data-selected-sku-row[^>]*>.*?<\/p>/s', $withoutSkuHtml, $hiddenRow);
+    expect($hiddenRow[0] ?? '')
+        ->toContain('hidden')
+        ->toContain('data-selected-sku')
+        ->not->toContain('Артикул: —');
+
+    $withSku = Product::factory()->create(['sku' => 'PRODUCT-PUBLIC-SKU']);
+    ProductVariant::factory()->forProduct($withSku)->default()->create([
+        'sku' => null,
+        'stock_quantity' => null,
+    ]);
+
+    $withSkuHtml = $this->get(route('products.show', $withSku->slug))->assertOk()->getContent();
+    preg_match('/<p[^>]*data-selected-sku-row[^>]*>.*?<\/p>/s', $withSkuHtml, $visibleRow);
+    expect($visibleRow[0] ?? '')
+        ->toContain('PRODUCT-PUBLIC-SKU')
+        ->toContain('data-selected-sku')
+        ->not->toContain(' hidden');
 });
 
 test('cart HTTP flow uses snapshots ownership forms and stock status', function (): void {
@@ -278,9 +322,9 @@ test('cart HTTP flow uses snapshots ownership forms and stock status', function 
 });
 
 test('checkout uses active settings delivery price and protects immutable success snapshots', function (): void {
-    $delivery = DeliveryMethodSetting::factory()->create(['code' => DeliveryMethod::Courier, 'title' => 'Курьер', 'base_price' => 490, 'is_active' => true]);
+    $delivery = DeliveryMethodSetting::factory()->create(['code' => DeliveryMethod::Courier, 'title' => 'Курьер', 'base_price' => 490, 'price_mode' => DeliveryPriceMode::Fixed, 'is_active' => true]);
     $payment = PaymentMethodSetting::factory()->create(['code' => PaymentMethod::Card, 'title' => 'Карта', 'is_active' => true]);
-    $variant = ProductVariant::factory()->default()->create(['price' => 1500]);
+    $variant = ProductVariant::factory()->default()->create(['price' => 1500, 'stock_quantity' => null]);
     $cart = Cart::factory()->create();
     app(CartManager::class)->addItem(commerceCartRequest($cart), $variant->getKey(), 2);
 
@@ -304,10 +348,14 @@ test('checkout uses active settings delivery price and protects immutable succes
     $this->get(route('checkout.success', ['order' => $foreignOrder->number, 'token' => request()->query('token')]))->assertNotFound();
 });
 
-test('homepage vehicle search contains only active makes and models and targets catalog flow', function (): void {
+test('homepage vehicle search loads only active models for the selected active make', function (): void {
     $this->seed([ShopSettingsSeeder::class, StaticPageContentSeeder::class, CheckoutMethodSettingsSeeder::class, HomepageContentSeeder::class]);
     $make = VehicleMake::factory()->create(['title' => 'Active Make', 'slug' => 'active-make']);
-    VehicleModel::factory()->forMake($make)->create(['title' => 'Active Model', 'slug' => 'active-model']);
+    $activeModel = VehicleModel::factory()->forMake($make)->create(['title' => 'Active Model', 'slug' => 'active-model']);
+    $activeGeneration = VehicleGeneration::factory()->forVehicleModel($activeModel)->create(['title' => 'Active Generation']);
+    $activeProduct = Product::factory()->withDefaultVariant()->create(['title' => 'Active vehicle product']);
+    ProductFitment::factory()->forProduct($activeProduct)->forVehicleGeneration($activeGeneration)->create();
+    VehicleModel::factory()->inactive()->forMake($make)->create(['title' => 'Inactive Model', 'slug' => 'inactive-model']);
     $inactiveMake = VehicleMake::factory()->create(['title' => 'Hidden Make']);
     VehicleModel::factory()->forMake($inactiveMake)->create(['title' => 'Hidden Model']);
     DB::table('vehicle_makes')->where('id', $inactiveMake->getKey())->update(['is_active' => false]);
@@ -322,9 +370,23 @@ test('homepage vehicle search contains only active makes and models and targets 
         ->assertSee('search__divider', false)
         ->assertSee('search__submit', false)
         ->assertSee('Active Make')
-        ->assertSee('Active Model')
+        ->assertSee('data-models-url-template', false)
+        ->assertSee('data-vehicle-model', false)
+        ->assertDontSee('Active Model')
+        ->assertDontSee('Inactive Model')
         ->assertDontSee('Hidden Make')
         ->assertDontSee('Hidden Model');
+
+    $this->getJson(route('storefront.vehicle-makes.models', $make->slug))
+        ->assertOk()
+        ->assertExactJson([
+            ['title' => 'Active Model', 'slug' => 'active-model'],
+        ])
+        ->assertJsonMissing(['id' => 1])
+        ->assertJsonMissing(['title' => 'Inactive Model']);
+
+    $this->getJson(route('storefront.vehicle-makes.models', 'unknown-make'))->assertNotFound();
+    $this->getJson(route('storefront.vehicle-makes.models', $inactiveMake->slug))->assertNotFound();
 
     $this->get(route('catalog.index', ['make' => $make->slug, 'model' => $make->slug.':active-model']))
         ->assertRedirect(route('catalog.model', [$make->slug, 'active-model']));
@@ -409,13 +471,23 @@ test('catalog hides inactive and deleted vehicle hierarchy rows and rejects cros
     $this->get(route('catalog.make', $make->slug))->assertNotFound();
 });
 
-test('product page exposes real characteristics fitments options and server variant matrix only', function (): void {
+test('product page exposes real characteristics and server variant matrix without a fitment section', function (): void {
     $make = VehicleMake::factory()->create(['title' => 'Matrix Make']);
     $model = VehicleModel::factory()->forMake($make)->create(['title' => 'Matrix Model']);
     $generation = VehicleGeneration::factory()->forVehicleModel($model)->create(['title' => 'Matrix Generation']);
     $category = ProductCategory::factory()->create(['title' => 'Matrix Category']);
-    $product = Product::factory()->forCategory($category)->create(['title' => 'Matrix Product', 'price' => 1000]);
+    $partType = PartType::factory()->forCategory($category)->create(['title' => 'Matrix Part Type']);
+    $product = Product::factory()->forCategory($category)->forPartType($partType)->create([
+        'title' => 'Matrix Product',
+        'sku' => 'MATRIX-PRODUCT-SKU',
+        'description' => 'Matrix product description',
+        'price' => 1000,
+    ]);
 
+    ProductImage::factory()->forProduct($product)->main()->create([
+        'path' => 'https://cdn.example.test/matrix-product.jpg',
+        'is_visible' => true,
+    ]);
     ProductCharacteristic::factory()->create(['product_id' => $product->getKey(), 'name' => 'Толщина', 'value' => '1.5', 'unit' => 'мм']);
     ProductCharacteristic::factory()->create(['product_id' => $product->getKey(), 'name' => 'Скрытая характеристика', 'is_visible' => false]);
     ProductFitment::factory()->forProduct($product)->forVehicleGeneration($generation)->primary()->create(['note' => 'Реальная применимость']);
@@ -429,7 +501,7 @@ test('product page exposes real characteristics fitments options and server vari
     $inactiveValue = ProductOptionValue::factory()->forGroup($material)->create(['title' => 'Скрытый материал', 'code' => 'hidden', 'is_active' => false]);
 
     $default = ProductVariant::factory()->forProduct($product)->default()->create([
-        'sku' => 'MATRIX-DEFAULT',
+        'sku' => null,
         'price' => 2450,
         'old_price' => 2700,
         'stock_status' => StockStatus::OutOfStock,
@@ -463,11 +535,16 @@ test('product page exposes real characteristics fitments options and server vari
     Product::factory()->withDefaultVariant()->create(['title' => 'Unrelated product']);
 
     $response = $this->get(route('products.show', $product->slug))->assertOk()
+        ->assertSee('MATRIX-PRODUCT-SKU')
+        ->assertSee('Matrix product description')
+        ->assertSee('Matrix Category')
+        ->assertSee('Matrix Part Type')
+        ->assertSee('https://cdn.example.test/matrix-product.jpg', false)
         ->assertSee('Толщина')
         ->assertSee('1.5')
         ->assertDontSee('Скрытая характеристика')
-        ->assertSee('Matrix Make')
-        ->assertSee('Реальная применимость')
+        ->assertDontSee('Применимость')
+        ->assertDontSee('Реальная применимость')
         ->assertSee('part-option-group', false)
         ->assertSee('part-tabs', false)
         ->assertSee('part-tab', false)
@@ -491,11 +568,13 @@ test('product page exposes real characteristics fitments options and server vari
         ->assertSee('Real related product')
         ->assertDontSee('Unrelated product')
         ->assertDontSee('part-buy__rating', false)
-        ->assertDontSee('part-gallery__fav', false);
+        ->assertSee('part-gallery__fav', false)
+        ->assertSee('data-favorite-product-id="'.$product->getKey().'"', false)
+        ->assertSee('aria-pressed="false"', false);
 
     $matrix = collect($response->viewData('variantMatrix'))->keyBy('variant_id');
     expect($matrix->keys()->sort()->values()->all())->toBe(collect([$default->getKey(), $inStock->getKey(), $preOrder->getKey()])->sort()->values()->all())
-        ->and($matrix[$default->getKey()]['sku'])->toBe('MATRIX-DEFAULT')
+        ->and($matrix[$default->getKey()]['sku'])->toBe('MATRIX-PRODUCT-SKU')
         ->and($matrix[$inStock->getKey()]['sku'])->toBe('MATRIX-IN-STOCK')
         ->and($matrix[$preOrder->getKey()]['sku'])->toBe('MATRIX-PREORDER')
         ->and($matrix[$default->getKey()]['price'])->toBe('2450.00')
@@ -505,7 +584,8 @@ test('product page exposes real characteristics fitments options and server vari
         ->and($response->viewData('availableValues')->pluck('id')->all())->toContain($full->getKey(), $lower->getKey(), $steel->getKey(), $zinc->getKey())
         ->not->toContain($inactiveValue->getKey());
 
-    expect($related->exists)->toBeTrue();
+    expect($related->exists)->toBeTrue()
+        ->and($product->fitments()->whereKey($product->fitments()->sole()->getKey())->exists())->toBeTrue();
 });
 
 test('product description is escaped while preserving line breaks', function (): void {
@@ -722,7 +802,7 @@ test('cart quantity buttons perform repeat plus minus stock ownership remove and
 });
 
 test('cart minus is disabled at one and a foreign remove leaves the item unchanged', function (): void {
-    $variant = ProductVariant::factory()->default()->create();
+    $variant = ProductVariant::factory()->default()->create(['stock_quantity' => null]);
     $cart = Cart::factory()->create();
     $item = app(CartManager::class)->addItem(commerceCartRequest($cart), $variant->getKey(), 1);
 
@@ -738,9 +818,9 @@ test('cart minus is disabled at one and a foreign remove leaves the item unchang
 });
 
 test('checkout ignores client prices and thanks stays session scoped and snapshot based', function (): void {
-    $delivery = DeliveryMethodSetting::factory()->create(['code' => DeliveryMethod::Pickup, 'base_price' => 350, 'is_active' => true]);
+    $delivery = DeliveryMethodSetting::factory()->create(['code' => DeliveryMethod::Pickup, 'base_price' => 350, 'price_mode' => DeliveryPriceMode::Fixed, 'is_active' => true]);
     $payment = PaymentMethodSetting::factory()->create(['code' => PaymentMethod::Sbp, 'is_active' => true]);
-    $variant = ProductVariant::factory()->default()->create(['price' => 1750]);
+    $variant = ProductVariant::factory()->default()->create(['price' => 1750, 'stock_quantity' => null]);
     $variant->product->update(['title' => 'Snapshot title']);
     $cart = Cart::factory()->create();
     app(CartManager::class)->addItem(commerceCartRequest($cart), $variant->getKey(), 2);

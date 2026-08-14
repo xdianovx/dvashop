@@ -17,7 +17,7 @@ class ImportStatusService
         private readonly ImportRunStats $stats,
     ) {}
 
-    public function createFromUpload(UploadedFile $file, string $type = 'catalog', int $chunkSize = 300): ImportRun
+    public function createFromUpload(UploadedFile $file, string $type = 'catalog', int $chunkSize = 10): ImportRun
     {
         $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: 'csv');
         $originalName = $file->getClientOriginalName();
@@ -49,7 +49,7 @@ class ImportStatusService
         string $storedPath,
         ?string $mimeType = null,
         ?int $fileSize = null,
-        int $chunkSize = 300,
+        int $chunkSize = 10,
     ): ImportRun {
         $absolutePath = Storage::disk('local')->path($storedPath);
 

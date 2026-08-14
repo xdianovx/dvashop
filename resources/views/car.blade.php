@@ -42,8 +42,9 @@
                         <li>Для выбранного автомобиля товары не найдены.</li>
                     @endforelse
                 </ul>
-                {{ $products->links() }}
+                <x-storefront-pagination :paginator="$products" />
             </div>
         </div>
+        <x-storefront-seo-text :text="$seoText ?? null" />
     </div>
 @endsection

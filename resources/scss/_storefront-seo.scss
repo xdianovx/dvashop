@@ -1,0 +1,20 @@
+.storefront-seo-text {
+    margin-block: 48px 20px;
+    padding: 28px 32px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+}
+
+.storefront-seo-text__content {
+    color: var(--color-slate);
+    line-height: 1.7;
+    white-space: pre-line;
+}
+
+@media (max-width: 640px) {
+    .storefront-seo-text {
+        margin-top: 32px;
+        padding: 20px;
+    }
+}

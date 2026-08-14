@@ -62,7 +62,7 @@ services:
     working_dir: /var/www/html
     env_file:
       - .env
-    command: sh -c "until [ -f vendor/autoload.php ]; do echo 'Waiting for Composer dependencies...'; sleep 5; done; php artisan queue:work --queue=default,imports,imports-images --sleep=3 --tries=3 --timeout=90"
+    command: sh -c "until [ -f vendor/autoload.php ]; do echo 'Waiting for Composer dependencies...'; sleep 5; done; php artisan queue:work --queue=default,imports,imports-images --sleep=3 --tries=3 --timeout=600"
     volumes:
       - ./:/var/www/html
     depends_on:

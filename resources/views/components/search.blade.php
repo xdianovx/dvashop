@@ -11,10 +11,16 @@
             </x-slot:icon>
         </x-section-heading>
 
-        <form class="search__form" action="{{ route('catalog.index') }}" method="get">
+        <form
+            class="search__form"
+            action="{{ route('catalog.index') }}"
+            method="get"
+            data-vehicle-search
+            data-models-url-template="{{ route('storefront.vehicle-makes.models', ['makeSlug' => '__MAKE__']) }}"
+        >
             <label class="search__field">
                 <span class="search__field-label">Марка</span>
-                <select class="search__field-value" name="make" required>
+                <select class="search__field-value" name="make" required data-vehicle-make>
                     <option value="">Выберите марку автомобиля</option>
                     @foreach ($makes as $make)
                         <option value="{{ $make['slug'] }}">{{ $make['title'] }}</option>
@@ -26,17 +32,15 @@
 
             <label class="search__field search__field--model">
                 <span class="search__field-label">Модель</span>
-                <select class="search__field-value" name="model">
+                <select class="search__field-value" name="model" disabled data-vehicle-model>
                     <option value="">Выберите модель автомобиля</option>
-                    @foreach ($makes as $make)
-                        <optgroup label="{{ $make['title'] }}">
-                            @foreach ($make['models'] as $model)
-                                <option value="{{ $make['slug'] }}:{{ $model['slug'] }}">{{ $model['title'] }}</option>
-                            @endforeach
-                        </optgroup>
-                    @endforeach
                 </select>
             </label>
+
+            <span class="search__status" data-vehicle-search-status aria-live="polite" aria-atomic="true" hidden>
+                <span class="search__status-spinner" data-vehicle-search-spinner aria-hidden="true"></span>
+                <span data-vehicle-search-status-text></span>
+            </span>
 
             <button type="submit" class="btn btn--primary search__submit">
                 <span class="search__submit-text">Показать</span>

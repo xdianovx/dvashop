@@ -39,6 +39,7 @@ class ImportRun extends Model
         'archive_skipped',
         'archive_skip_reason',
         'queued_images',
+        'queued_vehicle_image_keys',
         'processed_images',
         'failed_images',
         'warnings_count',
@@ -73,6 +74,7 @@ class ImportRun extends Model
             'archived_products' => 'integer',
             'archive_skipped' => 'boolean',
             'queued_images' => 'integer',
+            'queued_vehicle_image_keys' => 'array',
             'processed_images' => 'integer',
             'failed_images' => 'integer',
             'warnings_count' => 'integer',
@@ -131,4 +133,3 @@ class ImportRun extends Model
         return $this->status?->isTerminal() ?? false;
     }
 }
-

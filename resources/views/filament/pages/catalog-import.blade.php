@@ -153,9 +153,9 @@
                             <div>
                                 <label for="catalog-import-chunk" class="mb-2 block text-sm font-medium text-gray-950 dark:text-white">Размер чанка</label>
                                 <select id="catalog-import-chunk" wire:model.defer="chunkSize" class="block w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-primary-600 focus:ring-primary-600 dark:border-white/10 dark:bg-white/5" aria-describedby="catalog-import-chunk-help catalog-import-chunk-error" aria-invalid="{{ $errors->has('chunkSize') ? 'true' : 'false' }}">
-                                    <option value="100">100 — минимальная нагрузка</option>
-                                    <option value="300">300 — рекомендуемый режим</option>
-                                    <option value="500">500 — быстрее, но выше нагрузка</option>
+                                    <option value="10">10 — рекомендуемый режим</option>
+                                    <option value="20">20 — повышенная нагрузка</option>
+                                    <option value="30">30 — быстрее, но выше нагрузка</option>
                                 </select>
                                 <p id="catalog-import-chunk-help" class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">Количество строк таблицы, обрабатываемых одной задачей очереди.</p>
                                 @error('chunkSize')

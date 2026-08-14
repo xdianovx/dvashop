@@ -28,8 +28,10 @@ use App\Services\Media\DefaultProductImageService;
 use App\Services\SpreadsheetReader;
 use App\Support\CatalogText;
 use Database\Seeders\ProductCatalogSeeder;
+use Database\Seeders\ProductOptionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -38,6 +40,7 @@ uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
     $this->seed(ProductCatalogSeeder::class);
+    $this->seed(ProductOptionSeeder::class);
 });
 
 function catalogImportRun(array $state = []): ImportRun
@@ -176,6 +179,75 @@ function writeCatalogTestXlsx(string $path, array $rows, array $mergedRanges = [
     $zip->close();
 }
 
+function writeCatalogDateFormattedModelTestXlsx(string $path): void
+{
+    writeCatalogTestXlsx($path, [
+        1 => [
+            6 => 'Порог',
+        ],
+        2 => [
+            0 => 'Ссылка на фото автомобиля',
+            1 => 'Марка',
+            2 => 'Модель',
+            3 => 'Поколение',
+            4 => 'Годы выпуска',
+            5 => 'Кузов',
+            6 => 'Порог',
+        ],
+        3 => [
+            0 => '',
+            1 => 'Saab',
+            2 => '9-3',
+            3 => '2',
+            4 => '2002 - 2008',
+            5 => 'Седан 4 дв.',
+            6 => '1',
+        ],
+    ]);
+
+    $zip = new ZipArchive;
+    $zip->open($path);
+
+    $sheetXml = (string) $zip->getFromName('xl/worksheets/sheet1.xml');
+    $originalModelCell = '<c r="C3" t="inlineStr"><is><t>9-3</t></is></c>';
+    $dateFormattedModelCell = '<c r="C3" s="1"><v>45360</v></c>';
+
+    expect($sheetXml)->toContain($originalModelCell);
+
+    $zip->addFromString(
+        'xl/worksheets/sheet1.xml',
+        str_replace($originalModelCell, $dateFormattedModelCell, $sheetXml),
+    );
+
+    $contentTypes = (string) $zip->getFromName('[Content_Types].xml');
+    $zip->addFromString(
+        '[Content_Types].xml',
+        str_replace(
+            '</Types>',
+            '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>',
+            $contentTypes,
+        ),
+    );
+
+    $relationships = (string) $zip->getFromName('xl/_rels/workbook.xml.rels');
+    $zip->addFromString(
+        'xl/_rels/workbook.xml.rels',
+        str_replace(
+            '</Relationships>',
+            '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
+            $relationships,
+        ),
+    );
+
+    $zip->addFromString('xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        .'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        .'<numFmts count="1"><numFmt numFmtId="165" formatCode="d-m"/></numFmts>'
+        .'<cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="165" applyNumberFormat="1"/></cellXfs>'
+        .'</styleSheet>');
+
+    $zip->close();
+}
+
 test('csv merged detail headers keep legacy fallback behaviour', function () {
     $path = storage_path('framework/testing/catalog-merged-headers.csv');
 
@@ -204,6 +276,36 @@ test('csv merged detail headers keep legacy fallback behaviour', function () {
         ->and($headers[8]['group'])->toBe('Оптика')
         ->and($headers[8]['category_title'])->toBe('Фары')
         ->and(app(SpreadsheetReader::class)->countRows($path, 2))->toBe(1);
+});
+
+test('xlsx date-formatted model cells use their displayed text value', function () {
+    $path = storage_path('framework/testing/catalog-date-formatted-model.xlsx');
+
+    writeCatalogDateFormattedModelTestXlsx($path);
+
+    $reader = app(SpreadsheetReader::class);
+    $row = $reader->readChunk($path, 0, 1, 2)[0];
+
+    expect($row[1])->toBe('Saab')
+        ->and($row[2])->toBe('9-3')
+        ->and($row[2])->toBeString()
+        ->and($row[3])->toBe('2');
+
+    $headers = $reader->readMergedDetailHeaders($path);
+    $run = catalogImportRun(['detail_columns' => $headers]);
+    Queue::fake();
+    $prepared = app(ImportRowProcessor::class)->prepareDetailColumns($run, $headers);
+
+    app(ImportRowProcessor::class)->process(
+        run: $run,
+        row: $row,
+        detailColumns: $prepared,
+        rowNumber: 3,
+    );
+
+    expect(VehicleModel::query()->firstOrFail()->title)->toBe('9-3')
+        ->and(VehicleModel::query()->where('title', '2024-03-09')->exists())->toBeFalse()
+        ->and(Product::query()->count())->toBe(1);
 });
 
 test('xlsx merged detail headers use real merge ranges and reset group after range ends', function () {
@@ -361,7 +463,7 @@ test('row creates product default variant and fitment', function () {
     processCatalogRow($run, catalogRow(['6' => '1.0']));
 
     $product = Product::query()->firstOrFail();
-    $variant = ProductVariant::query()->firstOrFail();
+    $variant = $product->defaultVariant()->firstOrFail();
     $fitment = ProductFitment::query()->firstOrFail();
     $generation = VehicleGeneration::query()->firstOrFail();
 
@@ -371,11 +473,13 @@ test('row creates product default variant and fitment', function () {
         ->and($product->import_key)->not->toBeNull()
         ->and($product->import_source)->toBe('catalog')
         ->and($product->last_import_run_id)->toBe((string) $run->getKey())
-        ->and($product->price)->toBeNull()
+        ->and($product->price)->toBe('1790.00')
+        ->and($product->old_price)->toBeNull()
         ->and($product->sku)->toBeNull()
         ->and($variant->product_id)->toBe($product->getKey())
         ->and($variant->is_default)->toBeTrue()
-        ->and($variant->price)->toBe('0.00')
+        ->and($variant->price)->toBe('1790.00')
+        ->and($variant->old_price)->toBeNull()
         ->and($fitment->product_id)->toBe($product->getKey())
         ->and($fitment->vehicle_generation_id)->toBe($generation->getKey());
 });
@@ -419,7 +523,7 @@ test('repeated import updates existing product without duplicates', function () 
         ->and(VehicleGeneration::query()->count())->toBe(1)
         ->and(ProductCategory::query()->count())->toBe(9)
         ->and(Product::query()->count())->toBe(1)
-        ->and(ProductVariant::query()->count())->toBe(1)
+        ->and(ProductVariant::query()->count())->toBe(24)
         ->and(ProductFitment::query()->count())->toBe(1)
         ->and(Product::query()->firstOrFail()->last_import_run_id)->toBe((string) $secondRun->getKey());
 });
@@ -478,6 +582,8 @@ test('catalog chunk archives missing products after successful import', function
         ',Toyota,Camry,XV70,2017-2023,седан,1',
     ]));
 
+    Cache::put('public_catalog:public_make_ids:v3', [999999], 1800);
+
     $run = catalogImportRun([
         'stored_path' => 'imports/catalog/catalog.csv',
         'total_rows' => 1,
@@ -498,7 +604,8 @@ test('catalog chunk archives missing products after successful import', function
     );
 
     expect($run->fresh()->status)->toBe(ImportRunStatus::Done)
-        ->and($oldProduct->fresh()->status)->toBe(ProductStatus::Archived);
+        ->and($oldProduct->fresh()->status)->toBe(ProductStatus::Archived)
+        ->and(Cache::has('public_catalog:public_make_ids:v3'))->toBeFalse();
 });
 
 test('fake http image download saves product image file', function () {
@@ -797,6 +904,35 @@ test('vehicle image url is not queued again when source file exists', function (
     Queue::assertNotPushed(DownloadVehicleGenerationImageJob::class);
 });
 
+test('vehicle generation image dispatch is unique per run generation and url across processor instances', function () {
+    Storage::fake('public');
+    Queue::fake();
+
+    $firstUrl = 'https://example.test/car-first.jpg';
+    $changedUrl = 'https://example.test/car-changed.jpg';
+    $firstRun = catalogImportRun();
+
+    app(ImportRowProcessor::class)->process($firstRun, catalogRow([0 => $firstUrl, 6 => '']), $firstRun->detail_columns, 3);
+    app(ImportRowProcessor::class)->process($firstRun, catalogRow([0 => $firstUrl, 6 => '']), $firstRun->detail_columns, 4);
+
+    Queue::assertPushed(DownloadVehicleGenerationImageJob::class, 1);
+    expect($firstRun->fresh()->queued_images)->toBe(1)
+        ->and($firstRun->fresh()->queued_vehicle_image_keys)->toHaveCount(1);
+
+    app(ImportRowProcessor::class)->process($firstRun, catalogRow([0 => $changedUrl, 6 => '']), $firstRun->detail_columns, 5);
+
+    Queue::assertPushed(DownloadVehicleGenerationImageJob::class, 2);
+    expect($firstRun->fresh()->queued_images)->toBe(2)
+        ->and($firstRun->fresh()->queued_vehicle_image_keys)->toHaveCount(2);
+
+    $secondRun = catalogImportRun();
+    app(ImportRowProcessor::class)->process($secondRun, catalogRow([0 => $firstUrl, 6 => '']), $secondRun->detail_columns, 3);
+
+    Queue::assertPushed(DownloadVehicleGenerationImageJob::class, 3);
+    expect($secondRun->fresh()->queued_images)->toBe(1)
+        ->and($secondRun->fresh()->queued_vehicle_image_keys)->toHaveCount(1);
+});
+
 test('grouped detail title is used in product title while category remains nested', function () {
     $run = catalogImportRun([
         'detail_columns' => [
@@ -1087,7 +1223,10 @@ test('repeated import preserves manual product fields variants fitments and defa
     processCatalogRow($firstRun, catalogRow([6 => '1']));
 
     $product = Product::query()->firstOrFail();
-    $variant = ProductVariant::query()->firstOrFail();
+    $variant = $product->defaultVariant()->firstOrFail();
+
+    expect($product->price)->toEqual('1790.00')
+        ->and($variant->price)->toEqual('1790.00');
     $manual = ProductImage::factory()->forProduct($product)->main()->create([
         'disk' => 'public',
         'path' => 'uploads/products/'.$product->getKey().'/manual-main.webp',
@@ -1116,6 +1255,7 @@ test('repeated import preserves manual product fields variants fitments and defa
     $variant->forceFill([
         'sku' => 'MANUAL-VARIANT-SKU',
         'price' => 7777.77,
+        'old_price' => 8888.88,
         'stock_quantity' => 42,
         'stock_status' => StockStatus::OutOfStock,
     ])->save();
@@ -1137,7 +1277,7 @@ test('repeated import preserves manual product fields variants fitments and defa
     processCatalogRow($secondRun, catalogRow([6 => '1.0']));
 
     expect(Product::query()->count())->toBe(1)
-        ->and(ProductVariant::query()->count())->toBe(1)
+        ->and(ProductVariant::query()->count())->toBe(24)
         ->and(ProductFitment::query()->count())->toBe(2)
         ->and(ProductImage::query()->where('source_type', ProductImage::SOURCE_DEFAULT)->count())->toBe(1)
         ->and(ProductImage::query()->where('source_type', ProductImage::SOURCE_IMPORT)->count())->toBe(1)
@@ -1157,6 +1297,7 @@ test('repeated import preserves manual product fields variants fitments and defa
         ->and($product->fresh()->is_featured)->toBeTrue()
         ->and($variant->fresh()->sku)->toBe('MANUAL-VARIANT-SKU')
         ->and($variant->fresh()->price)->toEqual('7777.77')
+        ->and($variant->fresh()->old_price)->toEqual('8888.88')
         ->and($variant->fresh()->stock_quantity)->toBe(42)
         ->and($variant->fresh()->stock_status)->toBe(StockStatus::OutOfStock)
         ->and($primaryFitment->fresh()->note)->toBe('Ручная заметка')

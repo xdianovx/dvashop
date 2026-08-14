@@ -132,6 +132,18 @@ class OrderResource extends Resource
                         ->label('Способ доставки')
                         ->options(DeliveryMethod::options())
                         ->disabled(),
+                    DateTimePicker::make('customer_email_sent_at')
+                        ->label('Email клиенту отправлен')
+                        ->disabled(),
+                    DateTimePicker::make('manager_email_sent_at')
+                        ->label('Email менеджеру отправлен')
+                        ->disabled(),
+                    DateTimePicker::make('bitrix_sent_at')
+                        ->label('Bitrix отправлен')
+                        ->disabled(),
+                    TextInput::make('bitrix_entity_id')
+                        ->label('ID в Bitrix')
+                        ->disabled(),
                 ])
                 ->columns(2),
             Section::make('Состав заказа')

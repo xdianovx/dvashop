@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Страница не найдена — 2POROGA')
+@section('title', 'Страница не найдена — '.(($storefront ?? null)?->storeName ?? 'AVTOPOROGI.ru'))
 
 @section('content')
     <section class="error-page">

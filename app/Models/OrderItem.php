@@ -22,6 +22,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'title',
     'sku',
     'quantity',
+    'stock_was_decremented',
+    'stock_restored_at',
     'price',
     'total',
 ])]
@@ -74,6 +76,8 @@ class OrderItem extends Model
     {
         return [
             'quantity' => 'integer',
+            'stock_was_decremented' => 'boolean',
+            'stock_restored_at' => 'datetime',
             'options_snapshot' => 'array',
             'price_snapshot' => 'decimal:2',
             'old_price_snapshot' => 'decimal:2',

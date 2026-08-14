@@ -33,3 +33,20 @@ test('faq page eager loads ordered active non deleted categories and questions',
         ->assertDontSee($hidden->question)
         ->assertDontSee($deleted->question);
 });
+
+test('faq keeps both mobile calls to action visible', function (): void {
+    $this->seed([ShopSettingsSeeder::class, StaticPageContentSeeder::class, FaqSeeder::class]);
+
+    $this->get(route('faq'))
+        ->assertOk()
+        ->assertSee('faq-page__cta', false)
+        ->assertSee('faq-page__cta-home', false)
+        ->assertSee('data-inquiry-open', false);
+
+    $scss = file_get_contents(resource_path('scss/_faq-page.scss'));
+
+    expect($scss)
+        ->toContain(".faq-page__cta {\n        display: flex;")
+        ->not->toContain(".faq-page__cta {\n        display: none;")
+        ->toContain(".faq-page__cta-home {\n        display: flex;");
+});

@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Заказ оформлен — 2POROGA')
+@section('title', 'Заказ оформлен — '.(($storefront ?? null)?->storeName ?? 'AVTOPOROGI.ru'))
 
 @section('content')
     <section class="thanks">
@@ -22,15 +22,15 @@
                         @if ($order->customer_email)<div class="thanks-details__row"><dt class="thanks-details__term">Email</dt><dd class="thanks-details__value">{{ $order->customer_email }}</dd></div>@endif
                         @if ($order->customer_city)<div class="thanks-details__row"><dt class="thanks-details__term">Город</dt><dd class="thanks-details__value">{{ $order->customer_city }}</dd></div>@endif
                         @if ($order->customer_address)<div class="thanks-details__row thanks-details__row--full"><dt class="thanks-details__term">Адрес</dt><dd class="thanks-details__value">{{ $order->customer_address }}</dd></div>@endif
-                        <div class="thanks-details__row thanks-details__row--full"><dt class="thanks-details__term">Доставка</dt><dd class="thanks-details__value">{{ $order->delivery_method->label() }}</dd></div>
-                        <div class="thanks-details__row thanks-details__row--full"><dt class="thanks-details__term">Оплата</dt><dd class="thanks-details__value">{{ $order->payment_method->label() }}</dd></div>
+                        <div class="thanks-details__row thanks-details__row--full"><dt class="thanks-details__term">Доставка</dt><dd class="thanks-details__value">{{ $order->delivery_method_title_snapshot ?: 'Не указана' }}</dd></div>
+                        <div class="thanks-details__row thanks-details__row--full"><dt class="thanks-details__term">Оплата</dt><dd class="thanks-details__value">{{ $order->payment_method_title_snapshot ?: 'Не указана' }}</dd></div>
                         @if ($order->customer_comment)<div class="thanks-details__row thanks-details__row--full"><dt class="thanks-details__term">Комментарий</dt><dd class="thanks-details__value">{{ $order->customer_comment }}</dd></div>@endif
                     </dl>
                     <ol class="thanks-steps">
                         @foreach ([
                             ['title' => 'Подтверждение', 'text' => 'Менеджер перезвонит и уточнит детали заказа и сроки отгрузки.'],
                             ['title' => 'Комплектация', 'text' => 'Детали проверяются по геометрии и упаковываются для отправки.'],
-                            ['title' => 'Доставка', 'text' => 'Отправим ТК или курьером — трек-номер пришлём в SMS или на email.'],
+                            ['title' => 'Доставка', 'text' => 'После отправки сообщим трек-номер по телефону или email.'],
                         ] as $index => $step)
                             <li class="thanks-steps__item">
                                 <span class="thanks-steps__num" aria-hidden="true">{{ $index + 1 }}</span>
@@ -53,8 +53,8 @@
                         @endforeach
                     </ul>
                     <div class="checkout-order__row"><span>Товары</span><span class="checkout-order__value">{{ number_format((float) $order->subtotal, 0, ',', ' ') }} ₽</span></div>
-                    <div class="checkout-order__row"><span>Доставка</span><span class="checkout-order__value">{{ number_format((float) $order->delivery_price, 0, ',', ' ') }} ₽</span></div>
-                    <div class="checkout-order__total"><span>Итого</span><span class="checkout-order__total-value">{{ number_format((float) $order->total, 0, ',', ' ') }} ₽</span></div>
+                    <div class="checkout-order__row"><span>Доставка</span><span class="checkout-order__value">{{ $order->deliveryPriceText() }}</span></div>
+                    <div class="checkout-order__total"><span>{{ $order->total_is_final ? 'Итого' : 'Сумма товаров (без доставки)' }}</span><span class="checkout-order__total-value">{{ number_format((float) $order->total, 0, ',', ' ') }} ₽</span></div>
                 </aside>
             </div>
             <div class="thanks__actions"><a href="{{ route('home') }}" class="thanks__btn thanks__btn--primary">Вернуться на главную</a><a href="{{ route('catalog.index') }}" class="thanks__btn thanks__btn--outline">Продолжить покупки</a></div>

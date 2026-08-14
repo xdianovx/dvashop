@@ -2,11 +2,14 @@
 
 use App\Enums\CartStatus;
 use App\Enums\DeliveryMethod;
+use App\Enums\DeliveryPriceMode;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
 use App\Events\OrderCreated;
-use App\Listeners\SendOrderCreatedEmails;
+use App\Listeners\SendCustomerOrderEmail;
+use App\Listeners\SendManagerOrderEmail;
+use App\Listeners\SendOrderToBitrix;
 use App\Models\Cart;
 use App\Models\DeliveryMethodSetting;
 use App\Models\Order;
@@ -20,6 +23,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Validation\ValidationException;
@@ -30,11 +34,14 @@ beforeEach(function (): void {
     DeliveryMethodSetting::factory()->create([
         'code' => DeliveryMethod::TransportCompany,
         'title' => 'Транспортная компания',
+        'description' => 'Delivery snapshot description',
         'base_price' => 700,
+        'price_mode' => DeliveryPriceMode::Fixed,
         'is_active' => true,
     ]);
     PaymentMethodSetting::factory()->create([
         'code' => PaymentMethod::Sbp,
+        'description' => 'Payment snapshot description',
         'title' => 'СБП',
         'is_active' => true,
     ]);
@@ -80,6 +87,8 @@ function cartWithSnapshotItem(float $price = 2500, int $quantity = 2): array
 
 test('CheckoutService creates immutable order snapshots customer fields totals and completes cart', function () {
     Event::fake([OrderCreated::class]);
+    $deliverySetting = DeliveryMethodSetting::query()->firstOrFail();
+    $paymentSetting = PaymentMethodSetting::query()->firstOrFail();
     [$cart, $variant] = cartWithSnapshotItem();
     $cartItem = $cart->items()->firstOrFail();
 
@@ -93,6 +102,10 @@ test('CheckoutService creates immutable order snapshots customer fields totals a
         ->and($order->payment_status)->toBe(PaymentStatus::Pending)
         ->and($order->payment_method)->toBe(PaymentMethod::Sbp)
         ->and($order->delivery_method)->toBe(DeliveryMethod::TransportCompany)
+        ->and($order->delivery_method_title_snapshot)->toBe($deliverySetting->title)
+        ->and($order->delivery_method_description_snapshot)->toBe('Delivery snapshot description')
+        ->and($order->payment_method_title_snapshot)->toBe($paymentSetting->title)
+        ->and($order->payment_method_description_snapshot)->toBe('Payment snapshot description')
         ->and($order->customer_name)->toBe('Иван Петров')
         ->and($order->customer_city)->toBe('Москва')
         ->and($order->customer_comment)->toBe('Позвонить заранее')
@@ -109,8 +122,13 @@ test('CheckoutService creates immutable order snapshots customer fields totals a
     $variant->product->update(['title' => 'Изменённый товар']);
     $variant->update(['title' => 'Новый вариант', 'price' => 9900]);
 
+    $deliverySetting->update(['title' => 'Changed delivery title']);
+    $paymentSetting->update(['title' => 'Changed payment title']);
+
     expect($orderItem->refresh()->title_snapshot)->toBe($cartItem->title_snapshot)
-        ->and($orderItem->price_snapshot)->toBe('2500.00');
+        ->and($orderItem->price_snapshot)->toBe('2500.00')
+        ->and($order->refresh()->delivery_method_title_snapshot)->not->toBe('Changed delivery title')
+        ->and($order->payment_method_title_snapshot)->not->toBe('Changed payment title');
 
     Event::assertDispatched(OrderCreated::class, fn (OrderCreated $event): bool => $event->order->is($order));
 });
@@ -181,7 +199,7 @@ test('CheckoutService uses only the authenticated user id', function () {
         ->and($order->user_id)->not->toBe($otherUser->getKey());
 });
 
-test('CheckoutService queues one after commit email listener without sending mail inline', function () {
+test('CheckoutService queues three independent after commit listeners without sending outbound calls inline', function () {
     Queue::fake();
     Mail::fake();
     [$cart] = cartWithSnapshotItem();
@@ -193,11 +211,52 @@ test('CheckoutService queues one after commit email listener without sending mai
 
     expect($order->exists)->toBeTrue();
     Mail::assertNothingSent();
-    Queue::assertPushed(CallQueuedListener::class, function (CallQueuedListener $job): bool {
-        return $job->class === SendOrderCreatedEmails::class
-            && $job->afterCommit === true;
+    foreach ([SendCustomerOrderEmail::class, SendManagerOrderEmail::class, SendOrderToBitrix::class] as $listener) {
+        Queue::assertPushed(CallQueuedListener::class, fn (CallQueuedListener $job): bool => $job->class === $listener
+            && $job->afterCommit === true);
+    }
+    Queue::assertPushedTimes(CallQueuedListener::class, 3);
+});
+
+test('CheckoutService dispatches OrderCreated only after the database transaction commits', function (): void {
+    Queue::fake();
+    $baselineTransactionLevel = DB::transactionLevel();
+    $transactionLevels = [];
+    Event::listen(OrderCreated::class, function () use (&$transactionLevels): void {
+        $transactionLevels[] = DB::transactionLevel();
     });
-    Queue::assertPushedTimes(CallQueuedListener::class, 1);
+    [$cart] = cartWithSnapshotItem();
+
+    $order = app(CheckoutService::class)->createOrderFromCart(
+        checkoutRequest($cart),
+        validCheckoutData(),
+    );
+
+    expect($order->exists)->toBeTrue()
+        ->and($transactionLevels)->toBe([$baselineTransactionLevel]);
+});
+
+test('CheckoutService creates an order without outbound calls when all channels are disabled', function (): void {
+    Mail::fake();
+    Http::fake();
+    config()->set([
+        'shop.orders.customer_email_enabled' => false,
+        'shop.orders.manager_email_enabled' => false,
+        'shop.orders.bitrix_enabled' => false,
+    ]);
+    [$cart] = cartWithSnapshotItem();
+
+    $order = app(CheckoutService::class)->createOrderFromCart(
+        checkoutRequest($cart),
+        validCheckoutData(['customer_email' => 'customer@example.test']),
+    );
+
+    expect($order->exists)->toBeTrue()
+        ->and($order->customer_email_sent_at)->toBeNull()
+        ->and($order->manager_email_sent_at)->toBeNull()
+        ->and($order->bitrix_sent_at)->toBeNull();
+    Mail::assertNothingSent();
+    Http::assertNothingSent();
 });
 
 test('CheckoutService rejects an empty cart', function () {

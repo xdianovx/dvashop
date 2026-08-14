@@ -46,6 +46,10 @@ test('homepage renders approved active database sections without adding featured
 
     $this->get(route('home'))
         ->assertOk()
+        ->assertSee('categories__card--commercial', false)
+        ->assertSee('Коммерческий')
+        ->assertSee('транспорт')
+        ->assertSee('href="'.route('catalog.index').'"', false)
         ->assertSee('Карточка из базы данных')
         ->assertSee(route('catalog.index', ['category' => $category->full_slug]), false)
         ->assertSee('Поиск деталей по автомобилю из базы')

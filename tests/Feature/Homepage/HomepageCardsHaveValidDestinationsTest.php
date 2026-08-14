@@ -31,7 +31,7 @@ test('homepage category editor exposes only structured destination choices', fun
         ->and($source)->not->toContain("Select::make('url')");
 });
 
-test('homepage cards resolve exact existing catalog targets and keep commercial inactive', function (): void {
+test('homepage cards resolve exact existing catalog targets including the commercial catalog route', function (): void {
     $sill = PartType::factory()->create(['title' => 'Порог']);
     $arch = PartType::factory()->create(['title' => 'Арка']);
     $front = PartType::factory()->childOf($arch)->create(['title' => 'Передняя']);
@@ -53,7 +53,10 @@ test('homepage cards resolve exact existing catalog targets and keep commercial 
         ->and($cards[HomepageCategoryCardCode::FrontArches->value]->part_type_id)->toBe($front->getKey())
         ->and($cards[HomepageCategoryCardCode::RearArches->value]->part_type_id)->toBe($rear->getKey())
         ->and($cards[HomepageCategoryCardCode::BodyRepair->value]->product_category_id)->toBe($repair->getKey())
-        ->and($cards[HomepageCategoryCardCode::Commercial->value]->is_active)->toBeFalse()
+        ->and($cards[HomepageCategoryCardCode::Commercial->value]->is_active)->toBeTrue()
+        ->and($cards[HomepageCategoryCardCode::Commercial->value]->link_type)->toBe(NavigationLinkType::Route)
+        ->and($cards[HomepageCategoryCardCode::Commercial->value]->route_name)->toBe('catalog.index')
+        ->and(route($cards[HomepageCategoryCardCode::Commercial->value]->route_name))->toBe(route('catalog.index'))
         ->and($cards[HomepageCategoryCardCode::Commercial->value]->product_category_id)->toBeNull()
         ->and($cards[HomepageCategoryCardCode::Commercial->value]->part_type_id)->toBeNull();
 
@@ -76,13 +79,15 @@ test('homepage cards resolve exact existing catalog targets and keep commercial 
     }
 });
 
-test('missing homepage card targets create no catalog records and leave cards inactive', function (): void {
+test('missing homepage relation targets create no catalog records while commercial stays available', function (): void {
     $before = [ProductCategory::query()->count(), PartType::query()->count()];
 
     $this->seed(HomepageContentSeeder::class);
 
     expect([ProductCategory::query()->count(), PartType::query()->count()])->toBe($before)
-        ->and(HomepageCategoryCard::query()->where('is_active', true)->exists())->toBeFalse()
+        ->and(HomepageCategoryCard::query()->where('is_active', true)->pluck('code')->map->value->all())->toBe([
+            HomepageCategoryCardCode::Commercial->value,
+        ])
         ->and(HomepageCategoryCard::query()->whereNotNull('product_category_id')->exists())->toBeFalse()
         ->and(HomepageCategoryCard::query()->whereNotNull('part_type_id')->exists())->toBeFalse();
 });

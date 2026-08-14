@@ -3,11 +3,13 @@
 namespace App\Filament\Pages\SiteContent;
 
 use App\Enums\AdminPermission;
+use App\Enums\DeliveryPriceMode;
 use App\Filament\Support\SiteContentEditorPage;
 use App\Models\User;
 use App\Services\SiteContent\SitePageContentAdminService;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -91,6 +93,10 @@ class EditPaymentPage extends SiteContentEditorPage
                                     ->minValue(0)
                                     ->step(0.01)
                                     ->prefix('₽')
+                                    ->required(),
+                                Select::make('price_mode')
+                                    ->label('Режим стоимости')
+                                    ->options(DeliveryPriceMode::options())
                                     ->required(),
                                 Toggle::make('is_active')->label('Показывать на сайте'),
                                 Textarea::make('description')

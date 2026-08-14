@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Enums\DeliveryMethod;
+use App\Enums\DeliveryPriceMode;
 use App\Enums\PaymentMethod;
 use App\Models\DeliveryMethodSetting;
 use App\Models\PaymentMethodSetting;
@@ -22,6 +23,7 @@ class CheckoutMethodSettingsSeeder extends Seeder
             'page_title' => 'Доставка транспортной компанией',
             'page_description' => 'При получении товара на нашем складе, в пункте выдачи транспортной компании в Вашем городе или при доставке товара по указанному вами адресу',
             'base_price' => 0,
+            'price_mode' => DeliveryPriceMode::OnRequest,
             'is_active' => true,
             'position' => 10,
         ],
@@ -31,6 +33,7 @@ class CheckoutMethodSettingsSeeder extends Seeder
             'page_title' => null,
             'page_description' => null,
             'base_price' => 0,
+            'price_mode' => DeliveryPriceMode::Free,
             'is_active' => true,
             'position' => 20,
         ],
@@ -40,6 +43,7 @@ class CheckoutMethodSettingsSeeder extends Seeder
             'page_title' => null,
             'page_description' => null,
             'base_price' => 0,
+            'price_mode' => DeliveryPriceMode::OnRequest,
             'is_active' => false,
             'position' => 30,
         ],
@@ -49,6 +53,7 @@ class CheckoutMethodSettingsSeeder extends Seeder
             'page_title' => null,
             'page_description' => null,
             'base_price' => 0,
+            'price_mode' => DeliveryPriceMode::OnRequest,
             'is_active' => false,
             'position' => 40,
         ],

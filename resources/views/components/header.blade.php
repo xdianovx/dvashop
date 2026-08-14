@@ -1,4 +1,4 @@
-@props(['storefront' => null])
+@props(['storefront' => null, 'favoritesCount' => 0, 'cartCount' => 0])
 
 @php
     $topLinks = $storefront?->navigationFor(\App\Enums\NavigationZone::HeaderTop) ?? [];
@@ -23,7 +23,7 @@
         <div class="container header__bar-inner">
             <x-burger />
 
-            <a href="{{ route('home') }}" class="header__logo" aria-label="2POROGA — на главную">
+            <a href="{{ route('home') }}" class="header__logo" aria-label="{{ $storefront?->storeName ?? 'AVTOPOROGI.ru' }} — на главную">
                 <img src="/img/logo.svg" alt="AVTOPOROGI.ru" width="253" height="33">
             </a>
 
@@ -53,8 +53,31 @@
                 @endif
 
                 <div class="header__actions">
-                    <a href="{{ route('cart.show') }}" class="header__action" aria-label="Корзина">
+                    <a
+                        href="{{ route('favorites.show') }}"
+                        class="header__action header__favorites"
+                        aria-label="Избранное, товаров: {{ $favoritesCount }}"
+                        data-favorites-link
+                    >
+                        <img src="/img/icons/header-heart.svg" alt="" aria-hidden="true" width="42" height="36">
+                        <span
+                            class="header__favorites-badge"
+                            data-favorites-count
+                            @if ($favoritesCount < 1) hidden @endif
+                        >{{ $favoritesCount > 99 ? '99+' : $favoritesCount }}</span>
+                    </a>
+                    <a
+                        href="{{ route('cart.show') }}"
+                        class="header__action header__cart"
+                        aria-label="Корзина, товаров: {{ $cartCount }}"
+                        data-cart-link
+                    >
                         <img src="/img/icons/header-cart.svg" alt="" aria-hidden="true" width="47" height="39">
+                        <span
+                            class="header__cart-badge"
+                            data-cart-count
+                            @if ($cartCount < 1) hidden @endif
+                        >{{ $cartCount > 99 ? '99+' : $cartCount }}</span>
                     </a>
                 </div>
             </div>

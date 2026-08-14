@@ -30,6 +30,7 @@ test('shop settings page is a registered singleton page backed by its policy', f
         ->assertFormFieldExists('store_name')
         ->assertFormFieldExists('phone_href')
         ->assertFormFieldExists('public_email')
+        ->assertFormFieldExists('inquiry_notification_email')
         ->assertFormFieldExists('inn')
         ->assertFormFieldExists('vk_url')
         ->assertFormFieldExists('footer_copyright');
@@ -49,6 +50,7 @@ test('admin and super admin save singleton settings idempotently with a russian 
             'phone_display' => '+7 (999) 111-22-33',
             'phone_href' => '+7 (999) 111-22-33',
             'public_email' => 'SALES@EXAMPLE.RU',
+            'inquiry_notification_email' => 'INQUIRIES@EXAMPLE.RU',
             'inn' => '1234567890',
             'ogrn' => '1234567890123',
             'vk_url' => 'https://vk.com/magazporogi',
@@ -64,6 +66,7 @@ test('admin and super admin save singleton settings idempotently with a russian 
     expect($setting->store_name)->toBe('МагазПороги')
         ->and($setting->phone_href)->toBe('+79991112233')
         ->and($setting->public_email)->toBe('sales@example.ru')
+        ->and($setting->inquiry_notification_email)->toBe('inquiries@example.ru')
         ->and(ShopSetting::query()->count())->toBe(1);
 })->with(['super admin' => ['super_admin'], 'admin' => ['admin']]);
 
@@ -109,6 +112,7 @@ test('forged shop settings livewire state returns field validation without chang
     'phone array' => ['phone_href', []],
     'phone javascript' => ['phone_href', 'javascript:alert(1)'],
     'invalid email' => ['public_email', 'not-an-email'],
+    'invalid inquiry email' => ['inquiry_notification_email', 'not-an-email'],
     'invalid inn' => ['inn', '123'],
     'invalid ogrn' => ['ogrn', '123'],
     'unsafe vk' => ['vk_url', 'data:text/plain,test'],

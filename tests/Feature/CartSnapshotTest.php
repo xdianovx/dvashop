@@ -34,6 +34,7 @@ test('CartSnapshot add item stores catalog snapshots including options and image
         ],
         'price' => 2990,
         'old_price' => 3290,
+        'stock_quantity' => null,
     ]);
     $cart = Cart::factory()->create();
 
@@ -53,6 +54,7 @@ test('CartSnapshot add item stores catalog snapshots including options and image
 
 test('CartSnapshot excludes technical variant management metadata', function () {
     $variant = ProductVariant::factory()->create([
+        'stock_quantity' => null,
         'options' => [
             ...ProductVariant::technicalOptions(),
             'legacy' => ['group' => 'Legacy', 'value' => 'Доступное значение'],
@@ -72,7 +74,7 @@ test('CartSnapshot excludes technical variant management metadata', function () 
 });
 
 test('CartSnapshot quantity updates keep snapshots and totals use snapshot price', function () {
-    $variant = ProductVariant::factory()->create(['price' => 1750]);
+    $variant = ProductVariant::factory()->create(['price' => 1750, 'stock_quantity' => null]);
     $cart = Cart::factory()->create();
     $request = requestForCart($cart);
     $manager = app(CartManager::class);
@@ -91,6 +93,7 @@ test('CartSnapshot remains readable after product and variant are deleted', func
     $variant = ProductVariant::factory()->create([
         'options' => ['side' => ['group' => 'Сторона', 'value' => 'Левая']],
         'price' => 2100,
+        'stock_quantity' => null,
     ]);
     $product = $variant->product;
     $cart = Cart::factory()->create();

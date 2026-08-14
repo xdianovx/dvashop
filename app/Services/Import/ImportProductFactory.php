@@ -3,7 +3,6 @@
 namespace App\Services\Import;
 
 use App\Enums\ImportLogLevel;
-use App\Enums\ImportRunStatus;
 use App\Enums\ProductStatus;
 use App\Enums\ProductType;
 use App\Enums\StockStatus;
@@ -22,6 +21,7 @@ use App\Services\ImportRunStats;
 use App\Services\ImportStatusService;
 use App\Services\Media\ProductGalleryService;
 use App\Support\CatalogText;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -32,16 +32,21 @@ class ImportProductFactory
         private readonly ImportStatusService $statusService,
         private readonly ProductGalleryService $gallery,
         private readonly ImportLogger $logger,
+        private readonly CatalogImportPriceResolver $priceResolver,
+        private readonly CatalogImportProductDefaults $productDefaults,
     ) {}
 
     /** @var array<string, bool> */
     private array $missingDefaultImageWarnings = [];
 
     /** @var array<string, bool> */
+    private array $missingReferencePriceWarnings = [];
+
+    /** @var array<string, bool> */
     private array $missingProductImageUrlWarnings = [];
 
     /**
-     * @param array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string} $detailHeader
+     * @param  array{index:int, group:string|null, parent_title?:string|null, title:string, detail_title?:string, full_detail_title?:string, category_title:string}  $detailHeader
      */
     public function createOrUpdateFromCell(
         ImportRun $run,
@@ -57,10 +62,17 @@ class ImportProductFactory
         $productTitle = $this->productTitle($partType, $vehicle);
         $importKey = $this->importKey($vehicle, $partType, $source);
         $slug = $this->stableSlug($vehicle, $partType, $source, $productTitle);
+        $referencePrice = $this->priceResolver->resolve($partType);
+
+        if ($referencePrice === null) {
+            $this->warnMissingReferencePriceOnce($run, $partType);
+        }
 
         /** @var Product $product */
-        $product = Product::query()->firstOrNew(['import_key' => $importKey]);
+        $product = Product::query()->withTrashed()->firstOrNew(['import_key' => $importKey]);
         $wasCreated = ! $product->exists;
+        $initializeDefaults = $wasCreated && $source === 'catalog';
+        $canonicalTemplate = $initializeDefaults ? $this->productDefaults->canonicalTemplate() : null;
 
         $productAttributes = [
             'product_type' => ProductType::AutoPart,
@@ -75,47 +87,78 @@ class ImportProductFactory
 
         if ($wasCreated) {
             $productAttributes['stock_status'] = StockStatus::InStock;
-            $productAttributes['price'] = null;
+            $productAttributes['price'] = $referencePrice['price'] ?? null;
+            $productAttributes['old_price'] = $referencePrice['old_price'] ?? null;
         }
 
-        $product->fill($productAttributes);
-        $wasChanged = $product->isDirty();
-        $product->save();
-
-        if ($wasCreated) {
-            $this->stats->increment($run, 'created_products');
-        } elseif ($wasChanged) {
-            $this->stats->increment($run, 'updated_products');
+        if ($initializeDefaults) {
+            $productAttributes['product_option_template_id'] = $canonicalTemplate?->getKey();
+            $productAttributes['description'] = $this->productDefaults->description($partType, $vehicle);
         }
 
-        $variant = ProductVariant::query()->firstOrNew([
-            'product_id' => $product->getKey(),
-            'is_default' => true,
-        ]);
+        [$product, $variant] = DB::transaction(function () use (
+            $product,
+            $productAttributes,
+            $wasCreated,
+            $initializeDefaults,
+            $run,
+            $referencePrice,
+            $canonicalTemplate,
+            $partType,
+            $storeCategory,
+            $generation,
+        ): array {
+            if (! $wasCreated && $product->trashed()) {
+                $product->restore();
+            }
 
-        if (! $variant->exists) {
-            $variant->fill([
-                'title' => 'Основной',
-                'price' => 0,
-                'stock_status' => StockStatus::InStock,
-                'is_active' => true,
-            ])->save();
-        }
+            $product->fill($productAttributes);
+            $wasChanged = $product->isDirty();
+            $product->save();
 
-        $product->setRelation('partType', $partType);
-        $product->setRelation('category', $storeCategory);
-        $product->setRelation('defaultVariant', $variant);
+            if ($wasCreated) {
+                $this->stats->increment($run, 'created_products');
+            } elseif ($wasChanged) {
+                $this->stats->increment($run, 'updated_products');
+            }
 
-        ProductFitment::query()->firstOrCreate(
-            [
+            $variant = ProductVariant::query()->firstOrNew([
                 'product_id' => $product->getKey(),
-                'vehicle_generation_id' => $generation->getKey(),
-            ],
-            [
-                'note' => null,
-                'is_primary' => true,
-            ]
-        );
+                'is_default' => true,
+            ]);
+
+            if (! $variant->exists) {
+                $variant->fill([
+                    'title' => 'Основной',
+                    'price' => $referencePrice['price'] ?? 0,
+                    'old_price' => $referencePrice['old_price'] ?? null,
+                    'stock_status' => StockStatus::InStock,
+                    'is_active' => true,
+                ])->save();
+            }
+
+            if ($initializeDefaults && $canonicalTemplate !== null) {
+                $this->productDefaults->initialize($product, $canonicalTemplate);
+                $variant = $product->defaultVariant()->firstOrFail();
+            }
+
+            $product->setRelation('partType', $partType);
+            $product->setRelation('category', $storeCategory);
+            $product->setRelation('defaultVariant', $variant);
+
+            ProductFitment::query()->firstOrCreate(
+                [
+                    'product_id' => $product->getKey(),
+                    'vehicle_generation_id' => $generation->getKey(),
+                ],
+                [
+                    'note' => null,
+                    'is_primary' => true,
+                ]
+            );
+
+            return [$product, $variant];
+        });
 
         $imageUrl ??= $this->isUrl($cellValue) ? trim($cellValue) : null;
 
@@ -240,7 +283,6 @@ class ImportProductFactory
         return filter_var(trim($value), FILTER_VALIDATE_URL) !== false;
     }
 
-
     private function attachDefaultImage(Product $product, PartType $partType, ImportRun $run): void
     {
         $image = $this->gallery->ensureDefaultImage($product);
@@ -309,6 +351,37 @@ class ImportProductFactory
             ->where('is_visible', true)
             ->where('source_type', ProductImage::SOURCE_MANUAL)
             ->exists();
+    }
+
+    private function warnMissingReferencePriceOnce(ImportRun $run, PartType $partType): void
+    {
+        $partTypeKey = $partType->full_slug ?: (string) $partType->getKey();
+        $key = $run->getKey().':'.$partTypeKey;
+
+        if (isset($this->missingReferencePriceWarnings[$key])) {
+            return;
+        }
+
+        $alreadyLogged = ImportLog::query()
+            ->where('import_run_id', $run->getKey())
+            ->where('level', ImportLogLevel::Warning->value)
+            ->where('message', 'Справочная цена для типа детали не найдена')
+            ->where('context->part_type_full_slug', $partTypeKey)
+            ->exists();
+
+        if ($alreadyLogged) {
+            $this->missingReferencePriceWarnings[$key] = true;
+
+            return;
+        }
+
+        $this->missingReferencePriceWarnings[$key] = true;
+
+        $this->logger->warning($run, 'Справочная цена для типа детали не найдена', [
+            'part_type_id' => $partType->getKey(),
+            'part_type' => $partType->full_title ?: $partType->title,
+            'part_type_full_slug' => $partTypeKey,
+        ]);
     }
 
     private function warnMissingDefaultImageOnce(ImportRun $run, PartType $partType): void

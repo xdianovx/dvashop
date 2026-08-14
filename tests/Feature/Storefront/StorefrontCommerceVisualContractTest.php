@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\DeliveryMethod;
+use App\Enums\DeliveryPriceMode;
 use App\Enums\PaymentMethod;
 use App\Enums\StockStatus;
 use App\Models\Cart;
@@ -9,6 +10,7 @@ use App\Models\Order;
 use App\Models\PaymentMethodSetting;
 use App\Models\Product;
 use App\Models\ProductCategory;
+use App\Models\ProductFitment;
 use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
@@ -34,12 +36,20 @@ test('commerce pages preserve approved classes assets and real form actions', fu
         'years_label' => '2018–2022',
         'body' => 'Седан',
     ]);
-    VehicleGeneration::factory()->forVehicleModel($model)->create([
+    $wagonGeneration = VehicleGeneration::factory()->forVehicleModel($model)->create([
         'title' => 'Generation One',
         'slug' => 'generation-one-wagon',
         'years_label' => '2018–2022',
         'body' => 'Универсал',
     ]);
+    $otherGeneration = VehicleGeneration::factory()->forVehicleModel($otherModel)->create([
+        'title' => 'Other Generation',
+        'slug' => 'other-generation',
+    ]);
+    foreach ([$generation, $wagonGeneration, $otherGeneration] as $publicGeneration) {
+        $publicProduct = Product::factory()->withDefaultVariant()->create();
+        ProductFitment::factory()->forProduct($publicProduct)->forVehicleGeneration($publicGeneration)->create();
+    }
 
     $catalog = $this->get(route('catalog.index'))->assertOk();
     foreach (['catalog-search__form', 'catalog-search__submit-text', 'catalog-search__submit-icon'] as $class) {
@@ -84,7 +94,14 @@ test('commerce pages preserve approved classes assets and real form actions', fu
     }
 
     foreach (DeliveryMethod::cases() as $index => $method) {
-        DeliveryMethodSetting::factory()->create(['code' => $method, 'position' => $index, 'is_active' => true]);
+        DeliveryMethodSetting::factory()->create([
+            'code' => $method,
+            'position' => $index,
+            'price_mode' => $method === DeliveryMethod::TransportCompany
+                ? DeliveryPriceMode::OnRequest
+                : DeliveryPriceMode::Free,
+            'is_active' => true,
+        ]);
     }
     foreach (PaymentMethod::cases() as $index => $method) {
         PaymentMethodSetting::factory()->create(['code' => $method, 'position' => $index, 'is_active' => true]);
@@ -107,11 +124,16 @@ test('commerce pages preserve approved classes assets and real form actions', fu
         ->assertSee('placeholder="Москва"', false)
         ->assertSee('placeholder="Текст...."', false)
         ->assertSee('data-delivery-price=', false)
+        ->assertSee('data-delivery-price-mode="on_request"', false)
+        ->assertSee('Стоимость уточнит менеджер')
         ->assertSee('data-checkout-subtotal=', false)
         ->assertDontSee('name="delivery_price"', false)
         ->assertDontSee('name="total"', false);
 
-    $order = Order::factory()->create();
+    $order = Order::factory()->create([
+        'delivery_price_mode_snapshot' => DeliveryPriceMode::OnRequest,
+        'total_is_final' => false,
+    ]);
     $token = 'visual-success-token';
     $thanks = $this->withSession(['checkout_success.'.$order->getKey() => $token])
         ->get(route('checkout.success', ['order' => $order->number, 'token' => $token]))
@@ -124,7 +146,9 @@ test('commerce pages preserve approved classes assets and real form actions', fu
         ->assertSee('Доставка')
         ->assertSee('Менеджер перезвонит и уточнит детали заказа и сроки отгрузки.')
         ->assertSee('Детали проверяются по геометрии и упаковываются для отправки.')
-        ->assertSee('Отправим ТК или курьером — трек-номер пришлём в SMS или на email.');
+        ->assertSee('После отправки сообщим трек-номер по телефону или email.')
+        ->assertSee('Доставка рассчитывается отдельно')
+        ->assertSee('Сумма товаров (без доставки)');
 });
 
 test('product and checkout scripts keep server matrix and totals as presentation only', function (): void {
@@ -135,20 +159,61 @@ test('product and checkout scripts keep server matrix and totals as presentation
         ->toContain('[data-selected-sku]')
         ->toContain('[data-selected-stock-label]')
         ->toContain('stockLabel.textContent =')
-        ->toContain('sku.textContent = selectedVariant.sku')
+        ->toContain('renderSku(selectedVariant.sku)')
         ->toContain('part-buy__stock--in-stock')
         ->toContain('part-buy__stock--out-of-stock')
         ->toContain('part-buy__stock--pre-order')
         ->toContain('part-buy__stock--unavailable')
         ->toContain('candidate.variant_id === Number(fallbackSelect.value)')
-        ->toContain("selectedVariant.stock_status === 'out_of_stock'")
-        ->toContain('selectedVariant.stock_quantity <= 0')
+        ->toContain('price.textContent = selectedVariant.price_label')
         ->toContain('quantity.max = isInStock')
-        ->toContain('submit.disabled = isOutOfStock || hasNoStock')
+        ->toContain('submit.disabled = !selectedVariant.purchasable')
+        ->not->toContain('selectedVariant.price > 0')
         ->toContain('[data-delivery-price]')
+        ->toContain("priceMode === 'on_request'")
+        ->toContain('Стоимость уточнит менеджер')
+        ->toContain('Сумма товаров (без доставки)')
         ->toContain('subtotal + deliveryPrice')
         ->not->toContain('name="delivery_price"')
         ->not->toContain('name="total"');
+});
+
+test('storefront JavaScript source contract isolates product runtime features and traps inquiry focus', function (): void {
+    $script = file_get_contents(resource_path('js/app.js'));
+    $product = file_get_contents(resource_path('views/part.blade.php'));
+    $inquiry = file_get_contents(resource_path('views/components/storefront-inquiry-modal.blade.php'));
+
+    expect($script)
+        ->toContain('const initStorefrontFeature = (name, initializer) =>')
+        ->toContain('function initProductGallery()')
+        ->toContain("const mainGallery = document.querySelector('[data-gallery-main]')")
+        ->toContain("const thumbsGallery = document.querySelector('[data-gallery-thumbs]')")
+        ->toContain('if (!mainGallery || !thumbsGallery) return;')
+        ->toContain('new Swiper(thumbsGallery')
+        ->toContain('new Swiper(mainGallery')
+        ->toContain("initStorefrontFeature('product-gallery', initProductGallery)")
+        ->toContain('function initProductOptions()')
+        ->toContain("initStorefrontFeature('product-options', initProductOptions)")
+        ->toContain("console.error('[storefront:product-options] Unable to parse variant matrix.'")
+        ->toContain("quantity.max = '1'")
+        ->toContain('quantity.disabled = true')
+        ->toContain('submit.disabled = true')
+        ->toContain('function initCartAjax()')
+        ->toContain("initStorefrontFeature('cart-ajax', initCartAjax)")
+        ->toContain('function initInquiryForms()')
+        ->toContain("initStorefrontFeature('inquiry', initInquiryForms)")
+        ->toContain('const getFocusableElements = () =>')
+        ->toContain("event.key !== 'Tab'")
+        ->toContain('event.shiftKey ? lastFocusable : firstFocusable')
+        ->toContain('returnFocus.focus()')
+        ->and($product)
+        ->toContain('data-selected-sku-row')
+        ->toContain('@if (blank($displaySku)) hidden @endif')
+        ->and($inquiry)
+        ->toContain('type="tel"')
+        ->toContain('inputmode="tel"')
+        ->toContain('placeholder="+7 (___) ___-__-__"')
+        ->not->toContain('pattern=');
 });
 
 test('homepage search select and product stock icon preserve approved visual contracts', function (): void {
@@ -197,6 +262,7 @@ test('product page preserves approved delivery and related product visual contra
         'code' => DeliveryMethod::Courier,
         'title' => 'Курьер до двери',
         'base_price' => 490,
+        'price_mode' => DeliveryPriceMode::Fixed,
         'is_active' => true,
     ]);
     DeliveryMethodSetting::factory()->create([

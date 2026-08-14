@@ -30,7 +30,7 @@ final readonly class HowPageViewDataProvider
             StaticPageItemCode::HowStepPrepare->value => ['number' => '3', 'icon' => '/img/how/step-3.svg', 'break' => 'заказ к отправке', 'strong' => [], 'break_after' => null],
             StaticPageItemCode::HowStepHandover->value => ['number' => '4', 'icon' => '/img/how/step-4.svg', 'break' => 'в службу доставки', 'strong' => ['СДЭК.'], 'break_after' => 'СДЭК.'],
             StaticPageItemCode::HowStepReceive->value => ['number' => '5', 'icon' => '/img/how/step-5.svg', 'break' => 'Ваш заказ', 'strong' => [], 'break_after' => null],
-            StaticPageItemCode::HowStepPay->value => ['number' => '6', 'icon' => '/img/how/step-6.svg', 'break' => 'при получении', 'strong' => [], 'break_after' => null],
+            StaticPageItemCode::HowStepPay->value => ['number' => '6', 'icon' => '/img/how/step-6.svg', 'break' => 'доступным способом', 'strong' => [], 'break_after' => null],
         ];
         $steps = [];
 

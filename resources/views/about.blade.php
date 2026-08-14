@@ -31,8 +31,9 @@
                                 {{ $pageData->hero['lead_text'] }}
                             </p>
                         @endif
-                        @if (($storefront ?? null)?->phoneUrl)
-                            <a href="{{ $storefront->phoneUrl }}" class="btn about-hero__cta">Связаться</a>
+                        <a href="#storefront-inquiry" class="btn about-hero__cta" data-inquiry-open>Связаться</a>
+                        @if (($storefront ?? null)?->phoneUrl && $storefront?->phoneDisplay)
+                            <a href="{{ $storefront->phoneUrl }}" class="about-hero__phone">Позвонить: {{ $storefront->phoneDisplay }}</a>
                         @endif
                     </div>
                 </div>
@@ -95,4 +96,10 @@
             <a href="{{ route('home') }}" class="btn about-page__cta">Вернуться на главную</a>
         </div>
     </section>
+
+    <x-storefront-inquiry-modal
+        :type="\App\Enums\StorefrontInquiryType::GeneralConsultation->value"
+        source-code="about"
+        title="Связаться с нами"
+    />
 @endsection
