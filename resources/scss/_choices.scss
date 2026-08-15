@@ -1,0 +1,188 @@
+// Choices.js skin for the vehicle search selects. Overrides the vendor
+// stylesheet imported in app.js so the control keeps the flat look of the
+// search bar and only the dropdown reads as a floating panel.
+
+.search__form .search__field .choices {
+    // Vendor tokens first, so the parts we do not restyle by hand still match.
+    --choices-bg-color: transparent;
+    --choices-bg-color-dropdown: var(--color-surface);
+    --choices-bg-color-disabled: transparent;
+    --choices-keyline-color: transparent;
+    --choices-item-disabled-color: var(--color-muted);
+    --choices-placeholder-opacity: 1;
+
+    width: 100%;
+    min-width: 0;
+    margin-bottom: 0;
+}
+
+.search__form .search__field .choices:focus {
+    outline: none;
+}
+
+.search__form .search__field .choices__inner {
+    display: flex;
+    align-items: center;
+    min-height: 0;
+    padding: 0 24px 0 0;
+    background-color: transparent;
+    border: 0;
+    border-radius: 0;
+    font-family: var(--font-body);
+    font-weight: var(--fw-regular);
+    font-size: var(--fs-base);
+    line-height: var(--lh-snug);
+    color: var(--color-muted);
+}
+
+.search__form .search__field .choices[data-type*='select-one'] .choices__inner {
+    padding: 0 24px 0 0;
+}
+
+.search__form .search__field .choices.is-open .choices__inner,
+.search__form .search__field .choices.is-focused .choices__inner {
+    border: 0;
+    border-radius: 0;
+}
+
+.search__form .search__field .choices__list--single {
+    display: block;
+    width: 100%;
+    padding: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.search__form .search__field .choices__list--single .choices__item {
+    width: 100%;
+    overflow: hidden;
+    color: var(--color-primary-dark);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.search__form .search__field .choices__list--single .choices__placeholder {
+    opacity: 1;
+    color: var(--color-muted);
+}
+
+.search__form .search__field .choices[data-type*='select-one']::after {
+    top: 50%;
+    right: 4px;
+    width: 8px;
+    height: 8px;
+    margin: -6px 0 0;
+    border: 0;
+    border-right: 2px solid var(--color-primary-dark);
+    border-bottom: 2px solid var(--color-primary-dark);
+    border-radius: 1px;
+    transform: rotate(45deg);
+    transition: transform 0.18s ease;
+}
+
+.search__form .search__field .choices[data-type*='select-one'].is-open::after {
+    margin-top: -2px;
+    border-color: var(--color-primary-dark);
+    transform: rotate(-135deg);
+}
+
+.search__form .search__field .choices.is-disabled .choices__inner {
+    background-color: transparent;
+    opacity: 0.8;
+    cursor: default;
+}
+
+.search__form .search__field .choices.is-disabled .choices__item {
+    color: var(--color-muted);
+    cursor: default;
+}
+
+.search__form .search__field .choices.is-disabled[data-type*='select-one']::after {
+    opacity: 0.45;
+}
+
+.search__form .search__field .choices__list--dropdown {
+    z-index: 20;
+    margin-top: 12px;
+    padding: 8px;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
+}
+
+.search__form .search__field .choices__list--dropdown .choices__list {
+    max-height: 320px;
+}
+
+.search__form .search__field .choices__list--dropdown .choices__item {
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    font-family: var(--font-body);
+    font-size: var(--fs-base);
+    line-height: var(--lh-snug);
+    color: var(--color-text);
+}
+
+.search__form .search__field .choices__list--dropdown .choices__item--selectable.is-highlighted {
+    background-color: var(--color-bg);
+    color: var(--color-primary-dark);
+}
+
+.search__form .search__field .choices__list--dropdown .choices__item--selectable.is-selected {
+    font-weight: var(--fw-semibold);
+    color: var(--color-primary);
+}
+
+.search__form .search__field .choices__list--dropdown .choices__placeholder {
+    display: none;
+}
+
+.search__form .search__field .choices__list--dropdown .choices__input {
+    width: 100%;
+    margin: 0 0 8px;
+    padding: 10px 14px;
+    background-color: var(--color-bg);
+    border: 0;
+    border-radius: var(--radius-md);
+    font-family: var(--font-body);
+    font-size: var(--fs-base);
+    line-height: var(--lh-snug);
+    color: var(--color-text);
+}
+
+.search__form .search__field .choices__list--dropdown .choices__input:focus {
+    outline: 2px solid var(--color-primary-light);
+    outline-offset: -2px;
+}
+
+@media (max-width: 768px) {
+    .search__form .search__field .choices[data-type*='select-one'] .choices__inner {
+        padding-right: 18px;
+        font-size: 10px;
+    }
+
+    .search__form .search__field .choices[data-type*='select-one']::after {
+        right: 2px;
+        width: 6px;
+        height: 6px;
+        border-width: 1.5px;
+    }
+
+    .search__form .search__field .choices__list--dropdown {
+        margin-top: 8px;
+        padding: 6px;
+        border-radius: var(--radius-md);
+    }
+
+    .search__form .search__field .choices__list--dropdown .choices__list {
+        max-height: 260px;
+    }
+
+    .search__form .search__field .choices__list--dropdown .choices__item,
+    .search__form .search__field .choices__list--dropdown .choices__input {
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+}

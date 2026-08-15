@@ -3,6 +3,8 @@ import { Thumbs, Pagination } from 'swiper/modules';
 import 'swiper/css';
 import 'swiper/css/thumbs';
 import 'swiper/css/pagination';
+import Choices from 'choices.js';
+import 'choices.js/public/assets/styles/choices.css';
 
 const storefrontLoader = document.querySelector('[data-storefront-loader]');
 const storefrontLoaderLabel = storefrontLoader?.querySelector('[data-storefront-loader-label]');
@@ -50,6 +52,28 @@ const initStorefrontFeature = (name, initializer) => {
     }
 };
 
+// Custom select rendering. A failed init leaves the native select usable,
+// so every caller must tolerate a null instance.
+function createFieldChoices(select, searchPlaceholder) {
+    try {
+        return new Choices(select, {
+            searchEnabled: true,
+            searchPlaceholderValue: searchPlaceholder,
+            searchResultLimit: 20,
+            shouldSort: false,
+            allowHTML: false,
+            itemSelectText: '',
+            position: 'bottom',
+            noResultsText: 'Ничего не найдено',
+            noChoicesText: 'Нет вариантов',
+            loadingText: 'Загрузка…',
+        });
+    } catch (error) {
+        console.error('[storefront:choices]', error);
+        return null;
+    }
+}
+
 // Vehicle models are loaded only for the selected active make. Without JavaScript,
 // the disabled model field leaves the existing make-only catalog redirect intact.
 document.querySelectorAll('[data-vehicle-search]').forEach((form) => {
@@ -63,6 +87,13 @@ document.querySelectorAll('[data-vehicle-search]').forEach((form) => {
 
     if (!make || !model || !status || !statusText || !statusSpinner || !urlTemplate) return;
 
+    const modelPlaceholder = 'Выберите модель автомобиля';
+    const makeChoices = createFieldChoices(make, 'Поиск марки');
+    const modelChoices = createFieldChoices(model, 'Поиск модели');
+
+    if (makeChoices && make.disabled) makeChoices.disable();
+    if (modelChoices) modelChoices.disable();
+
     const setStatus = (message = '', loading = false) => {
         status.hidden = message === '';
         statusText.textContent = message;
@@ -70,8 +101,36 @@ document.querySelectorAll('[data-vehicle-search]').forEach((form) => {
     };
 
     const resetModel = () => {
-        model.replaceChildren(new Option('Выберите модель автомобиля', ''));
+        if (modelChoices) {
+            modelChoices.clearStore();
+            modelChoices.setChoices(
+                [{ value: '', label: modelPlaceholder, placeholder: true, selected: true }],
+                'value',
+                'label',
+                true,
+            );
+            modelChoices.disable();
+            return;
+        }
+
+        model.replaceChildren(new Option(modelPlaceholder, ''));
         model.disabled = true;
+    };
+
+    const fillModels = (models) => {
+        if (modelChoices) {
+            modelChoices.setChoices(
+                models.map((item) => ({ value: item.slug, label: item.title })),
+                'value',
+                'label',
+                false,
+            );
+            modelChoices.enable();
+            return;
+        }
+
+        models.forEach((item) => model.append(new Option(item.title, item.slug)));
+        model.disabled = false;
     };
 
     make.addEventListener('change', async () => {
@@ -102,14 +161,12 @@ document.querySelectorAll('[data-vehicle-search]').forEach((form) => {
             if (!Array.isArray(models)) throw new Error('Vehicle models response is invalid.');
             if (make.value !== selectedMake) return;
 
-            models.forEach((item) => {
-                if (typeof item?.title === 'string' && typeof item?.slug === 'string') {
-                    model.append(new Option(item.title, item.slug));
-                }
-            });
+            const valid = models.filter(
+                (item) => typeof item?.title === 'string' && typeof item?.slug === 'string',
+            );
 
-            model.disabled = false;
-            setStatus(models.length > 0 ? 'Модели загружены.' : 'У этой марки нет доступных моделей.');
+            fillModels(valid);
+            setStatus(valid.length > 0 ? 'Модели загружены.' : 'У этой марки нет доступных моделей.');
         } catch (error) {
             if (error.name === 'AbortError') return;
             setStatus('Не удалось загрузить модели. Можно перейти в каталог выбранной марки.');
