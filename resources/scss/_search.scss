@@ -1,4 +1,6 @@
 .search {
+    position: relative;
+    z-index: 5; // keeps the Choices dropdown above the sections below
     margin-top: 60px;
 
     @media screen and (max-width: 1200px) {
@@ -55,10 +57,10 @@
     gap: 2px;
     text-align: left;
     color: var(--color-muted);
-    opacity: 0.74;
 }
 
 .search__field-label {
+    opacity: 0.74; // the field itself stays opaque so the dropdown is not see-through
     font-family: var(--font-body);
     font-weight: var(--fw-semibold);
     font-size: var(--fs-base);

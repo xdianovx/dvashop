@@ -18,24 +18,24 @@
             data-vehicle-search
             data-models-url-template="{{ route('storefront.vehicle-makes.models', ['makeSlug' => '__MAKE__']) }}"
         >
-            <label class="search__field">
-                <span class="search__field-label">Марка</span>
-                <select class="search__field-value" name="make" required data-vehicle-make>
+            <div class="search__field">
+                <span class="search__field-label" id="search-make-label">Марка</span>
+                <select class="search__field-value" name="make" required aria-labelledby="search-make-label" data-vehicle-make>
                     <option value="">Выберите марку автомобиля</option>
                     @foreach ($makes as $make)
                         <option value="{{ $make['slug'] }}">{{ $make['title'] }}</option>
                     @endforeach
                 </select>
-            </label>
+            </div>
 
             <span class="search__divider" aria-hidden="true"></span>
 
-            <label class="search__field search__field--model">
-                <span class="search__field-label">Модель</span>
-                <select class="search__field-value" name="model" disabled data-vehicle-model>
+            <div class="search__field search__field--model">
+                <span class="search__field-label" id="search-model-label">Модель</span>
+                <select class="search__field-value" name="model" disabled aria-labelledby="search-model-label" data-vehicle-model>
                     <option value="">Выберите модель автомобиля</option>
                 </select>
-            </label>
+            </div>
 
             <span class="search__status" data-vehicle-search-status aria-live="polite" aria-atomic="true" hidden>
                 <span class="search__status-spinner" data-vehicle-search-spinner aria-hidden="true"></span>
