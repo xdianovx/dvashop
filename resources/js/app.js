@@ -166,7 +166,8 @@ document.querySelectorAll('[data-vehicle-search]').forEach((form) => {
             );
 
             fillModels(valid);
-            setStatus(valid.length > 0 ? 'Модели загружены.' : 'У этой марки нет доступных моделей.');
+            // The filled model select is feedback enough; only the empty case needs a note.
+            setStatus(valid.length > 0 ? '' : 'У этой марки нет доступных моделей.');
         } catch (error) {
             if (error.name === 'AbortError') return;
             setStatus('Не удалось загрузить модели. Можно перейти в каталог выбранной марки.');
