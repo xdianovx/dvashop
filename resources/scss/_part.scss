@@ -239,6 +239,58 @@
     color: var(--color-ink);
 }
 
+// Quantity stepper — same pill as the cart item counter.
+.part-qty {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: var(--radius-pill);
+    background-color: var(--color-primary);
+    color: var(--color-on-primary);
+}
+
+.part-qty__btn {
+    width: 20px;
+    height: 20px;
+    color: var(--color-on-primary);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.part-qty__btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.part-qty__value {
+    width: 40px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-on-primary);
+    font-family: var(--font-body);
+    font-size: var(--fs-base);
+    line-height: var(--lh-snug);
+    text-align: center;
+    appearance: textfield;
+}
+
+.part-qty__value::-webkit-outer-spin-button,
+.part-qty__value::-webkit-inner-spin-button {
+    margin: 0;
+    appearance: none;
+}
+
+.part-qty__value:focus {
+    outline: none;
+}
+
+.part-qty:has(.part-qty__value:disabled) {
+    opacity: 0.5;
+}
+
 // Profile tabs
 .part-tabs {
     display: flex;
@@ -375,10 +427,10 @@
 .part-buy__cart,
 .part-buy__consult {
     flex: 1;
-    height: 68px;
-    border-radius: 53px;
+    height: 56px;
+    border-radius: var(--radius-pill);
     font-family: var(--font-body);
-    font-size: 20px;
+    font-size: var(--fs-base);
 }
 
 .part-buy__cart {
