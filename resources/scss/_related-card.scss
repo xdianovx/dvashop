@@ -1,0 +1,183 @@
+// Card for the "С этим товаром покупают" block. Deliberately different from
+// .product-card: no action buttons, price above the title, stock line below.
+
+.related-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 19px;
+}
+
+.related-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    height: 100%;
+}
+
+.related-card__media {
+    position: relative;
+}
+
+.related-card__image {
+    display: block;
+    aspect-ratio: 348 / 350;
+    // Figma places the 281×189 photo at 33/78 inside a 348×350 plate; keeping
+    // those insets in % preserves the proportion as the grid column shrinks.
+    padding: 22.3% 9.5% 23.7%;
+    border-radius: 42px;
+    background-color: var(--color-surface-soft);
+    overflow: hidden;
+}
+
+.related-card__image img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.related-card__fav {
+    position: absolute;
+    top: 16px;
+    right: 22px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 4px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    cursor: pointer;
+    opacity: 0.5;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.related-card__fav:hover,
+.related-card__fav.favorite-toggle--active {
+    opacity: 1;
+}
+
+.related-card__fav.favorite-toggle--active {
+    background-color: rgba(31, 79, 191, 0.14);
+}
+
+.related-card__fav.favorite-toggle--active img {
+    filter: brightness(0) saturate(100%) invert(29%) sepia(95%) saturate(1254%) hue-rotate(197deg) brightness(86%) contrast(94%);
+}
+
+.related-card__fav:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+}
+
+.related-card__fav img {
+    width: 24px;
+    height: 24px;
+}
+
+.related-card__price {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 26px;
+    line-height: 1.4;
+    color: var(--color-primary);
+}
+
+.related-card__price--sale {
+    color: var(--color-danger);
+}
+
+.related-card__old {
+    font-weight: var(--fw-semibold);
+    font-size: 26px;
+    color: var(--color-price-old);
+    text-decoration: line-through;
+}
+
+.related-card__title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-lg);
+    line-height: var(--lh-snug);
+    color: var(--color-ink);
+}
+
+.related-card__title:hover {
+    color: var(--color-primary);
+}
+
+.related-card__stock {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: auto;
+    padding-top: 6px;
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-sm);
+    line-height: 1.4;
+}
+
+.related-card__stock--in {
+    color: var(--color-success);
+}
+
+.related-card__stock--out {
+    color: var(--color-danger);
+}
+
+.related-card__stock-icon {
+    display: flex;
+    width: 17px;
+    height: 17px;
+}
+
+.related-card__stock-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+@media (max-width: 1200px) {
+    .related-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .related-card__price,
+    .related-card__old {
+        font-size: 22px;
+    }
+}
+
+@media (max-width: 768px) {
+    .related-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .related-card__image {
+        border-radius: 22px;
+    }
+
+    .related-card__fav {
+        top: 8px;
+        right: 8px;
+    }
+
+    .related-card__price,
+    .related-card__old {
+        font-size: 18px;
+    }
+
+    .related-card__title {
+        font-size: var(--fs-base);
+    }
+}

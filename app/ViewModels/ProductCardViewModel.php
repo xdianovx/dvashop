@@ -2,6 +2,7 @@
 
 namespace App\ViewModels;
 
+use App\Enums\StockStatus;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Services\Media\MediaUrlService;
@@ -20,6 +21,7 @@ class ProductCardViewModel
         public readonly ?string $oldPrice,
         public readonly ?int $variantId,
         public readonly ?string $sku,
+        public readonly bool $inStock = false,
     ) {}
 
     public static function fromProduct(Product $product): self
@@ -62,6 +64,7 @@ class ProductCardViewModel
                 : null,
             variantId: $quickAddVariant?->getKey(),
             sku: $variant?->sku ?: $product->sku,
+            inStock: $variant instanceof ProductVariant && $variant->stock_status === StockStatus::InStock,
         );
     }
 
