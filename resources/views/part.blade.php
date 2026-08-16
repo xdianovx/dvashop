@@ -138,7 +138,11 @@
                         <script type="application/json" data-variant-matrix>@json($variantMatrix)</script>
                     @endif
                     <label class="part-option-group__label" for="product-quantity">Количество:</label>
-                    <input id="product-quantity" type="number" name="quantity" value="1" min="1" max="{{ $selectedMaxQuantity }}" data-product-quantity required>
+                    <div class="part-qty" data-product-qty>
+                        <button type="button" class="part-qty__btn" data-product-qty-step="-1" aria-label="Убавить количество">−</button>
+                        <input id="product-quantity" class="part-qty__value" type="number" name="quantity" value="1" min="1" max="{{ $selectedMaxQuantity }}" data-product-quantity required>
+                        <button type="button" class="part-qty__btn" data-product-qty-step="1" aria-label="Добавить количество">+</button>
+                    </div>
                     <div class="part-buy__actions">
                         <button type="submit" class="btn part-buy__cart" data-add-to-cart @disabled(! $selectedCanBePurchased)>
                             <span data-cart-button-label>Добавить в корзину</span>

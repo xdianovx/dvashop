@@ -348,6 +348,62 @@ function initProductOptions() {
 
 initStorefrontFeature('product-options', initProductOptions);
 
+// Quantity stepper. The number input stays the single source of truth so the
+// variant logic keeps driving min/max/disabled as before.
+function initQuantitySteppers() {
+    document.querySelectorAll('[data-product-qty]').forEach((stepper) => {
+        const input = stepper.querySelector('[data-product-quantity]');
+        const buttons = [...stepper.querySelectorAll('[data-product-qty-step]')];
+
+        if (!input || buttons.length === 0) return;
+
+        const bounds = () => ({
+            min: Number(input.min || 1),
+            max: Number(input.max || 999),
+        });
+
+        const syncButtons = () => {
+            const { min, max } = bounds();
+            const value = Number(input.value) || min;
+
+            buttons.forEach((button) => {
+                const step = Number(button.dataset.productQtyStep);
+                button.disabled = input.disabled || (step < 0 ? value <= min : value >= max);
+            });
+        };
+
+        buttons.forEach((button) => {
+            button.addEventListener('click', () => {
+                const { min, max } = bounds();
+                const step = Number(button.dataset.productQtyStep);
+                const next = Math.min(max, Math.max(min, (Number(input.value) || min) + step));
+
+                if (next === Number(input.value)) return;
+
+                input.value = String(next);
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                syncButtons();
+            });
+        });
+
+        input.addEventListener('change', () => {
+            const { min, max } = bounds();
+            input.value = String(Math.min(max, Math.max(min, Number(input.value) || min)));
+            syncButtons();
+        });
+
+        // The variant renderer rewrites max/disabled without firing an event.
+        new MutationObserver(syncButtons).observe(input, {
+            attributes: true,
+            attributeFilter: ['max', 'min', 'disabled'],
+        });
+
+        syncButtons();
+    });
+}
+
+initStorefrontFeature('quantity-stepper', initQuantitySteppers);
+
 // Cart forms keep their ordinary POST fallback. Fetch only enhances the same
 // server-authoritative endpoints with in-place feedback and totals.
 const storefrontToast = document.querySelector('[data-storefront-toast]');
