@@ -191,7 +191,7 @@
         @if ($related->isNotEmpty())
             <section class="part-related">
                 <h2 class="part-related__title">С этим товаром покупают</h2>
-                <ul class="products">@foreach ($related as $relatedProduct)<li class="products__item"><x-product-card :product="$relatedProduct" /></li>@endforeach</ul>
+                <ul class="related-grid">@foreach ($related as $relatedProduct)<li class="related-grid__item"><x-related-card :product="$relatedProduct" /></li>@endforeach</ul>
             </section>
         @endif
         <x-storefront-seo-text :text="$seoText ?? null" />
