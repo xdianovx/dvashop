@@ -16,6 +16,66 @@
     font-weight: var(--fw-semibold);
 }
 
+// ── Empty state ─────────────────────────────────────────
+.cart-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 720px;
+    margin: 0 auto var(--section-gap);
+    padding: 64px 40px;
+    border: 1px solid var(--color-border);
+    border-radius: 42px;
+    background-color: var(--color-surface);
+    text-align: center;
+}
+
+.cart-empty__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 96px;
+    height: 96px;
+    margin-bottom: 24px;
+    border-radius: var(--radius-pill);
+    background-color: var(--color-bg);
+}
+
+.cart-empty__icon img {
+    width: 47px;
+    height: 39px;
+}
+
+.cart-empty__title {
+    margin-bottom: 12px;
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    font-size: 30px;
+    line-height: var(--lh-snug);
+    color: var(--color-primary-dark);
+}
+
+.cart-empty__text {
+    max-width: 460px;
+    margin-bottom: 32px;
+    font-size: var(--fs-base);
+    line-height: var(--lh-normal);
+    color: var(--color-muted);
+}
+
+.cart-empty__actions {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    max-width: 460px;
+}
+
+.cart-empty__action {
+    flex: 1;
+    height: 56px;
+    font-size: var(--fs-base);
+}
+
 .cart-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 380px;
@@ -212,6 +272,39 @@
     .cart-title {
         font-size: 24px;
         margin-bottom: 24px;
+    }
+
+    .cart-empty {
+        padding: 40px 20px;
+        border-radius: var(--radius-lg);
+    }
+
+    .cart-empty__icon {
+        width: 72px;
+        height: 72px;
+        margin-bottom: 16px;
+    }
+
+    .cart-empty__icon img {
+        width: 36px;
+        height: 30px;
+    }
+
+    .cart-empty__title {
+        font-size: 22px;
+    }
+
+    .cart-empty__text {
+        margin-bottom: 24px;
+        font-size: var(--fs-sm);
+    }
+
+    .cart-empty__actions {
+        flex-direction: column;
+    }
+
+    .cart-empty__action {
+        height: 48px;
     }
 
     .cart-list {
