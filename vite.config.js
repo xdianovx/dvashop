@@ -3,7 +3,12 @@ import laravel from 'laravel-vite-plugin';
 import { bunny } from 'laravel-vite-plugin/fonts';
 import tailwindcss from '@tailwindcss/vite';
 
-export default defineConfig({
+// publicDir is enabled for `vite dev` only: the SCSS references fonts by an
+// absolute /fonts/... URL, which the browser resolves against the dev-server
+// origin, not the Laravel one. In a build Vite would copy public/ into the
+// bundle, so it stays off there.
+export default defineConfig(({ command }) => ({
+    publicDir: command === 'serve' ? 'public' : false,
     plugins: [
         laravel({
             input: [
@@ -35,4 +40,4 @@ export default defineConfig({
             ignored: ['**/storage/framework/views/**'],
         },
     },
-});
+}));
