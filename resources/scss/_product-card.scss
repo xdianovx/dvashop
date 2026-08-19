@@ -23,7 +23,7 @@
 
 .product-card__fav {
     position: absolute;
-    top: 16px;
+    top: 24px;
     right: 16px;
     z-index: 2;
     display: flex;
@@ -74,6 +74,7 @@
     justify-content: space-between;
     gap: 12px;
     min-width: 0;
+    margin-bottom: 65px;
 }
 
 // min-width/overflow-wrap keep a long title from growing its grid track and
@@ -81,7 +82,6 @@
 // truncated — it wraps to as many lines as it needs.
 .product-card__name {
     min-width: 0;
-    overflow-wrap: break-word;
     font-family: var(--font-display);
     font-weight: var(--fw-semibold);
     font-size: var(--fs-2xl);
@@ -100,6 +100,7 @@
     color: var(--color-primary);
     white-space: nowrap;
     text-align: right;
+
 }
 
 .product-card__price--sale {
@@ -139,7 +140,15 @@
     display: none;
 }
 
-// ── Mobile: single glass card ───────────────────────────
+
+@media screen and (max-width: 1200px) {
+    .product-card__row {
+        margin-bottom: 0;
+
+    }
+}
+
+
 @media (max-width: 768px) {
     .product-card {
         gap: 8px;
