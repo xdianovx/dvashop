@@ -9,7 +9,7 @@
 .product-card__image {
     position: relative;
     aspect-ratio: 1 / 1;
-    padding: 60px 40px;
+
     border-radius: 22px;
     background-color: var(--color-surface);
     overflow: hidden;
@@ -76,15 +76,12 @@
     min-width: 0;
 }
 
-// Two lines max: a longer title used to grow its grid track and drag the
-// whole row of cards out of alignment.
+// min-width/overflow-wrap keep a long title from growing its grid track and
+// dragging the whole row of cards out of alignment. The title itself is never
+// truncated — it wraps to as many lines as it needs.
 .product-card__name {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
     min-width: 0;
-    overflow: hidden;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
     font-family: var(--font-display);
     font-weight: var(--fw-semibold);
     font-size: var(--fs-2xl);
