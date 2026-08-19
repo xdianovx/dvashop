@@ -3,21 +3,19 @@
 @section('title', 'Моя корзина — '.(($storefront ?? null)?->storeName ?? 'AVTOPOROGI.ru'))
 
 @section('content')
-    <div class="container">
+    <div class="container cart-page">
         <x-breadcrumbs :items="[['label' => 'Главная', 'url' => route('home')], ['label' => 'Моя корзина']]" />
-        <div class="cart-head">
-            <h1 class="cart-title">Моя корзина</h1>
-            @if ($items->isNotEmpty())
-                <form action="{{ route('cart.clear') }}" method="post" data-cart-clear>
-                    @csrf
-                    @method('DELETE')
-                    <button type="submit" class="cart-clear">Очистить корзину</button>
-                </form>
-            @endif
-        </div>
-        @if ($errors->any())<div role="alert">{{ $errors->first() }}</div>@endif
+        <h1 class="cart-title">Моя корзина</h1>
+        @if ($items->isNotEmpty())
+            <form class="cart-clear-form" action="{{ route('cart.clear') }}" method="post" data-cart-clear>
+                @csrf
+                @method('DELETE')
+                <button type="submit" class="cart-clear">Очистить корзину</button>
+            </form>
+        @endif
+        @if ($errors->any())<div class="cart-page__error" role="alert">{{ $errors->first() }}</div>@endif
 
-        <div data-cart-content>
+        <div class="cart-content" data-cart-content>
             @if ($items->isEmpty())
                 <x-cart-empty-state />
             @else

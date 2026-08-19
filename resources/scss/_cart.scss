@@ -1,15 +1,30 @@
-.cart-head {
-    display: flex;
+// Grid so the clear link can sit beside the heading on desktop and drop below
+// the products on mobile without duplicating the form.
+.cart-page {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: baseline;
-    gap: 24px;
-    margin-bottom: 32px;
+}
+
+.cart-page > .breadcrumbs,
+.cart-page__error,
+.cart-content {
+    grid-column: 1 / -1;
 }
 
 .cart-title {
+    grid-column: 1;
+    margin-bottom: 32px;
     font-family: var(--font-display);
     font-weight: var(--fw-bold);
     font-size: 48px;
     color: var(--color-ink);
+}
+
+.cart-clear-form {
+    grid-column: 2;
+    justify-self: start;
+    margin-left: 24px;
 }
 
 // Plain red text, not a button — clearing the cart should not compete with
@@ -305,13 +320,39 @@
 }
 
 @media (max-width: 768px) {
-    .cart-head {
-        gap: 12px;
-        margin-bottom: 24px;
+    .cart-page {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .cart-page > .breadcrumbs {
+        order: 1;
     }
 
     .cart-title {
+        order: 2;
+        margin-bottom: 24px;
         font-size: 24px;
+    }
+
+    .cart-page__error {
+        order: 3;
+    }
+
+    .cart-content {
+        order: 4;
+    }
+
+    .cart-content .cart-layout {
+        margin-bottom: 0;
+    }
+
+    .cart-clear-form {
+        order: 5;
+        align-self: flex-end;
+        margin-top: 16px;
+        margin-bottom: var(--section-gap);
+        margin-left: 0;
     }
 
     .cart-clear {
