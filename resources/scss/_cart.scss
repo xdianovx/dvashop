@@ -1,9 +1,45 @@
-.cart-title {
+.cart-head {
+    display: flex;
+    align-items: baseline;
+    gap: 24px;
     margin-bottom: 32px;
+}
+
+.cart-title {
     font-family: var(--font-display);
     font-weight: var(--fw-bold);
     font-size: 48px;
     color: var(--color-ink);
+}
+
+// Plain red text, not a button — clearing the cart should not compete with
+// the checkout call to action.
+.cart-clear {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-family: var(--font-body);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    line-height: var(--lh-snug);
+    color: var(--color-danger);
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+
+.cart-clear:hover {
+    text-decoration: underline;
+}
+
+.cart-clear:disabled,
+.cart-clear[data-cart-loading='true'] {
+    opacity: 0.5;
+    cursor: wait;
+}
+
+.cart-clear:focus-visible {
+    outline: 2px solid var(--color-danger);
+    outline-offset: 3px;
 }
 
 .cart-price-notice {
@@ -269,9 +305,17 @@
 }
 
 @media (max-width: 768px) {
+    .cart-head {
+        gap: 12px;
+        margin-bottom: 24px;
+    }
+
     .cart-title {
         font-size: 24px;
-        margin-bottom: 24px;
+    }
+
+    .cart-clear {
+        font-size: var(--fs-sm);
     }
 
     .cart-empty {
