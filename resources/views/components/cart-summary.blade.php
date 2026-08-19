@@ -12,6 +12,5 @@
         @unless ($hasUnavailablePrices)
             <a href="{{ route('checkout.show') }}" class="btn btn--primary cart-summary__checkout">Оформить заказ</a>
         @endunless
-        <form action="{{ route('cart.clear') }}" method="post" data-cart-clear>@csrf @method('DELETE')<button type="submit" class="btn btn--outline">Очистить корзину</button></form>
     </div>
 </aside>

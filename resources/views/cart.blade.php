@@ -5,7 +5,16 @@
 @section('content')
     <div class="container">
         <x-breadcrumbs :items="[['label' => 'Главная', 'url' => route('home')], ['label' => 'Моя корзина']]" />
-        <h1 class="cart-title">Моя корзина</h1>
+        <div class="cart-head">
+            <h1 class="cart-title">Моя корзина</h1>
+            @if ($items->isNotEmpty())
+                <form action="{{ route('cart.clear') }}" method="post" data-cart-clear>
+                    @csrf
+                    @method('DELETE')
+                    <button type="submit" class="cart-clear">Очистить корзину</button>
+                </form>
+            @endif
+        </div>
         @if ($errors->any())<div role="alert">{{ $errors->first() }}</div>@endif
 
         <div data-cart-content>
