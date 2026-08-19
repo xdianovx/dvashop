@@ -31,5 +31,10 @@
                 <span class="product-card__buy-short" data-cart-button-label>В корзину</span>
             </button>
         </form>
+    @else
+        <a href="{{ $product->url }}" class="btn product-card__buy">
+            <span class="product-card__buy-full">Выбрать вариант</span>
+            <span class="product-card__buy-short">Выбрать</span>
+        </a>
     @endif
 </article>
