@@ -4,12 +4,10 @@ namespace Database\Seeders;
 
 use App\Enums\HomepageCategoryCardCode;
 use App\Enums\HomepageMetricCode;
-use App\Enums\HomepageQuickLinkCode;
 use App\Enums\HomepageSectionCode;
 use App\Enums\NavigationLinkType;
 use App\Models\HomepageCategoryCard;
 use App\Models\HomepageMetric;
-use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
 use App\Models\PartType;
 use App\Models\ProductCategory;
@@ -30,11 +28,6 @@ class HomepageContentSeeder extends Seeder
                 $this->fillMissing($record, $attributes)->save();
             }
 
-            foreach ($this->quickLinks() as $code => $attributes) {
-                $record = HomepageQuickLink::query()->firstOrNew(['code' => $code]);
-                $this->fillMissing($record, $attributes)->save();
-            }
-
             foreach ($this->categoryCards() as $code => $definition) {
                 $this->seedCategoryCard($code, $definition);
             }
@@ -50,38 +43,11 @@ class HomepageContentSeeder extends Seeder
     private function sections(): array
     {
         return [
-            HomepageSectionCode::QuickLinks->value => ['title' => null, 'is_active' => true, 'position' => 10],
+            HomepageSectionCode::Stories->value => ['title' => null, 'is_active' => true, 'position' => 10],
             HomepageSectionCode::VehicleSearch->value => ['title' => 'Быстрый поиск запчастей', 'is_active' => true, 'position' => 20],
             HomepageSectionCode::CategoryCards->value => ['title' => null, 'is_active' => true, 'position' => 30],
-            HomepageSectionCode::AboutMetrics->value => ['title' => 'О компании', 'is_active' => true, 'position' => 40],
-        ];
-    }
-
-    /** @return array<string, array<string, mixed>> */
-    private function quickLinks(): array
-    {
-        return [
-            HomepageQuickLinkCode::NewArrivals->value => $this->disabledLink('Новинки', 10),
-            HomepageQuickLinkCode::Promotions->value => $this->disabledLink('Акции', 20),
-            HomepageQuickLinkCode::ServiceSearch->value => $this->disabledLink('Поиск СТО', 30),
-            HomepageQuickLinkCode::Reviews->value => $this->disabledLink('Отзывы', 40),
-            HomepageQuickLinkCode::Socials->value => $this->disabledLink('Соц. сети', 50),
-            HomepageQuickLinkCode::Galvanized->value => $this->disabledLink('Оцинковка', 60),
-            HomepageQuickLinkCode::Fitting->value => $this->disabledLink('Примерка', 70),
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function disabledLink(string $title, int $position): array
-    {
-        return [
-            'title' => $title,
-            'link_type' => null,
-            'route_name' => null,
-            'url' => null,
-            'open_in_new_tab' => false,
-            'is_active' => false,
-            'position' => $position,
+            HomepageSectionCode::Reviews->value => ['title' => 'Отзывы клиентов', 'is_active' => true, 'position' => 40],
+            HomepageSectionCode::AboutMetrics->value => ['title' => 'О компании', 'is_active' => true, 'position' => 50],
         ];
     }
 

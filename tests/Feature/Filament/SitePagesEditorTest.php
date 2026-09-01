@@ -9,6 +9,8 @@ use App\Filament\Pages\SiteContent\EditPartnersPage;
 use App\Filament\Pages\SiteContent\EditPaymentPage;
 use App\Filament\Pages\SitePagesPage;
 use App\Models\HomepageSection;
+use App\Models\HomepageStoryGroup;
+use App\Models\HomepageStoryItem;
 use App\Models\User;
 use App\Services\SiteContent\SitePageContentAdminService;
 use Database\Seeders\CheckoutMethodSettingsSeeder;
@@ -18,6 +20,8 @@ use Database\Seeders\StaticPageContentSeeder;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Repeater;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
@@ -47,8 +51,8 @@ function siteEditorDefinitions(): array
     return [
         EditHomepagePage::class => [
             'title' => 'Главная',
-            'section' => 'Быстрые ссылки',
-            'read_only_field' => 'quick_links',
+            'section' => 'Сторис',
+            'read_only_field' => 'stories',
             'field' => 'data.metrics.0.text',
             'value' => 'Обновлённый показатель главной',
             'notification' => 'Главная страница сохранена',
@@ -149,7 +153,7 @@ test('all editor forms use understandable labels and hide technical structure fi
         ->assertDontSee('Числовая позиция')
         ->assertDontSee('Родительский блок');
 })->with([
-    'homepage' => [EditHomepagePage::class, ['Секции главной страницы', 'Название секции', 'Быстрые ссылки', 'Куда ведёт ссылка', 'Витринные категории', 'Назначение карточки', 'Категория магазина', 'Тип детали', 'Префикс', 'Значение', 'Суффикс']],
+    'homepage' => [EditHomepagePage::class, ['Сторис', 'Кружки', 'Быстрый поиск запчастей', 'Витринные категории', 'Отзывы клиентов', 'О компании', 'Назначение карточки', 'Категория магазина', 'Тип детали', 'Префикс', 'Значение', 'Суффикс']],
     'about' => [EditAboutPage::class, ['Первый экран', 'Показатели', 'Технологии точности', 'Наша цель']],
     'how' => [EditHowPage::class, ['Шесть шагов', 'Название', 'Описание']],
     'payment' => [EditPaymentPage::class, ['Способы оплаты', 'Способы доставки', 'Название в оформлении заказа', 'Краткое описание в оформлении заказа', 'Заголовок на странице «Оплата и доставка»', 'Полное описание на странице «Оплата и доставка»', 'Базовая стоимость']],
@@ -208,20 +212,19 @@ test('customer inactive and blocked users receive forbidden for every content pa
     }
 })->with(['customer' => ['customer'], 'inactive' => ['inactive'], 'blocked' => ['blocked']]);
 
-test('forged fixed structure field is reported on the page and nothing is changed', function (): void {
-    $this->actingAs(User::factory()->admin()->create());
+test('forged homepage system field is rejected by the aggregate service and nothing is changed', function (): void {
+    $admin = User::factory()->admin()->create();
     $service = app(SitePageContentAdminService::class);
     $before = $service->homepageState();
+    $payload = $before;
+    $payload['stories_section']['code'] = 'forged';
 
-    Livewire::test(EditHomepagePage::class)
-        ->set('data.quick_links.0.code', 'forged')
-        ->call('save')
-        ->assertHasErrors(['data.quick_links.0.code']);
+    expect(fn () => $service->saveHomepage($admin, $payload))->toThrow(ValidationException::class);
 
     expect($service->homepageState())->toBe($before);
 });
 
-test('homepage editor contains four fixed sections in system order and privileged roles can update only title and activity', function (string $role): void {
+test('homepage editor contains five fixed semantic sections in system order and updates allowed fields', function (string $role): void {
     $actor = $role === 'super_admin'
         ? User::factory()->superAdmin()->create()
         : User::factory()->admin()->create();
@@ -230,36 +233,36 @@ test('homepage editor contains four fixed sections in system order and privilege
     $beforeStructure = HomepageSection::query()->ordered()->get(['id', 'code', 'position'])->toArray();
     $state = $service->homepageState();
 
-    expect($state['sections'])->toHaveCount(4)
-        ->and(array_column($state['sections'], 'id'))->toBe(array_column($beforeStructure, 'id'))
-        ->and(HomepageSection::query()->ordered()->get()->map(
-            fn (HomepageSection $section): string => $section->code->value,
-        )->all())->toBe([
-            HomepageSectionCode::QuickLinks->value,
-            HomepageSectionCode::VehicleSearch->value,
-            HomepageSectionCode::CategoryCards->value,
-            HomepageSectionCode::AboutMetrics->value,
-        ]);
+    expect(HomepageSection::query()->ordered()->get()->map(
+        fn (HomepageSection $section): string => $section->code->value,
+    )->all())->toBe([
+        HomepageSectionCode::Stories->value,
+        HomepageSectionCode::VehicleSearch->value,
+        HomepageSectionCode::CategoryCards->value,
+        HomepageSectionCode::Reviews->value,
+        HomepageSectionCode::AboutMetrics->value,
+    ]);
 
-    foreach ($state['sections'] as $index => $section) {
-        $state['sections'][$index]['title'] = "{$role}: секция ".($index + 1);
-        $state['sections'][$index]['is_active'] = $index !== 1;
-    }
+    $state['stories_section']['is_active'] = false;
+    $state['search_section']['title'] = "{$role}: поиск";
+    $state['reviews_section']['title'] = "{$role}: отзывы";
+    $state['about_section']['title'] = "{$role}: компания";
 
     Livewire::test(EditHomepagePage::class)
-        ->set('data.sections', $state['sections'])
+        ->set('data', $state)
         ->call('save')
         ->assertHasNoErrors()
         ->assertNotified('Главная страница сохранена');
 
     expect(HomepageSection::query()->ordered()->pluck('title')->all())->toBe([
-        "{$role}: секция 1",
-        "{$role}: секция 2",
-        "{$role}: секция 3",
-        "{$role}: секция 4",
+        null,
+        "{$role}: поиск",
+        null,
+        "{$role}: отзывы",
+        "{$role}: компания",
     ])->and(HomepageSection::query()->ordered()->get()->map(
         fn (HomepageSection $section): bool => $section->is_active,
-    )->all())->toBe([true, false, true, true])
+    )->all())->toBe([false, true, true, true, true])
         ->and(HomepageSection::query()->ordered()->get(['id', 'code', 'position'])->toArray())->toBe($beforeStructure);
 })->with(['super admin' => ['super_admin'], 'admin' => ['admin']]);
 
@@ -268,43 +271,103 @@ test('manager sees homepage sections read only and cannot forge a save', functio
     $before = app(SitePageContentAdminService::class)->homepageState();
 
     Livewire::test(EditHomepagePage::class)
-        ->assertFormFieldDisabled('sections')
-        ->set('data.sections.0.title', 'Поддельное изменение')
+        ->assertFormFieldDisabled('stories')
+        ->set('data.reviews_section.title', 'Поддельное изменение')
         ->call('save')
         ->assertForbidden();
 
     expect(app(SitePageContentAdminService::class)->homepageState())->toBe($before);
 });
 
-test('homepage form rejects a fifth section an omitted section and forged structural fields', function (): void {
-    $this->actingAs(User::factory()->admin()->create());
+test('homepage aggregate rejects omitted and forged fixed semantic sections', function (): void {
+    $admin = User::factory()->admin()->create();
     $service = app(SitePageContentAdminService::class);
     $before = $service->homepageState();
 
-    $withFifth = $before['sections'];
-    $withFifth[] = [
-        'id' => 999999,
-        'title' => 'Чужая секция',
-        'is_active' => true,
-    ];
-    Livewire::test(EditHomepagePage::class)
-        ->set('data.sections', $withFifth)
-        ->call('save')
-        ->assertHasErrors(['data.sections.4.id']);
+    foreach (['wrong_id', 'omitted', 'code', 'position'] as $case) {
+        $payload = $before;
+        match ($case) {
+            'wrong_id' => $payload['reviews_section']['id'] = 999999,
+            'omitted' => $payload['reviews_section'] = null,
+            'code' => $payload['reviews_section']['code'] = 'forged',
+            'position' => $payload['reviews_section']['position'] = 999,
+        };
 
-    Livewire::test(EditHomepagePage::class)
-        ->set('data.sections', array_slice($before['sections'], 0, 3))
-        ->call('save')
-        ->assertHasErrors(['data.sections']);
-
-    foreach (['code', 'position'] as $field) {
-        Livewire::test(EditHomepagePage::class)
-            ->set("data.sections.0.{$field}", $field === 'code' ? 'forged' : 999)
-            ->call('save')
-            ->assertHasErrors(["data.sections.0.{$field}"]);
+        expect(fn () => $service->saveHomepage($admin, $payload), $case)
+            ->toThrow(ValidationException::class);
     }
 
     expect($service->homepageState())->toBe($before);
+});
+
+test('homepage story form uses separate mime specific upload components normalized to one domain path', function (): void {
+    $this->actingAs(User::factory()->admin()->create());
+    Storage::fake('public');
+    Storage::disk('public')->put('uploads/homepage/stories/form-image.jpg', 'image');
+    Storage::disk('public')->put('uploads/homepage/stories/form-video.webm', 'video');
+    $group = HomepageStoryGroup::factory()->create();
+    HomepageStoryItem::factory()->for($group, 'group')->create([
+        'media_type' => 'image', 'media_path' => 'uploads/homepage/stories/form-image.jpg', 'position' => 10,
+    ]);
+    HomepageStoryItem::factory()->for($group, 'group')->create([
+        'media_type' => 'video', 'media_path' => 'uploads/homepage/stories/form-video.webm', 'duration_seconds' => null, 'position' => 20,
+    ]);
+
+    $component = Livewire::test(EditHomepagePage::class)
+        ->assertSet('data.stories.0.items.0.image_media_path', fn (mixed $state): bool => collect($state)->contains('uploads/homepage/stories/form-image.jpg'))
+        ->assertSet('data.stories.0.items.0.video_media_path', fn (mixed $state): bool => blank($state))
+        ->assertSet('data.stories.0.items.1.image_media_path', fn (mixed $state): bool => blank($state))
+        ->assertSet('data.stories.0.items.1.video_media_path', fn (mixed $state): bool => collect($state)->contains('uploads/homepage/stories/form-video.webm'))
+        ->set('data.stories.0.items.0.media_type', 'video')
+        ->assertSet('data.stories.0.items.0.image_media_path', fn (mixed $state): bool => blank($state))
+        ->assertSet('data.stories.0.items.0.video_media_path', fn (mixed $state): bool => blank($state))
+        ->assertSet('data.stories.0.items.0.duration_seconds', null)
+        ->set('data.stories.0.items.1.media_type', 'image')
+        ->assertSet('data.stories.0.items.1.image_media_path', fn (mixed $state): bool => blank($state))
+        ->assertSet('data.stories.0.items.1.video_media_path', fn (mixed $state): bool => blank($state))
+        ->assertSet('data.stories.0.items.1.duration_seconds', 10);
+    unset($component);
+    Storage::disk('public')->assertExists('uploads/homepage/stories/form-image.jpg');
+
+    $page = new EditHomepagePage;
+    $toUi = new ReflectionMethod($page, 'withStoryUploadFields');
+    $toDomain = new ReflectionMethod($page, 'withPersistedStoryMediaPath');
+    $uiState = $toUi->invoke($page, ['stories' => [['items' => [
+        ['media_type' => 'image', 'media_path' => 'uploads/homepage/stories/form-image.jpg'],
+        ['media_type' => 'video', 'media_path' => 'uploads/homepage/stories/form-video.webm'],
+    ]]]]);
+
+    expect($uiState['stories'][0]['items'][0])->toMatchArray([
+        'image_media_path' => 'uploads/homepage/stories/form-image.jpg',
+        'video_media_path' => null,
+    ])->not->toHaveKey('media_path')
+        ->and($uiState['stories'][0]['items'][1])->toMatchArray([
+            'image_media_path' => null,
+            'video_media_path' => 'uploads/homepage/stories/form-video.webm',
+        ])->not->toHaveKey('media_path');
+
+    $domainState = $toDomain->invoke($page, $uiState);
+    expect(array_column($domainState['stories'][0]['items'], 'media_path'))->toBe([
+        'uploads/homepage/stories/form-image.jpg',
+        'uploads/homepage/stories/form-video.webm',
+    ])->and($domainState['stories'][0]['items'][0])->not->toHaveKeys(['image_media_path', 'video_media_path'])
+        ->and($domainState['stories'][0]['items'][1])->not->toHaveKeys(['image_media_path', 'video_media_path']);
+
+    $source = file_get_contents(app_path('Filament/Pages/SiteContent/EditHomepagePage.php'));
+    $serviceSource = file_get_contents(app_path('Services/Homepage/HomepageContentAdminService.php'));
+    expect($source)->not->toBeFalse()
+        ->and($source)->toContain("FileUpload::make('image_media_path')")
+        ->toContain("->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])")
+        ->toContain('->maxSize(10240)')
+        ->toContain("FileUpload::make('video_media_path')")
+        ->toContain("->acceptedFileTypes(['video/mp4', 'video/webm'])")
+        ->toContain('->maxSize(92160)')
+        ->toContain("\$set('image_media_path', null)")
+        ->toContain("\$set('video_media_path', null)")
+        ->not->toContain("FileUpload::make('media_path')")
+        ->and($serviceSource)->not->toBeFalse()
+        ->toContain('10 * 1024 * 1024')
+        ->toContain('90 * 1024 * 1024');
 });
 
 test('faq repeater requires confirmation before removing categories and questions from the form', function (): void {

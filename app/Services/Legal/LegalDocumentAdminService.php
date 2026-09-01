@@ -14,6 +14,8 @@ use Illuminate\Validation\ValidationException;
 
 class LegalDocumentAdminService
 {
+    public function __construct(private readonly LegalRichContentSanitizer $sanitizer) {}
+
     /** @return list<string> */
     private function fixedCodes(): array
     {
@@ -98,10 +100,20 @@ class LegalDocumentAdminService
 
                 /** @var LegalDocument $document */
                 $document = $byId->get($id);
+                try {
+                    $body = is_string($row['body'] ?? null)
+                        ? $this->sanitizer->sanitize($row['body'])
+                        : $row['body'] ?? null;
+                } catch (ValidationException $exception) {
+                    throw ValidationException::withMessages([
+                        "documents.{$index}.body" => collect($exception->errors())->flatten()->all(),
+                    ]);
+                }
+
                 $candidate = [
                     'code' => $document->code->value,
                     'title' => is_string($row['title'] ?? null) ? trim($row['title']) : $row['title'] ?? null,
-                    'body' => is_string($row['body'] ?? null) ? trim($row['body']) : $row['body'] ?? null,
+                    'body' => $body,
                     'is_active' => $row['is_active'] ?? null,
                 ];
                 $candidate['body'] = $candidate['body'] === '' ? null : $candidate['body'];
@@ -115,7 +127,7 @@ class LegalDocumentAdminService
                 $validated = Validator::make($candidate, [
                     'code' => ['required', Rule::enum(LegalDocumentCode::class)],
                     'title' => ['required', 'string', 'max:255', $plainText],
-                    'body' => ['nullable', 'string', 'max:60000', $plainText],
+                    'body' => ['nullable', 'string', 'max:60000'],
                     'is_active' => ['required', 'boolean'],
                 ], [
                     'required' => 'Поле «:attribute» обязательно.',

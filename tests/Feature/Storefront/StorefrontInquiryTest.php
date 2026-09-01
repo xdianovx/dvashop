@@ -371,8 +371,10 @@ test('inquiry JavaScript uses class-only runtime state and switches successful a
     $component = file_get_contents(resource_path('views/components/storefront-inquiry-modal.blade.php'));
 
     expect($script)
+        ->toContain('function createModalController(modal, {')
         ->toContain('function createInquiryModalController(modal)')
-        ->toContain("const isOpen = () => modal.classList.contains('inquiry-modal--open')")
+        ->toContain('const isOpen = () => modal.classList.contains(openClass)')
+        ->toContain("openClass: 'inquiry-modal--open'")
         ->not->toContain("window.location.hash === '#storefront-inquiry'")
         ->toContain('window.location.hash === `#${modal.id}`')
         ->toContain("trigger.addEventListener('click', (event) =>")

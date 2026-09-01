@@ -2,39 +2,40 @@
 
 namespace App\Services\Homepage;
 
+use App\Enums\AdminPermission;
 use App\Enums\HomepageCategoryCardCode;
 use App\Enums\HomepageMetricCode;
-use App\Enums\HomepageQuickLinkCode;
-use App\Enums\HomepageSectionCode;
+use App\Enums\HomepageStoryMediaType;
 use App\Enums\NavigationLinkType;
 use App\Models\HomepageCategoryCard;
 use App\Models\HomepageMetric;
-use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
+use App\Models\HomepageStoryGroup;
+use App\Models\HomepageStoryItem;
 use App\Models\PartType;
 use App\Models\ProductCategory;
 use App\Models\User;
+use App\Services\Media\MediaFileCleanupService;
 use Closure;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class HomepageContentAdminService
 {
-    private const DESTINATION_FIELDS = [
-        'code',
-        'title',
-        'link_type',
-        'route_name',
-        'url',
-        'open_in_new_tab',
-        'is_active',
-        'position',
-    ];
+    private const STORY_DIRECTORY = 'uploads/homepage/stories/';
+
+    private const IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+    private const VIDEO_MIME_TYPES = ['video/mp4', 'video/webm'];
+
+    public function __construct(private readonly MediaFileCleanupService $mediaCleanup) {}
 
     /** @param array<string, mixed> $attributes */
     public function updateSection(User $actor, HomepageSection $section, array $attributes): HomepageSection
@@ -58,40 +59,36 @@ class HomepageContentAdminService
         return $updated;
     }
 
-    /** @param array<int|string, mixed> $ids */
-    public function reorderSections(User $actor, array $ids): void
+    public function saveStories(User $actor, mixed $rows): void
     {
-        $this->reorder($actor, HomepageSection::class, $ids, 'секции главной страницы');
-    }
+        if (! $actor->canPerformAdminAction(AdminPermission::ManageHomepageContent)) {
+            throw new AuthorizationException('Недостаточно прав для управления сторис главной страницы.');
+        }
 
-    /** @param array<string, mixed> $attributes */
-    public function updateQuickLink(User $actor, HomepageQuickLink $link, array $attributes): HomepageQuickLink
-    {
-        /** @var HomepageQuickLink $updated */
-        $updated = $this->updateRecord(
-            $actor,
-            $link,
-            $attributes,
-            fn (array $data, Model $record): array => $this->validateDestination(
-                $data,
-                $record,
-                HomepageQuickLinkCode::class,
-                'быстрой ссылки',
-            ),
-        );
+        if (! is_array($rows) || ! array_is_list($rows)) {
+            throw ValidationException::withMessages(['stories' => 'Передайте список кружков сторис.']);
+        }
 
-        return $updated;
-    }
+        $oldPaths = $this->persistedStoryMediaPaths();
+        $submittedPaths = $this->storyMediaPathsFromRows($rows);
 
-    public function setQuickLinkActive(User $actor, HomepageQuickLink $link, bool $active): HomepageQuickLink
-    {
-        return $this->updateQuickLink($actor, $link, ['is_active' => $active]);
-    }
+        try {
+            DB::transaction(fn () => $this->syncStories($rows));
+        } catch (Throwable $exception) {
+            foreach (array_diff($submittedPaths, $oldPaths) as $path) {
+                $this->mediaCleanup->deletePath($path);
+            }
 
-    /** @param array<int|string, mixed> $ids */
-    public function reorderQuickLinks(User $actor, array $ids): void
-    {
-        $this->reorder($actor, HomepageQuickLink::class, $ids, 'быстрые ссылки');
+            throw $exception;
+        }
+
+        $newPaths = $this->persistedStoryMediaPaths();
+        foreach (array_diff($oldPaths, $newPaths) as $path) {
+            $this->mediaCleanup->deletePathAfterCommit($path);
+        }
+        foreach (array_diff($newPaths, $oldPaths) as $path) {
+            $this->mediaCleanup->deletePathAfterRollback($path);
+        }
     }
 
     /** @param array<string, mixed> $attributes */
@@ -231,83 +228,266 @@ class HomepageContentAdminService
      */
     private function validateSection(array $attributes, Model $record): array
     {
-        $fields = ['code', 'title', 'is_active', 'position'];
+        $fields = ['title', 'is_active'];
         $this->rejectUnexpected($attributes, $fields, 'секции главной страницы');
         $candidate = array_merge($record->only($fields), $attributes);
-        $candidate['code'] = $this->backedValue($candidate['code'] ?? null);
         $candidate['title'] = $this->trimNullable($candidate['title'] ?? null);
-        $this->ensureCodeUnchanged($candidate['code'] ?? null, $record, 'секции');
 
         $validated = Validator::make($candidate, [
-            'code' => ['required', Rule::enum(HomepageSectionCode::class)],
             'title' => ['nullable', 'string', 'max:255', $this->plainTextRule('Название секции')],
             'is_active' => ['required', 'boolean'],
-            'position' => ['required', 'integer', 'min:0'],
         ], $this->messages())->validate();
 
         $validated['is_active'] = (bool) $validated['is_active'];
-        $validated['position'] = (int) $validated['position'];
 
         return $validated;
     }
 
-    /**
-     * @param  array<string, mixed>  $attributes
-     * @param  class-string<\BackedEnum>  $codeEnum
-     * @return array<string, mixed>
-     */
-    private function validateDestination(array $attributes, Model $record, string $codeEnum, string $label): array
+    /** @param list<mixed> $rows */
+    private function syncStories(array $rows): void
     {
-        $this->rejectUnexpected($attributes, self::DESTINATION_FIELDS, $label);
-        $candidate = array_merge($record->only(self::DESTINATION_FIELDS), $attributes);
-        $candidate['code'] = $this->backedValue($candidate['code'] ?? null);
-        $candidate['link_type'] = $this->backedValue($candidate['link_type'] ?? null);
+        $groups = HomepageStoryGroup::query()->with('items')->orderBy('id')->lockForUpdate()->get();
+        $groupsById = $groups->keyBy(fn (HomepageStoryGroup $group): int => (int) $group->getKey());
+        $seenGroupIds = [];
+        $seenItemIds = [];
 
-        foreach (['title', 'link_type', 'route_name', 'url'] as $field) {
-            $candidate[$field] = $this->trimNullable($candidate[$field] ?? null);
+        foreach ($rows as $groupIndex => $row) {
+            if (! is_array($row)) {
+                throw ValidationException::withMessages(["stories.{$groupIndex}" => 'Данные кружка должны быть массивом.']);
+            }
+
+            unset($row['_label']);
+            $this->rejectUnexpected($row, ['id', 'title', 'cover_image_path', 'is_active', 'items'], "stories.{$groupIndex}");
+            $groupId = $this->nullableRecordId($row['id'] ?? null, "stories.{$groupIndex}.id");
+
+            if ($groupId !== null) {
+                if (in_array($groupId, $seenGroupIds, true)) {
+                    throw ValidationException::withMessages(["stories.{$groupIndex}.id" => 'Кружок указан в форме несколько раз.']);
+                }
+                $group = $groupsById->get($groupId);
+                if (! $group instanceof HomepageStoryGroup) {
+                    throw ValidationException::withMessages(["stories.{$groupIndex}.id" => 'Кружок не существует.']);
+                }
+                $seenGroupIds[] = $groupId;
+            } else {
+                $group = new HomepageStoryGroup;
+            }
+
+            $groupData = Validator::make([
+                'title' => $this->trimNullable($row['title'] ?? null),
+                'cover_image_path' => $this->trimNullable($row['cover_image_path'] ?? null),
+                'is_active' => $row['is_active'] ?? null,
+            ], [
+                'title' => ['required', 'string', 'max:255', $this->plainTextRule('Название кружка')],
+                'cover_image_path' => ['nullable', 'string', 'max:1024'],
+                'is_active' => ['required', 'boolean'],
+            ], $this->messages())->validate();
+
+            $groupData['is_active'] = (bool) $groupData['is_active'];
+            if ($groupData['is_active'] && $groupData['cover_image_path'] === null) {
+                throw ValidationException::withMessages(["stories.{$groupIndex}.cover_image_path" => 'Для показываемого кружка загрузите обложку.']);
+            }
+            if ($groupData['cover_image_path'] !== null) {
+                $this->assertManagedMedia($groupData['cover_image_path'], HomepageStoryMediaType::Image, true, "stories.{$groupIndex}.cover_image_path");
+            }
+
+            $group->fill([...$groupData, 'position' => $groupIndex])->save();
+            if ($groupId === null) {
+                $seenGroupIds[] = (int) $group->getKey();
+            }
+
+            $this->syncStoryItems(
+                group: $group,
+                rows: $row['items'] ?? null,
+                groupIndex: $groupIndex,
+                seenItemIds: $seenItemIds,
+            );
         }
 
-        if (array_key_exists('link_type', $attributes)) {
-            if ($candidate['link_type'] === null) {
-                if (! array_key_exists('route_name', $attributes)) {
-                    $candidate['route_name'] = null;
+        HomepageStoryGroup::query()->whereNotIn('id', $seenGroupIds)->delete();
+    }
+
+    /**
+     * @param  list<int>  $seenItemIds
+     */
+    private function syncStoryItems(HomepageStoryGroup $group, mixed $rows, int $groupIndex, array &$seenItemIds): void
+    {
+        if (! is_array($rows) || ! array_is_list($rows)) {
+            throw ValidationException::withMessages(["stories.{$groupIndex}.items" => 'Передайте список сторис кружка.']);
+        }
+
+        $items = $group->exists
+            ? HomepageStoryItem::query()->where('homepage_story_group_id', $group->getKey())->orderBy('id')->lockForUpdate()->get()
+            : collect();
+        $itemsById = $items->keyBy(fn (HomepageStoryItem $item): int => (int) $item->getKey());
+        $groupItemIds = [];
+
+        foreach ($rows as $itemIndex => $row) {
+            $path = "stories.{$groupIndex}.items.{$itemIndex}";
+            if (! is_array($row)) {
+                throw ValidationException::withMessages([$path => 'Данные сторис должны быть массивом.']);
+            }
+
+            unset($row['_label']);
+            $this->rejectUnexpected($row, [
+                'id', 'media_type', 'media_path', 'alt_text', 'cta_label', 'cta_url',
+                'open_in_new_tab', 'duration_seconds', 'is_active',
+            ], $path);
+            $itemId = $this->nullableRecordId($row['id'] ?? null, "{$path}.id");
+
+            if ($itemId !== null) {
+                if (in_array($itemId, $seenItemIds, true)) {
+                    throw ValidationException::withMessages(["{$path}.id" => 'Сторис указана в форме несколько раз.']);
                 }
-                if (! array_key_exists('url', $attributes)) {
-                    $candidate['url'] = null;
+                $item = $itemsById->get($itemId);
+                if (! $item instanceof HomepageStoryItem) {
+                    throw ValidationException::withMessages(["{$path}.id" => 'Сторис не существует или относится к другому кружку.']);
                 }
-            } elseif ($candidate['link_type'] === NavigationLinkType::Route->value
-                && ! array_key_exists('url', $attributes)) {
-                $candidate['url'] = null;
-            } elseif ($candidate['link_type'] === NavigationLinkType::Url->value
-                && ! array_key_exists('route_name', $attributes)) {
-                $candidate['route_name'] = null;
+                $seenItemIds[] = $itemId;
+            } else {
+                $item = new HomepageStoryItem(['homepage_story_group_id' => $group->getKey()]);
+            }
+
+            $mediaType = $this->backedValue($row['media_type'] ?? null);
+            $data = Validator::make([
+                'media_type' => $mediaType,
+                'media_path' => $this->trimNullable($row['media_path'] ?? null),
+                'alt_text' => $this->trimNullable($row['alt_text'] ?? null),
+                'cta_label' => $this->trimNullable($row['cta_label'] ?? null),
+                'cta_url' => $this->trimNullable($row['cta_url'] ?? null),
+                'open_in_new_tab' => $row['open_in_new_tab'] ?? false,
+                'duration_seconds' => $row['duration_seconds'] ?? null,
+                'is_active' => $row['is_active'] ?? null,
+            ], [
+                'media_type' => ['required', Rule::enum(HomepageStoryMediaType::class)],
+                'media_path' => ['required', 'string', 'max:1024'],
+                'alt_text' => ['nullable', 'string', 'max:255', $this->plainTextRule('Альтернативный текст')],
+                'cta_label' => ['nullable', 'string', 'max:255', $this->plainTextRule('Текст кнопки')],
+                'cta_url' => ['nullable', 'string', 'max:2048'],
+                'open_in_new_tab' => ['required', 'boolean'],
+                'duration_seconds' => ['nullable', 'integer', 'min:3', 'max:60'],
+                'is_active' => ['required', 'boolean'],
+            ], $this->messages())->validate();
+
+            $type = HomepageStoryMediaType::from($data['media_type']);
+            $this->assertManagedMedia($data['media_path'], $type, false, "{$path}.media_path");
+            $data['cta_url'] = $this->safeCtaUrl($data['cta_url'], "{$path}.cta_url");
+            $data['cta_label'] = $data['cta_url'] === null ? null : ($data['cta_label'] ?? 'Посмотреть');
+            $data['open_in_new_tab'] = $data['cta_url'] !== null && (bool) $data['open_in_new_tab'];
+            $data['duration_seconds'] = $type === HomepageStoryMediaType::Image
+                ? (int) ($data['duration_seconds'] ?? 10)
+                : null;
+            $data['is_active'] = (bool) $data['is_active'];
+
+            $item->fill([...$data, 'homepage_story_group_id' => $group->getKey(), 'position' => $itemIndex])->save();
+            $groupItemIds[] = (int) $item->getKey();
+            if ($itemId === null) {
+                $seenItemIds[] = (int) $item->getKey();
             }
         }
 
-        $this->ensureCodeUnchanged($candidate['code'] ?? null, $record, $label);
+        HomepageStoryItem::query()
+            ->where('homepage_story_group_id', $group->getKey())
+            ->whereNotIn('id', $groupItemIds)
+            ->delete();
+    }
 
-        $validated = Validator::make($candidate, [
-            'code' => ['required', Rule::enum($codeEnum)],
-            'title' => ['required', 'string', 'max:255', $this->plainTextRule('Название')],
-            'link_type' => ['nullable', Rule::enum(NavigationLinkType::class)],
-            'route_name' => ['nullable', 'string', 'max:255'],
-            'url' => ['nullable', 'string', 'max:2048'],
-            'open_in_new_tab' => ['required', 'boolean'],
-            'is_active' => ['required', 'boolean'],
-            'position' => ['required', 'integer', 'min:0'],
-        ], $this->messages())->validate();
-
-        $this->validateDestinationCombination($validated);
-        $validated['open_in_new_tab'] = (bool) $validated['open_in_new_tab'];
-        $validated['is_active'] = (bool) $validated['is_active'];
-        $validated['position'] = (int) $validated['position'];
-
-        if (($validated['link_type'] ?? null) === null) {
-            $validated['open_in_new_tab'] = false;
-            $validated['is_active'] = false;
+    private function assertManagedMedia(string $path, HomepageStoryMediaType $type, bool $cover, string $field): void
+    {
+        $path = trim($path);
+        if (! str_starts_with($path, self::STORY_DIRECTORY)
+            || str_contains($path, '..')
+            || str_contains($path, '\\')
+            || str_starts_with($path, '/')) {
+            throw ValidationException::withMessages([$field => 'Файл должен находиться в управляемом каталоге сторис.']);
         }
 
-        return $validated;
+        $storage = Storage::disk('public');
+        if (! $storage->exists($path)) {
+            throw ValidationException::withMessages([$field => 'Загруженный файл не найден.']);
+        }
+
+        $mime = $storage->mimeType($path);
+        $allowed = $type === HomepageStoryMediaType::Image ? self::IMAGE_MIME_TYPES : self::VIDEO_MIME_TYPES;
+        $extensions = $type === HomepageStoryMediaType::Image ? ['jpg', 'jpeg', 'png', 'webp'] : ['mp4', 'webm'];
+        $maxBytes = ($type === HomepageStoryMediaType::Image || $cover) ? 10 * 1024 * 1024 : 90 * 1024 * 1024;
+
+        if (! is_string($mime) || ! in_array(mb_strtolower($mime), $allowed, true)
+            || ! in_array(mb_strtolower(pathinfo($path, PATHINFO_EXTENSION)), $extensions, true)
+            || $storage->size($path) > $maxBytes) {
+            throw ValidationException::withMessages([$field => 'Файл имеет недопустимый тип или размер.']);
+        }
+    }
+
+    private function safeCtaUrl(?string $url, string $field): ?string
+    {
+        if ($url === null) {
+            return null;
+        }
+
+        $url = trim($url);
+        if ($url === '' || str_starts_with($url, '//') || str_contains($url, '\\')
+            || preg_match('/[\x00-\x1F\x7F]/u', $url) === 1) {
+            throw ValidationException::withMessages([$field => 'Укажите безопасную внутреннюю или http/https ссылку.']);
+        }
+
+        if (preg_match('/^[a-z][a-z0-9+.-]*:/i', $url) === 1) {
+            $scheme = mb_strtolower((string) parse_url($url, PHP_URL_SCHEME));
+            if (! in_array($scheme, ['http', 'https'], true) || blank(parse_url($url, PHP_URL_HOST))) {
+                throw ValidationException::withMessages([$field => 'Разрешены только внутренние ссылки и абсолютные http/https URL.']);
+            }
+        }
+
+        return $url;
+    }
+
+    private function nullableRecordId(mixed $value, string $field): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_int($value) && $value > 0) {
+            return $value;
+        }
+        if (is_string($value) && ctype_digit($value) && (int) $value > 0) {
+            return (int) $value;
+        }
+
+        throw ValidationException::withMessages([$field => 'Идентификатор должен быть положительным целым числом.']);
+    }
+
+    /** @return list<string> */
+    private function persistedStoryMediaPaths(): array
+    {
+        return HomepageStoryGroup::query()->pluck('cover_image_path')
+            ->merge(HomepageStoryItem::query()->pluck('media_path'))
+            ->filter(fn (mixed $path): bool => is_string($path) && str_starts_with($path, self::STORY_DIRECTORY))
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /** @param list<mixed> $rows
+     * @return list<string>
+     */
+    private function storyMediaPathsFromRows(array $rows): array
+    {
+        return collect($rows)->flatMap(function (mixed $row): array {
+            if (! is_array($row)) {
+                return [];
+            }
+
+            $paths = [$row['cover_image_path'] ?? null];
+            foreach (is_array($row['items'] ?? null) ? $row['items'] : [] as $item) {
+                $paths[] = is_array($item) ? ($item['media_path'] ?? null) : null;
+            }
+
+            return $paths;
+        })->filter(fn (mixed $path): bool => is_string($path) && str_starts_with($path, self::STORY_DIRECTORY))
+            ->unique()
+            ->values()
+            ->all();
     }
 
     /** @param array<string, mixed> $attributes
@@ -450,50 +630,6 @@ class HomepageContentAdminService
         $validated['position'] = (int) $validated['position'];
 
         return $validated;
-    }
-
-    /** @param array<string, mixed> $destination */
-    private function validateDestinationCombination(array $destination): void
-    {
-        $type = $destination['link_type'] ?? null;
-        $routeName = $destination['route_name'] ?? null;
-        $url = $destination['url'] ?? null;
-
-        if ($type === null) {
-            if ($routeName !== null || $url !== null) {
-                throw ValidationException::withMessages([
-                    'link_type' => 'Без типа перехода имя маршрута и URL должны быть пустыми.',
-                ]);
-            }
-
-            return;
-        }
-
-        if ($type === NavigationLinkType::Route->value) {
-            if ($routeName === null) {
-                throw ValidationException::withMessages(['route_name' => 'Для перехода по маршруту укажите имя маршрута.']);
-            }
-            if (! Route::has($routeName)) {
-                throw ValidationException::withMessages(['route_name' => 'Указанный маршрут сайта не существует.']);
-            }
-            if ($url !== null) {
-                throw ValidationException::withMessages(['url' => 'Для перехода по маршруту URL должен быть пустым.']);
-            }
-
-            return;
-        }
-
-        if ($url === null) {
-            throw ValidationException::withMessages(['url' => 'Для внешней ссылки укажите URL.']);
-        }
-        if ($routeName !== null) {
-            throw ValidationException::withMessages(['route_name' => 'Для внешней ссылки имя маршрута должно быть пустым.']);
-        }
-        if (filter_var($url, FILTER_VALIDATE_URL) === false
-            || ! in_array(mb_strtolower((string) parse_url($url, PHP_URL_SCHEME)), ['http', 'https'], true)
-            || blank(parse_url($url, PHP_URL_HOST))) {
-            throw ValidationException::withMessages(['url' => 'URL должен быть абсолютным и использовать протокол http или https.']);
-        }
     }
 
     /** @param array<string, mixed> $attributes

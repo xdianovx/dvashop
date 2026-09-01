@@ -2,12 +2,10 @@
 
 use App\Enums\HomepageCategoryCardCode;
 use App\Enums\HomepageMetricCode;
-use App\Enums\HomepageQuickLinkCode;
 use App\Enums\HomepageSectionCode;
 use App\Enums\NavigationLinkType;
 use App\Models\HomepageCategoryCard;
 use App\Models\HomepageMetric;
-use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
 use App\Models\PartType;
 use App\Models\ProductCategory;
@@ -38,23 +36,18 @@ test('homepage content seeder is idempotent and creates exact editable defaults 
 
     $before = [
         'sections' => DB::table('homepage_sections')->orderBy('id')->get(['code', 'title', 'is_active', 'position'])->map(fn ($row): array => (array) $row)->all(),
-        'links' => DB::table('homepage_quick_links')->orderBy('id')->get(['code', 'title', 'link_type', 'route_name', 'url', 'open_in_new_tab', 'is_active', 'position'])->map(fn ($row): array => (array) $row)->all(),
         'cards' => DB::table('homepage_category_cards')->orderBy('id')->get(['code', 'title', 'link_type', 'route_name', 'product_category_id', 'part_type_id', 'url', 'open_in_new_tab', 'is_active', 'position'])->map(fn ($row): array => (array) $row)->all(),
         'metrics' => DB::table('homepage_metrics')->orderBy('id')->get(['code', 'prefix', 'value', 'suffix', 'text', 'is_active', 'position'])->map(fn ($row): array => (array) $row)->all(),
     ];
 
     $this->seed(HomepageContentSeeder::class);
 
-    expect(HomepageSection::query()->count())->toBe(4)
-        ->and(HomepageQuickLink::query()->count())->toBe(7)
+    expect(HomepageSection::query()->count())->toBe(5)
         ->and(HomepageCategoryCard::query()->count())->toBe(5)
         ->and(HomepageMetric::query()->count())->toBe(5)
         ->and(HomepageSection::query()->ordered()->pluck('code')->map->value->all())->toBe(array_column(HomepageSectionCode::cases(), 'value'))
-        ->and(HomepageQuickLink::query()->ordered()->pluck('code')->map->value->all())->toBe(array_column(HomepageQuickLinkCode::cases(), 'value'))
         ->and(HomepageCategoryCard::query()->ordered()->pluck('code')->map->value->all())->toBe(array_column(HomepageCategoryCardCode::cases(), 'value'))
-        ->and(HomepageMetric::query()->ordered()->pluck('code')->map->value->all())->toBe(array_column(HomepageMetricCode::cases(), 'value'))
-        ->and(HomepageQuickLink::query()->where('is_active', true)->exists())->toBeFalse()
-        ->and(HomepageQuickLink::query()->whereNotNull('link_type')->exists())->toBeFalse();
+        ->and(HomepageMetric::query()->ordered()->pluck('code')->map->value->all())->toBe(array_column(HomepageMetricCode::cases(), 'value'));
 
     expect(HomepageCategoryCard::query()->where('code', HomepageCategoryCardCode::Sills)->firstOrFail()->part_type_id)->toBe($targets['sill']->getKey())
         ->and(HomepageCategoryCard::query()->where('code', HomepageCategoryCardCode::FrontArches)->firstOrFail()->part_type_id)->toBe($targets['front']->getKey())
@@ -69,7 +62,6 @@ test('homepage content seeder is idempotent and creates exact editable defaults 
         ->and($sinceYear->value)->toBe('2014')
         ->and($sinceYear->suffix)->toBe('г.')
         ->and(DB::table('homepage_sections')->orderBy('id')->get(['code', 'title', 'is_active', 'position'])->map(fn ($row): array => (array) $row)->all())->toBe($before['sections'])
-        ->and(DB::table('homepage_quick_links')->orderBy('id')->get(['code', 'title', 'link_type', 'route_name', 'url', 'open_in_new_tab', 'is_active', 'position'])->map(fn ($row): array => (array) $row)->all())->toBe($before['links'])
         ->and(DB::table('homepage_category_cards')->orderBy('id')->get(['code', 'title', 'link_type', 'route_name', 'product_category_id', 'part_type_id', 'url', 'open_in_new_tab', 'is_active', 'position'])->map(fn ($row): array => (array) $row)->all())->toBe($before['cards'])
         ->and(DB::table('homepage_metrics')->orderBy('id')->get(['code', 'prefix', 'value', 'suffix', 'text', 'is_active', 'position'])->map(fn ($row): array => (array) $row)->all())->toBe($before['metrics']);
 });
@@ -80,14 +72,6 @@ test('homepage content seeder preserves every non blank manual field destination
     $manualPartType = PartType::factory()->create(['title' => 'Ручной тип назначения']);
 
     HomepageSection::query()->where('code', HomepageSectionCode::VehicleSearch)->update(['title' => 'Ручная секция', 'is_active' => false, 'position' => 99]);
-    HomepageQuickLink::query()->where('code', HomepageQuickLinkCode::Promotions)->update([
-        'title' => 'Ручная ссылка',
-        'link_type' => 'url',
-        'url' => 'https://example.com/promo',
-        'open_in_new_tab' => true,
-        'is_active' => false,
-        'position' => 98,
-    ]);
     HomepageCategoryCard::query()->where('code', HomepageCategoryCardCode::Sills)->update([
         'title' => 'Ручная категория',
         'part_type_id' => $manualPartType->getKey(),
@@ -116,7 +100,6 @@ test('homepage content seeder preserves every non blank manual field destination
     $this->seed(HomepageContentSeeder::class);
 
     expect(DB::table('homepage_sections')->where('code', 'vehicle_search')->first())->toMatchObject(['title' => 'Ручная секция', 'is_active' => 0, 'position' => 99])
-        ->and(DB::table('homepage_quick_links')->where('code', 'promotions')->first())->toMatchObject(['title' => 'Ручная ссылка', 'link_type' => 'url', 'url' => 'https://example.com/promo', 'open_in_new_tab' => 1, 'is_active' => 0, 'position' => 98])
         ->and(DB::table('homepage_category_cards')->where('code', 'sills')->first())->toMatchObject(['title' => 'Ручная категория', 'part_type_id' => $manualPartType->getKey(), 'is_active' => 0, 'position' => 97])
         ->and(DB::table('homepage_metrics')->where('code', 'items_sold')->first())->toMatchObject(['prefix' => 'около', 'value' => '2', 'suffix' => 'млн', 'text' => 'Ручной текст', 'is_active' => 0, 'position' => 96])
         ->and(DB::table('homepage_metrics')->where('code', 'legacy')->exists())->toBeTrue();

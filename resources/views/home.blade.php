@@ -1,8 +1,8 @@
 @extends('layouts.app')
 
 @section('content')
-    @if ($pageData->hasSection(\App\Enums\HomepageSectionCode::QuickLinks->value) && $pageData->quickLinks !== [])
-        <x-hero-circles :items="$pageData->quickLinks" />
+    @if ($pageData->hasSection(\App\Enums\HomepageSectionCode::Stories->value) && $pageData->stories !== [])
+        <x-hero-circles :items="$pageData->stories" />
     @endif
 
     @if ($pageData->hasSection(\App\Enums\HomepageSectionCode::VehicleSearch->value))
@@ -11,6 +11,10 @@
 
     @if ($pageData->hasSection(\App\Enums\HomepageSectionCode::CategoryCards->value) && $pageData->categoryCards !== [])
         <x-categories :cards="$pageData->categoryCards" />
+    @endif
+
+    @if ($pageData->hasSection(\App\Enums\HomepageSectionCode::Reviews->value))
+        <x-homepage-reviews :title="$pageData->sectionTitle(\App\Enums\HomepageSectionCode::Reviews->value)" />
     @endif
 
     @if ($pageData->hasSection(\App\Enums\HomepageSectionCode::AboutMetrics->value) && $pageData->metrics !== [])

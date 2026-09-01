@@ -7,8 +7,9 @@ use App\Filament\Resources\Products\Pages\ListProducts;
 use App\Models\DeliveryMethodSetting;
 use App\Models\HomepageCategoryCard;
 use App\Models\HomepageMetric;
-use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
+use App\Models\HomepageStoryGroup;
+use App\Models\HomepageStoryItem;
 use App\Models\Order;
 use App\Models\PartType;
 use App\Models\PaymentMethodSetting;
@@ -39,8 +40,7 @@ beforeEach(function (): void {
 
 test('homepage content permissions are view only for managers and manageable only by privileged roles', function (): void {
     $records = [
-        HomepageSection::factory()->create(),
-        HomepageQuickLink::factory()->create(),
+        HomepageSection::query()->first() ?? HomepageSection::factory()->create(),
         HomepageCategoryCard::factory()->create(),
         HomepageMetric::factory()->create(),
     ];
@@ -62,11 +62,12 @@ test('homepage content permissions are view only for managers and manageable onl
 
         foreach ($records as $record) {
             $model = $record::class;
+            $mayReorder = $record instanceof HomepageSection ? false : $mayManage;
 
             expect($actor->can('viewAny', $model), "{$label}:{$model}:viewAny")->toBe($mayView)
                 ->and($actor->can('view', $record), "{$label}:{$model}:view")->toBe($mayView)
                 ->and($actor->can('update', $record), "{$label}:{$model}:update")->toBe($mayManage)
-                ->and($actor->can('reorder', $model), "{$label}:{$model}:reorder")->toBe($mayManage)
+                ->and($actor->can('reorder', $model), "{$label}:{$model}:reorder")->toBe($mayReorder)
                 ->and($actor->can('create', $model), "{$label}:{$model}:create")->toBeFalse()
                 ->and($actor->can('delete', $record), "{$label}:{$model}:delete")->toBeFalse()
                 ->and($actor->can('deleteAny', $model), "{$label}:{$model}:deleteAny")->toBeFalse()
@@ -75,6 +76,26 @@ test('homepage content permissions are view only for managers and manageable onl
                 ->and($actor->can('forceDelete', $record), "{$label}:{$model}:forceDelete")->toBeFalse()
                 ->and($actor->can('forceDeleteAny', $model), "{$label}:{$model}:forceDeleteAny")->toBeFalse()
                 ->and($actor->can('replicate', $record), "{$label}:{$model}:replicate")->toBeFalse();
+        }
+    }
+});
+
+test('dynamic story records are manageable only by homepage administrators', function (): void {
+    $group = HomepageStoryGroup::factory()->create();
+    $item = HomepageStoryItem::factory()->for($group, 'group')->create();
+
+    foreach ([
+        [User::factory()->admin()->create(), true, true],
+        [User::factory()->manager()->create(), true, false],
+        [User::factory()->create(), false, false],
+    ] as [$actor, $mayView, $mayManage]) {
+        foreach ([$group, $item] as $record) {
+            expect($actor->can('view', $record))->toBe($mayView)
+                ->and($actor->can('create', $record::class))->toBe($mayManage)
+                ->and($actor->can('update', $record))->toBe($mayManage)
+                ->and($actor->can('delete', $record))->toBe($mayManage)
+                ->and($actor->can('reorder', $record::class))->toBe($mayManage)
+                ->and($actor->can('forceDelete', $record))->toBeFalse();
         }
     }
 });

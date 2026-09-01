@@ -4,6 +4,7 @@ namespace App\Services\Storefront;
 
 use App\Enums\LegalDocumentCode;
 use App\Models\LegalDocument;
+use App\Services\Legal\LegalRichContentSanitizer;
 use App\ViewData\Storefront\GlobalStorefrontData;
 use App\ViewData\Storefront\LegalDocumentViewData;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -14,6 +15,7 @@ final readonly class LegalDocumentViewDataProvider
         private GlobalStorefrontData $global,
         private LegalDocumentRouteMap $routes,
         private StorefrontSeoFactory $seo,
+        private LegalRichContentSanitizer $richContent,
     ) {}
 
     public function load(LegalDocumentCode $code): LegalDocumentViewData
@@ -29,25 +31,14 @@ final readonly class LegalDocumentViewDataProvider
             throw new NotFoundHttpException;
         }
 
-        $paragraphs = preg_split('/\R{2,}/u', trim((string) $document->body)) ?: [];
-        $paragraphs = collect($paragraphs)
-            ->map(function (string $paragraph): array {
-                $lines = preg_split('/\R/u', trim($paragraph)) ?: [];
-
-                return array_values(array_filter(array_map('trim', $lines), fn (string $line): bool => $line !== ''));
-            })
-            ->filter(fn (array $lines): bool => $lines !== [])
-            ->values()
-            ->all();
-
         return new LegalDocumentViewData(
             code: $code,
             title: (string) $document->title,
-            paragraphs: $paragraphs,
+            body: $this->richContent->render($document->body),
             requisites: $this->global->requisites,
             seo: $this->seo->page(
                 pageTitle: (string) $document->title,
-                description: trim((string) $document->body),
+                description: $this->richContent->plainText($document->body),
                 canonical: $this->routes->url($code),
                 storeName: $this->global->storeName,
             ),

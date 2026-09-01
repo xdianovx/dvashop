@@ -65,6 +65,6 @@ class HomepageSectionPolicy
 
     public function reorder(User $user): bool
     {
-        return $user->canPerformAdminAction(AdminPermission::ManageHomepageContent);
+        return false;
     }
 }

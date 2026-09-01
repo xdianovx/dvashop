@@ -4,6 +4,7 @@ namespace App\Services\SiteContent;
 
 use App\Enums\AdminPermission;
 use App\Enums\HomepageCategoryDestination;
+use App\Enums\HomepageSectionCode;
 use App\Enums\NavigationLinkType;
 use App\Enums\StaticPageCode;
 use App\Enums\StaticPageItemCode;
@@ -13,8 +14,9 @@ use App\Models\FaqCategory;
 use App\Models\FaqItem;
 use App\Models\HomepageCategoryCard;
 use App\Models\HomepageMetric;
-use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
+use App\Models\HomepageStoryGroup;
+use App\Models\HomepageStoryItem;
 use App\Models\PartType;
 use App\Models\PaymentMethodSetting;
 use App\Models\ProductCategory;
@@ -37,22 +39,6 @@ use Illuminate\Validation\ValidationException;
 
 class SitePageContentAdminService
 {
-    public const DESTINATION_NONE = 'none';
-
-    public const DESTINATION_EXTERNAL = 'external';
-
-    /** @var array<string, string> */
-    private const ROUTE_DESTINATIONS = [
-        'home' => 'Главная',
-        'catalog.index' => 'Каталог',
-        'about' => 'О нас',
-        'how' => 'Как мы работаем',
-        'payment' => 'Оплата и доставка',
-        'faq' => 'Вопросы и ответы',
-        'partners' => 'Партнёрам',
-        'cart.show' => 'Корзина',
-    ];
-
     public function __construct(
         private readonly HomepageContentAdminService $homepage,
         private readonly StaticPageContentAdminService $staticPages,
@@ -60,20 +46,6 @@ class SitePageContentAdminService
         private readonly DeliveryMethodSettingsAdminService $deliveryMethods,
         private readonly PaymentMethodSettingsAdminService $paymentMethods,
     ) {}
-
-    /** @return array<string, string> */
-    public static function destinationOptions(): array
-    {
-        $routes = collect(self::ROUTE_DESTINATIONS)
-            ->mapWithKeys(fn (string $label, string $route): array => ["route:{$route}" => $label])
-            ->all();
-
-        return [
-            self::DESTINATION_NONE => 'Без перехода',
-            ...$routes,
-            self::DESTINATION_EXTERNAL => 'Внешняя ссылка',
-        ];
-    }
 
     /** @return array<string, string> */
     public static function categoryCardDestinationOptions(): array
@@ -121,18 +93,34 @@ class SitePageContentAdminService
     /** @return array<string, mixed> */
     public function homepageState(): array
     {
+        $sections = HomepageSection::query()->ordered()->get()
+            ->keyBy(fn (HomepageSection $section): string => $section->code->value);
+
         return [
-            'sections' => HomepageSection::query()->ordered()->get()
-                ->map(fn (HomepageSection $record): array => [
-                    'id' => $record->getKey(),
-                    '_label' => $this->homepageSectionLabel($record),
-                    'title' => $record->title,
-                    'is_active' => $record->is_active,
+            'stories_section' => $this->homepageSectionState($sections, 'stories', false),
+            'stories' => HomepageStoryGroup::query()->ordered()->with(['items' => fn ($query) => $query->ordered()])->get()
+                ->map(fn (HomepageStoryGroup $group): array => [
+                    'id' => $group->getKey(),
+                    '_label' => $group->title,
+                    'title' => $group->title,
+                    'cover_image_path' => $group->cover_image_path,
+                    'is_active' => $group->is_active,
+                    'items' => $group->items->map(fn (HomepageStoryItem $item): array => [
+                        'id' => $item->getKey(),
+                        '_label' => $item->alt_text ?: $item->media_type->label(),
+                        'media_type' => $item->media_type->value,
+                        'media_path' => $item->media_path,
+                        'alt_text' => $item->alt_text,
+                        'cta_label' => $item->cta_label,
+                        'cta_url' => $item->cta_url,
+                        'open_in_new_tab' => $item->open_in_new_tab,
+                        'duration_seconds' => $item->duration_seconds,
+                        'is_active' => $item->is_active,
+                    ])->all(),
                 ])
                 ->all(),
-            'quick_links' => HomepageQuickLink::query()->ordered()->get()
-                ->map(fn (HomepageQuickLink $record): array => $this->destinationState($record))
-                ->all(),
+            'search_section' => $this->homepageSectionState($sections, 'vehicle_search'),
+            'category_section' => $this->homepageSectionState($sections, 'category_cards', false),
             'category_cards' => HomepageCategoryCard::query()->ordered()->get()
                 ->map(fn (HomepageCategoryCard $record): array => [
                     'id' => $record->getKey(),
@@ -144,6 +132,8 @@ class SitePageContentAdminService
                     'is_active' => $record->is_active,
                 ])
                 ->all(),
+            'reviews_section' => $this->homepageSectionState($sections, 'reviews'),
+            'about_section' => $this->homepageSectionState($sections, 'about_metrics'),
             'metrics' => HomepageMetric::query()->ordered()->get()
                 ->map(fn (HomepageMetric $record): array => [
                     'id' => $record->getKey(),
@@ -161,52 +151,21 @@ class SitePageContentAdminService
     public function saveHomepage(User $actor, array $data): void
     {
         $this->authorizePermissions($actor, [AdminPermission::ManageHomepageContent]);
-        $this->rejectUnexpected($data, ['sections', 'quick_links', 'category_cards', 'metrics'], 'data');
+        $this->rejectUnexpected($data, [
+            'stories_section', 'stories', 'search_section', 'category_section', 'category_cards',
+            'reviews_section', 'about_section', 'metrics',
+        ], 'data');
 
         DB::transaction(function () use ($actor, $data): void {
-            $sections = HomepageSection::query()->ordered()->lockForUpdate()->get();
-            $sectionRows = $this->fixedRows(
-                $data['sections'] ?? null,
-                $sections,
-                ['id', 'title', 'is_active'],
-                'sections',
-            );
+            $sections = HomepageSection::query()->ordered()->lockForUpdate()->get()
+                ->keyBy(fn (HomepageSection $section): string => $section->code->value);
 
-            foreach ($sectionRows as $index => [$record, $row]) {
-                $this->withValidationPath(
-                    "sections.{$index}",
-                    fn () => $this->homepage->updateSection($actor, $record, [
-                        'title' => $row['title'] ?? null,
-                        'is_active' => $this->requiredValue($row, 'is_active', "sections.{$index}"),
-                    ]),
-                );
-            }
-
-            $quickLinks = HomepageQuickLink::query()->ordered()->lockForUpdate()->get();
-            $quickRows = $this->fixedRows(
-                $data['quick_links'] ?? null,
-                $quickLinks,
-                ['id', 'title', 'destination', 'external_url', 'is_active'],
-                'quick_links',
-            );
-
-            foreach ($quickRows as $index => [$record, $row]) {
-                $payload = [
-                    'title' => $this->requiredValue($row, 'title', "quick_links.{$index}"),
-                    'is_active' => $this->requiredValue($row, 'is_active', "quick_links.{$index}"),
-                    ...$this->destinationPayload($row, "quick_links.{$index}"),
-                ];
-
-                $this->withValidationPath(
-                    "quick_links.{$index}",
-                    fn () => $this->homepage->updateQuickLink($actor, $record, $payload),
-                );
-            }
-
-            $this->homepage->reorderQuickLinks($actor, array_map(
-                fn (array $pair): int => (int) $pair[0]->getKey(),
-                $quickRows,
-            ));
+            $this->saveHomepageSection($actor, $data, $sections, 'stories_section', 'stories', false);
+            $this->homepage->saveStories($actor, $data['stories'] ?? null);
+            $this->saveHomepageSection($actor, $data, $sections, 'search_section', 'vehicle_search', true);
+            $this->saveHomepageSection($actor, $data, $sections, 'category_section', 'category_cards', false);
+            $this->saveHomepageSection($actor, $data, $sections, 'reviews_section', 'reviews', true);
+            $this->saveHomepageSection($actor, $data, $sections, 'about_section', 'about_metrics', true);
 
             $cards = HomepageCategoryCard::query()->ordered()->lockForUpdate()->get();
             $cardRows = $this->fixedRows(
@@ -781,87 +740,56 @@ class SitePageContentAdminService
         });
     }
 
-    /** @return array<string, mixed> */
-    private function destinationState(HomepageQuickLink $record): array
-    {
-        $type = $record->link_type;
-        $destination = match ($type) {
-            NavigationLinkType::Route => 'route:'.$record->route_name,
-            NavigationLinkType::Url => self::DESTINATION_EXTERNAL,
-            default => self::DESTINATION_NONE,
-        };
-
-        return [
-            'id' => $record->getKey(),
-            '_label' => $record->code->value,
-            'title' => $record->title,
-            'destination' => $destination,
-            'external_url' => $type === NavigationLinkType::Url ? $record->url : null,
-            'is_active' => $record->is_active,
-        ];
-    }
-
-    /** @param array<string, mixed> $row
+    /** @param Collection<string, HomepageSection> $sections
      * @return array<string, mixed>
      */
-    private function destinationPayload(array $row, string $path): array
+    private function homepageSectionState(Collection $sections, string $rawCode, bool $withTitle = true): array
     {
-        $destination = $this->requiredValue($row, 'destination', $path);
-        if (! is_string($destination)) {
-            $this->validationError("{$path}.destination", 'Выберите назначение из списка.');
+        $code = HomepageSectionCode::from($rawCode);
+        $section = $sections->get($rawCode);
+        if (! $section instanceof HomepageSection) {
+            $this->validationError('sections', "Не найдена системная секция «{$code->adminLabel()}».");
         }
 
-        $externalUrl = $row['external_url'] ?? null;
+        return array_filter([
+            'id' => $section->getKey(),
+            '_label' => $code->adminLabel(),
+            'title' => $withTitle ? $section->title : null,
+            'is_active' => $section->is_active,
+        ], fn (mixed $value, string $key): bool => $key !== 'title' || $withTitle, ARRAY_FILTER_USE_BOTH);
+    }
 
-        if ($destination === self::DESTINATION_NONE) {
-            if (is_string($externalUrl) && trim($externalUrl) !== '') {
-                $this->validationError("{$path}.external_url", 'URL можно указывать только для назначения «Внешняя ссылка».');
-            }
-
-            return ['link_type' => null];
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  Collection<string, HomepageSection>  $sections
+     */
+    private function saveHomepageSection(
+        User $actor,
+        array $data,
+        Collection $sections,
+        string $path,
+        string $rawCode,
+        bool $titleEditable,
+    ): void {
+        $code = HomepageSectionCode::from($rawCode);
+        $section = $sections->get($rawCode);
+        if (! $section instanceof HomepageSection) {
+            $this->validationError($path, "Не найдена системная секция «{$code->adminLabel()}».");
         }
 
-        if ($destination === self::DESTINATION_EXTERNAL) {
-            if (! is_string($externalUrl)) {
-                $this->validationError("{$path}.external_url", 'Укажите адрес внешней ссылки.');
-            }
+        [$record, $row] = $this->fixedRecord(
+            $data[$path] ?? null,
+            $section,
+            $titleEditable ? ['id', 'title', 'is_active'] : ['id', 'is_active'],
+            $path,
+        );
 
-            $externalUrl = trim($externalUrl);
-            if ($externalUrl === '') {
-                $this->validationError("{$path}.external_url", 'Укажите адрес внешней ссылки.');
-            }
-            if (mb_strlen($externalUrl) > 2048) {
-                $this->validationError("{$path}.external_url", 'Адрес внешней ссылки слишком длинный.');
-            }
-            if (strip_tags($externalUrl) !== $externalUrl
-                || filter_var($externalUrl, FILTER_VALIDATE_URL) === false
-                || ! in_array(mb_strtolower((string) parse_url($externalUrl, PHP_URL_SCHEME)), ['http', 'https'], true)
-                || blank(parse_url($externalUrl, PHP_URL_HOST))) {
-                $this->validationError("{$path}.external_url", 'URL должен быть абсолютным и использовать протокол http или https.');
-            }
-
-            return [
-                'link_type' => NavigationLinkType::Url->value,
-                'url' => $externalUrl,
-            ];
+        $payload = ['is_active' => $this->requiredValue($row, 'is_active', $path)];
+        if ($titleEditable) {
+            $payload['title'] = $row['title'] ?? null;
         }
 
-        if (! str_starts_with($destination, 'route:')) {
-            $this->validationError("{$path}.destination", 'Выбрано неизвестное назначение.');
-        }
-
-        $route = substr($destination, 6);
-        if (! array_key_exists($route, self::ROUTE_DESTINATIONS)) {
-            $this->validationError("{$path}.destination", 'Выбран неизвестный раздел сайта.');
-        }
-        if (is_string($externalUrl) && trim($externalUrl) !== '') {
-            $this->validationError("{$path}.external_url", 'URL можно указывать только для назначения «Внешняя ссылка».');
-        }
-
-        return [
-            'link_type' => NavigationLinkType::Route->value,
-            'route_name' => $route,
-        ];
+        $this->withValidationPath($path, fn () => $this->homepage->updateSection($actor, $record, $payload));
     }
 
     private function categoryCardDestinationType(HomepageCategoryCard $record): ?HomepageCategoryDestination
@@ -980,16 +908,6 @@ class SitePageContentAdminService
             $deleted => $label.' (удалено)',
             ! $active => $label.' (неактивно)',
             default => $label,
-        };
-    }
-
-    private function homepageSectionLabel(HomepageSection $section): string
-    {
-        return match ($section->code->value) {
-            'quick_links' => 'Быстрые ссылки',
-            'vehicle_search' => 'Быстрый поиск запчастей',
-            'category_cards' => 'Витринные категории',
-            'about_metrics' => 'Показатели компании',
         };
     }
 

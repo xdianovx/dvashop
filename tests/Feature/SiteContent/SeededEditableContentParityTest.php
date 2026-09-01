@@ -12,7 +12,6 @@ use App\Models\FaqCategory;
 use App\Models\FaqItem;
 use App\Models\HomepageCategoryCard;
 use App\Models\HomepageMetric;
-use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
 use App\Models\LegalDocument;
 use App\Models\PartType;
@@ -53,8 +52,7 @@ test('seeded editable content matches every current frontend business text witho
     ]);
 
     expect(ShopSetting::query()->sole()->phone_href)->toBe('+78001005625')
-        ->and(HomepageSection::query()->count())->toBe(4)
-        ->and(HomepageQuickLink::query()->count())->toBe(7)
+        ->and(HomepageSection::query()->count())->toBe(5)
         ->and(HomepageCategoryCard::query()->count())->toBe(5)
         ->and(HomepageMetric::query()->count())->toBe(5)
         ->and(StaticPage::query()->count())->toBe(5)
@@ -175,7 +173,6 @@ test('seeded editable content matches every current frontend business text witho
     $plainText = collect([
         ...ShopSetting::query()->get()->flatMap->getAttributes()->filter()->all(),
         ...HomepageSection::query()->get()->flatMap->getAttributes()->filter()->all(),
-        ...HomepageQuickLink::query()->get()->flatMap->getAttributes()->filter()->all(),
         ...HomepageCategoryCard::query()->get()->flatMap->getAttributes()->filter()->all(),
         ...HomepageMetric::query()->get()->flatMap->getAttributes()->filter()->all(),
         ...StaticPage::query()->get()->flatMap->getAttributes()->filter()->all(),

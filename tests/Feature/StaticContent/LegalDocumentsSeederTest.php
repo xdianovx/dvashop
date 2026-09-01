@@ -62,7 +62,7 @@ test('legal documents seeder preserves manual content and unrelated rows', funct
         ));
 });
 
-test('legal document model rejects unknown mutable copied deleted and html content', function (): void {
+test('legal document model rejects unknown mutable copied and deleted records while sanitizing html', function (): void {
     $this->seed(LegalDocumentsSeeder::class);
     $document = LegalDocument::query()->firstOrFail();
 
@@ -73,11 +73,13 @@ test('legal document model rejects unknown mutable copied deleted and html conte
         'is_active' => false,
     ]))->toThrow(ValidationException::class);
 
-    foreach (['<script>alert(1)</script>', '<style>body{display:none}</style>', '<iframe src="https://example.com"></iframe>'] as $html) {
-        $document->body = $html;
-        expect(fn () => $document->save())->toThrow(ValidationException::class);
-        $document->refresh();
-    }
+    $document->body = '<h2 style="text-align: center; color: red">Раздел</h2><script>alert(1)</script><p><strong>Текст</strong> <a href="javascript:alert(1)" target="_blank">ссылка</a></p>';
+    $document->save();
+    expect($document->body)->toContain('<h2 style="text-align: center;">Раздел</h2>')
+        ->toContain('<strong>Текст</strong>')
+        ->not->toContain('<script')
+        ->not->toContain('javascript:')
+        ->not->toContain('color:');
 
     $otherCode = LegalDocumentCode::SaleRules;
     $document->code = $otherCode;

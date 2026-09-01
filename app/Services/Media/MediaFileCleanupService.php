@@ -9,6 +9,28 @@ use Illuminate\Support\Facades\Storage;
 
 class MediaFileCleanupService
 {
+    public function deletePathAfterCommit(?string $path, string $disk = 'public'): void
+    {
+        DB::afterCommit(fn () => $this->deletePath($path, $disk));
+    }
+
+    public function deletePathAfterRollback(?string $path, string $disk = 'public'): void
+    {
+        $callback = fn () => $this->deletePath($path, $disk);
+        $transactions = app('db.transactions');
+
+        if ($transactions instanceof DatabaseTransactionsManager) {
+            $connectionName = DB::connection()->getName();
+            $current = $transactions->getPendingTransactions()
+                ->last(fn ($transaction): bool => $transaction->connection === $connectionName);
+            ($current?->parent ?? $current)?->addCallbackForRollback($callback);
+
+            return;
+        }
+
+        DB::afterRollBack($callback);
+    }
+
     /** @param array<string, mixed>|null $conversions */
     public function deleteAfterCommit(?string $path, ?array $conversions, string $disk = 'public'): void
     {
