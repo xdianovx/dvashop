@@ -3,8 +3,9 @@
 use App\Enums\HomepageSectionCode;
 use App\Enums\StaticPageCode;
 use App\Models\FaqCategory;
-use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
+use App\Models\HomepageStoryGroup;
+use App\Models\HomepageStoryItem;
 use App\Models\StaticPage;
 use App\Models\StaticPageItem;
 use App\Models\StaticPageSection;
@@ -50,24 +51,40 @@ test('aggregate state loaders use a bounded number of queries without n plus one
     'partners' => ['partnersState', 3],
 ]);
 
+test('homepage story state stays bounded with many groups and items', function (): void {
+    HomepageStoryGroup::factory()->count(10)->create()->each(function (HomepageStoryGroup $group): void {
+        HomepageStoryItem::factory()->count(5)->for($group, 'group')->create();
+    });
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    $state = app(SitePageContentAdminService::class)->homepageState();
+    $queryCount = count(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    expect($state['stories'])->toHaveCount(10)
+        ->and($state['stories'][0]['items'])->toHaveCount(5)
+        ->and($queryCount)->toBe(5);
+});
+
 test('homepage save is atomic when a later fixed row fails validation', function (): void {
     $service = app(SitePageContentAdminService::class);
     $admin = User::factory()->admin()->create();
     $state = $service->homepageState();
-    $firstId = $state['quick_links'][0]['id'];
-    $originalTitle = HomepageQuickLink::query()->findOrFail($firstId)->title;
+    $sectionId = $state['search_section']['id'];
+    $originalTitle = HomepageSection::query()->findOrFail($sectionId)->title;
 
-    $state['quick_links'][0]['title'] = 'Это изменение должно откатиться';
-    $state['quick_links'][1]['title'] = '<script>ошибка</script>';
+    $state['search_section']['title'] = 'Это изменение должно откатиться';
+    $state['category_cards'][0]['title'] = '<script>ошибка</script>';
 
     try {
         $service->saveHomepage($admin, $state);
         $this->fail('Ожидалась ошибка валидации HTML.');
     } catch (ValidationException $exception) {
-        expect($exception->errors())->toHaveKey('quick_links.1.title');
+        expect($exception->errors())->toHaveKey('category_cards.0.title');
     }
 
-    expect(HomepageQuickLink::query()->findOrFail($firstId)->title)->toBe($originalTitle);
+    expect(HomepageSection::query()->findOrFail($sectionId)->title)->toBe($originalTitle);
 });
 
 test('every page aggregate rolls back earlier updates when a later field is invalid', function (): void {
@@ -117,17 +134,17 @@ test('forged fields are rejected and fixed homepage codes stay unchanged', funct
     $service = app(SitePageContentAdminService::class);
     $admin = User::factory()->admin()->create();
     $state = $service->homepageState();
-    $before = HomepageQuickLink::query()->orderBy('id')->get(['id', 'code', 'position', 'title'])->toArray();
-    $state['quick_links'][0]['code'] = 'forged_code';
+    $before = HomepageSection::query()->orderBy('id')->get(['id', 'code', 'position', 'title'])->toArray();
+    $state['stories_section']['code'] = 'forged_code';
 
     try {
         $service->saveHomepage($admin, $state);
         $this->fail('Ожидалась ошибка whitelist.');
     } catch (ValidationException $exception) {
-        expect($exception->errors())->toHaveKey('quick_links.0.code');
+        expect($exception->errors())->toHaveKey('stories_section.code');
     }
 
-    expect(HomepageQuickLink::query()->orderBy('id')->get(['id', 'code', 'position', 'title'])->toArray())->toBe($before);
+    expect(HomepageSection::query()->orderBy('id')->get(['id', 'code', 'position', 'title'])->toArray())->toBe($before);
 });
 
 test('fixed static item codes parents and positions cannot be changed through page editor payload', function (): void {
@@ -256,7 +273,7 @@ test('manager cannot save any aggregate page even with a forged direct service c
     'partners' => ['partnersState', 'savePartners'],
 ]);
 
-test('homepage state returns exactly four sections in system order with one bounded query', function (): void {
+test('homepage state returns five semantic sections in system order with one bounded section query', function (): void {
     $service = app(SitePageContentAdminService::class);
 
     DB::flushQueryLog();
@@ -265,14 +282,18 @@ test('homepage state returns exactly four sections in system order with one boun
     $queries = DB::getQueryLog();
     DB::disableQueryLog();
 
-    expect($state['sections'])->toHaveCount(4)
-        ->and(array_column($state['sections'], 'id'))->toBe(HomepageSection::query()->ordered()->pluck('id')->all())
-        ->and(array_column($state['sections'], '_label'))->toBe([
-            'Быстрые ссылки',
-            'Быстрый поиск запчастей',
-            'Витринные категории',
-            'Показатели компании',
-        ])
+    expect(array_keys($state))->toContain(
+        'stories_section', 'stories', 'search_section', 'category_section',
+        'category_cards', 'reviews_section', 'about_section', 'metrics',
+    )->and(HomepageSection::query()->ordered()->pluck('code')->map->value->all())->toBe([
+        'stories', 'vehicle_search', 'category_cards', 'reviews', 'about_metrics',
+    ])->and([
+        $state['stories_section']['_label'],
+        $state['search_section']['_label'],
+        $state['category_section']['_label'],
+        $state['reviews_section']['_label'],
+        $state['about_section']['_label'],
+    ])->toBe(['Сторис', 'Быстрый поиск запчастей', 'Витринные категории', 'Отзывы клиентов', 'О компании'])
         ->and(collect($queries)->filter(
             fn (array $query): bool => str_contains($query['query'], 'homepage_sections'),
         ))->toHaveCount(1);
@@ -286,51 +307,47 @@ test('admin and super admin update homepage section titles and activity without 
     $beforeStructure = HomepageSection::query()->ordered()->get(['id', 'code', 'position'])->toArray();
     $state = $service->homepageState();
 
-    foreach ($state['sections'] as $index => &$section) {
-        $section['title'] = "{$role} секция ".($index + 1);
-        $section['is_active'] = $index !== 2;
-    }
-    unset($section);
+    $state['stories_section']['is_active'] = false;
+    $state['search_section']['title'] = "{$role} поиск";
+    $state['reviews_section']['title'] = "{$role} отзывы";
+    $state['about_section']['title'] = "{$role} компания";
 
     $service->saveHomepage($actor, $state);
 
     expect(HomepageSection::query()->ordered()->pluck('title')->all())->toBe([
-        "{$role} секция 1",
-        "{$role} секция 2",
-        "{$role} секция 3",
-        "{$role} секция 4",
+        null, "{$role} поиск", null, "{$role} отзывы", "{$role} компания",
     ])->and(HomepageSection::query()->ordered()->get()->map(
         fn (HomepageSection $section): bool => $section->is_active,
-    )->all())->toBe([true, true, false, true])
+    )->all())->toBe([false, true, true, true, true])
         ->and(HomepageSection::query()->ordered()->get(['id', 'code', 'position'])->toArray())->toBe($beforeStructure);
 })->with(['super admin' => ['super_admin'], 'admin' => ['admin']]);
 
-test('homepage sections reject additions omissions foreign ids and forged code or position without partial writes', function (): void {
+test('homepage sections reject omissions foreign ids and forged code or position without partial writes', function (): void {
     $service = app(SitePageContentAdminService::class);
     $admin = User::factory()->admin()->create();
     $before = $service->homepageState();
 
     $cases = [
-        'fifth section' => [function (array $state): array {
-            $state['sections'][] = ['id' => 999999, 'title' => 'Чужая секция', 'is_active' => true];
+        'foreign id' => [function (array $state): array {
+            $state['reviews_section']['id'] = 999999;
 
             return $state;
-        }, 'sections.4.id'],
+        }, 'reviews_section.id'],
         'omitted section' => [function (array $state): array {
-            array_pop($state['sections']);
+            $state['reviews_section'] = null;
 
             return $state;
-        }, 'sections'],
+        }, 'reviews_section'],
         'forged code' => [function (array $state): array {
-            $state['sections'][0]['code'] = HomepageSectionCode::AboutMetrics->value;
+            $state['reviews_section']['code'] = HomepageSectionCode::AboutMetrics->value;
 
             return $state;
-        }, 'sections.0.code'],
+        }, 'reviews_section.code'],
         'forged position' => [function (array $state): array {
-            $state['sections'][0]['position'] = 999;
+            $state['reviews_section']['position'] = 999;
 
             return $state;
-        }, 'sections.0.position'],
+        }, 'reviews_section.position'],
     ];
 
     foreach ($cases as $label => [$mutate, $errorKey]) {
@@ -350,14 +367,14 @@ test('invalid late homepage section rolls back updates to earlier sections', fun
     $admin = User::factory()->admin()->create();
     $before = $service->homepageState();
     $payload = $before;
-    $payload['sections'][0]['title'] = 'Это изменение должно откатиться';
-    $payload['sections'][3]['title'] = '<script>ошибка</script>';
+    $payload['search_section']['title'] = 'Это изменение должно откатиться';
+    $payload['reviews_section']['title'] = '<script>ошибка</script>';
 
     try {
         $service->saveHomepage($admin, $payload);
         $this->fail('Ожидалась ошибка HTML в поздней секции.');
     } catch (ValidationException $exception) {
-        expect($exception->errors())->toHaveKey('sections.3.title');
+        expect($exception->errors())->toHaveKey('reviews_section.title');
     }
 
     expect($service->homepageState())->toBe($before);

@@ -53,6 +53,7 @@
     <x-footer :storefront="$storefrontData" />
     <x-mobile-nav :storefront="$storefrontData" />
     <x-storefront-toast />
+    @stack('scripts')
 </body>
 
 </html>

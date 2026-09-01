@@ -3,7 +3,6 @@
 use App\Enums\DeliveryMethod;
 use App\Enums\HomepageCategoryCardCode;
 use App\Enums\HomepageMetricCode;
-use App\Enums\HomepageQuickLinkCode;
 use App\Enums\HomepageSectionCode;
 use App\Enums\LegalDocumentCode;
 use App\Enums\PaymentMethod;
@@ -15,8 +14,9 @@ use App\Models\FaqCategory;
 use App\Models\FaqItem;
 use App\Models\HomepageCategoryCard;
 use App\Models\HomepageMetric;
-use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
+use App\Models\HomepageStoryGroup;
+use App\Models\HomepageStoryItem;
 use App\Models\LegalDocument;
 use App\Models\PaymentMethodSetting;
 use App\Models\ShopSetting;
@@ -30,7 +30,8 @@ test('editable frontend content inventory is explicit fixed and contains no univ
         ShopSetting::class,
         SiteNavigationItem::class,
         HomepageSection::class,
-        HomepageQuickLink::class,
+        HomepageStoryGroup::class,
+        HomepageStoryItem::class,
         HomepageCategoryCard::class,
         HomepageMetric::class,
         StaticPage::class,
@@ -48,9 +49,7 @@ test('editable frontend content inventory is explicit fixed and contains no univ
     }
 
     expect(array_column(HomepageSectionCode::cases(), 'value'))->toBe([
-        'quick_links', 'vehicle_search', 'category_cards', 'about_metrics',
-    ])->and(array_column(HomepageQuickLinkCode::cases(), 'value'))->toBe([
-        'new_arrivals', 'promotions', 'service_search', 'reviews', 'socials', 'galvanized', 'fitting',
+        'stories', 'vehicle_search', 'category_cards', 'reviews', 'about_metrics',
     ])->and(array_column(HomepageCategoryCardCode::cases(), 'value'))->toBe([
         'sills', 'commercial', 'body_repair', 'front_arches', 'rear_arches',
     ])->and(array_column(HomepageMetricCode::cases(), 'value'))->toBe([

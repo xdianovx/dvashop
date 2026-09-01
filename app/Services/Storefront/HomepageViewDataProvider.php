@@ -4,34 +4,27 @@ namespace App\Services\Storefront;
 
 use App\Enums\HomepageCategoryCardCode;
 use App\Enums\HomepageMetricCode;
-use App\Enums\HomepageQuickLinkCode;
+use App\Enums\HomepageStoryMediaType;
 use App\Enums\NavigationLinkType;
 use App\Models\HomepageMetric;
-use App\Models\HomepageQuickLink;
 use App\Models\HomepageSection;
+use App\Models\HomepageStoryGroup;
+use App\Models\HomepageStoryItem;
 use App\Models\VehicleMake;
+use App\Services\Media\MediaUrlService;
 use App\Services\PublicCatalogCache;
 use App\ViewData\Storefront\GlobalStorefrontData;
 use App\ViewData\Storefront\HomepageViewData;
-use App\ViewData\Storefront\StorefrontLinkData;
 use Illuminate\Support\Facades\DB;
 
 final readonly class HomepageViewDataProvider
 {
-    /** @var list<HomepageQuickLinkCode> */
-    private const UNIMPLEMENTED_QUICK_LINKS = [
-        HomepageQuickLinkCode::NewArrivals,
-        HomepageQuickLinkCode::Promotions,
-        HomepageQuickLinkCode::ServiceSearch,
-        HomepageQuickLinkCode::Reviews,
-    ];
-
     public function __construct(
         private GlobalStorefrontData $global,
-        private StorefrontDestinationResolver $destinations,
         private StorefrontSeoFactory $seo,
         private StorefrontTextPresenter $text,
         private PublicCatalogCache $catalogCache,
+        private MediaUrlService $mediaUrls,
     ) {}
 
     public function load(): HomepageViewData
@@ -45,33 +38,46 @@ final readonly class HomepageViewDataProvider
             ])
             ->all();
 
-        $quickLinks = HomepageQuickLink::query()
+        $stories = HomepageStoryGroup::query()
             ->active()
             ->ordered()
-            ->get(['code', 'title', 'link_type', 'route_name', 'url', 'open_in_new_tab'])
-            ->map(function (HomepageQuickLink $item): ?array {
-                if (in_array($item->code, self::UNIMPLEMENTED_QUICK_LINKS, true)) {
+            ->with(['items' => fn ($query) => $query->active()->ordered()])
+            ->get(['id', 'title', 'cover_image_path'])
+            ->map(function (HomepageStoryGroup $group): ?array {
+                $coverUrl = $this->storyMediaUrl($group->cover_image_path);
+                if ($coverUrl === null) {
                     return null;
                 }
 
-                $link = $this->destinations->resolve(
-                    title: $item->title,
-                    type: $item->link_type,
-                    routeName: $item->route_name,
-                    url: $item->url,
-                    openInNewTab: (bool) $item->open_in_new_tab,
-                );
+                $items = $group->items->map(function (HomepageStoryItem $item): ?array {
+                    $mediaUrl = $this->storyMediaUrl($item->media_path);
+                    if ($mediaUrl === null) {
+                        return null;
+                    }
 
-                if (! $link instanceof StorefrontLinkData) {
+                    $ctaUrl = $this->safeStoryCtaUrl($item->cta_url);
+
+                    return [
+                        'type' => $item->media_type->value,
+                        'media_url' => $mediaUrl,
+                        'alt' => $this->text->plain($item->alt_text) ?? '',
+                        'duration_ms' => $item->media_type === HomepageStoryMediaType::Image
+                            ? max(3, min(60, (int) ($item->duration_seconds ?? 10))) * 1000
+                            : null,
+                        'cta_label' => $ctaUrl === null ? null : ($this->text->plain($item->cta_label) ?? 'Посмотреть'),
+                        'cta_url' => $ctaUrl,
+                        'open_in_new_tab' => $ctaUrl !== null && (bool) $item->open_in_new_tab,
+                    ];
+                })->filter()->values()->all();
+
+                if ($items === []) {
                     return null;
                 }
 
                 return [
-                    'code' => $item->code->value,
-                    'title' => $link->title,
-                    'url' => $link->url,
-                    'open_in_new_tab' => $link->openInNewTab,
-                    'image' => $this->quickLinkImage($item->code),
+                    'title' => (string) $group->title,
+                    'cover_url' => $coverUrl,
+                    'items' => $items,
                 ];
             })
             ->filter()
@@ -178,7 +184,7 @@ final readonly class HomepageViewDataProvider
 
         return new HomepageViewData(
             sections: $sections,
-            quickLinks: $quickLinks,
+            stories: $stories,
             categoryCards: $categoryCards,
             metrics: $metrics,
             vehicleMakes: $vehicleMakes,
@@ -186,17 +192,36 @@ final readonly class HomepageViewDataProvider
         );
     }
 
-    private function quickLinkImage(HomepageQuickLinkCode $code): string
+    private function storyMediaUrl(?string $path): ?string
     {
-        return match ($code) {
-            HomepageQuickLinkCode::NewArrivals => asset('img/hero-circles/1.png'),
-            HomepageQuickLinkCode::Promotions => asset('img/hero-circles/2.png'),
-            HomepageQuickLinkCode::ServiceSearch => asset('img/hero-circles/3.png'),
-            HomepageQuickLinkCode::Reviews => asset('img/hero-circles/4.png'),
-            HomepageQuickLinkCode::Socials => asset('img/hero-circles/5.png'),
-            HomepageQuickLinkCode::Galvanized => asset('img/hero-circles/6.png'),
-            HomepageQuickLinkCode::Fitting => asset('img/hero-circles/7.png'),
-        };
+        if (! is_string($path) || ! str_starts_with($path, 'uploads/homepage/stories/')
+            || str_contains($path, '..') || str_contains($path, '\\')) {
+            return null;
+        }
+
+        return $this->mediaUrls->publicDiskUrl($path);
+    }
+
+    private function safeStoryCtaUrl(?string $url): ?string
+    {
+        if (! is_string($url)) {
+            return null;
+        }
+
+        $url = trim($url);
+        if ($url === '' || str_starts_with($url, '//') || str_contains($url, '\\')
+            || preg_match('/[\x00-\x1F\x7F]/u', $url) === 1) {
+            return null;
+        }
+
+        if (preg_match('/^[a-z][a-z0-9+.-]*:/i', $url) === 1) {
+            $scheme = mb_strtolower((string) parse_url($url, PHP_URL_SCHEME));
+            if (! in_array($scheme, ['http', 'https'], true) || blank(parse_url($url, PHP_URL_HOST))) {
+                return null;
+            }
+        }
+
+        return $url;
     }
 
     /** @return array{modifier:string,layers:list<array{src:string,class:string}>} */

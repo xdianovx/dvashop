@@ -54,7 +54,7 @@ test('admin and super admin edit fixed legal documents through understandable pa
     $document = LegalDocument::query()->where('code', LegalDocumentCode::PrivacyPolicy)->firstOrFail();
 
     expect($document->title)->toBe('Утверждённая политика')
-        ->and($document->body)->toBe("Первая строка.\nВторая строка.")
+        ->and($document->body)->toBe("<p>Первая строка.\nВторая строка.</p>")
         ->and($document->is_active)->toBeTrue();
 })->with(['super admin' => ['super_admin'], 'admin' => ['admin']]);
 
@@ -129,13 +129,13 @@ test('fixed legal form rejects forged code fifth document omitted document and d
     }
 });
 
-test('legal document save is transactional and rejects html in a late document', function (): void {
+test('legal document save is transactional when a late document is invalid', function (): void {
     $service = app(LegalDocumentAdminService::class);
     $admin = User::factory()->admin()->create();
     $before = $service->state();
     $payload = $before;
     $payload['documents'][0]['title'] = 'Не должно сохраниться';
-    $payload['documents'][3]['body'] = '<script>alert(1)</script>';
+    $payload['documents'][3]['title'] = '<script>alert(1)</script>';
     $payload['documents'][3]['is_active'] = true;
 
     expect(fn () => $service->save($admin, $payload))->toThrow(ValidationException::class);
@@ -189,4 +189,49 @@ test('direct legal service rejects manager before any write', function (): void 
 
     expect(fn () => $service->save($manager, $before))->toThrow(AuthorizationException::class);
     expect($service->state())->toBe($before);
+});
+
+test('legal body is a rich editor rather than a primitive textarea and fixed inventory remains four', function (): void {
+    $source = file_get_contents(app_path('Filament/Pages/LegalDocumentsPage.php'));
+
+    expect($source)->not->toBeFalse()
+        ->and($source)->toContain("RichEditor::make('body')")
+        ->not->toContain("Textarea::make('body')")
+        ->and(app(LegalDocumentAdminService::class)->state()['documents'])->toHaveCount(4);
+});
+
+test('admin legal save preserves supported rich content and strips executable payloads', function (): void {
+    $service = app(LegalDocumentAdminService::class);
+    $admin = User::factory()->admin()->create();
+    $state = $service->state();
+    $state['documents'][0]['body'] = <<<'HTML'
+<h2>Раздел</h2><h3>Подраздел</h3><p style="text-align: center"><strong>Жирный</strong> <em>курсив</em> <u>подчёркнутый</u></p><ul><li>Пункт</li></ul><ol><li>Шаг</li></ol><p><a href="https://example.com" target="_blank">Ссылка</a></p><table onclick="alert(1)"><tbody><tr><td colspan="2" rowspan="3">Ячейка</td></tr></tbody></table><script>alert(2)</script><img src=x onerror=alert(3)><a href="javascript:alert(4)">Опасно</a><iframe src="https://example.com"></iframe><style>body{display:none}</style><svg onload="alert(5)"><circle /></svg><p><strong>Незакрытый<p><em>Вложенный</em>
+HTML;
+    $state['documents'][0]['is_active'] = true;
+    foreach ($state['documents'] as &$document) {
+        unset($document['_label']);
+    }
+    unset($document);
+
+    $service->save($admin, $state);
+    $body = LegalDocument::query()->where('code', LegalDocumentCode::PrivacyPolicy)->value('body');
+
+    expect($body)->toContain('<h2>Раздел</h2>')
+        ->toContain('<h3>Подраздел</h3>')
+        ->toContain('<strong>Жирный</strong>')
+        ->toContain('<em>курсив</em>')
+        ->toContain('<u>подчёркнутый</u>')
+        ->toContain('<ul><li>Пункт</li></ul>')
+        ->toContain('<ol><li>Шаг</li></ol>')
+        ->toContain('href="https://example.com" target="_blank" rel="noopener noreferrer"')
+        ->toContain('<table>')
+        ->toContain('colspan="2" rowspan="3"')
+        ->not->toContain('<script')
+        ->not->toContain('<img')
+        ->not->toContain('onerror')
+        ->not->toContain('javascript:')
+        ->not->toContain('<iframe')
+        ->not->toContain('<style')
+        ->not->toContain('<svg')
+        ->not->toContain('onclick');
 });

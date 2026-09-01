@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\LegalDocumentCode;
+use App\Services\Legal\LegalRichContentSanitizer;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
@@ -25,13 +26,10 @@ class LegalDocument extends Model
             }
 
             $document->title = trim((string) $document->title);
-            $document->body = is_string($document->body) ? trim($document->body) : null;
-            $document->body = $document->body === '' ? null : $document->body;
+            $document->body = app(LegalRichContentSanitizer::class)->sanitize($document->body);
 
-            foreach (['title' => $document->title, 'body' => $document->body] as $field => $value) {
-                if (is_string($value) && strip_tags($value) !== $value) {
-                    throw ValidationException::withMessages([$field => 'Документ должен содержать обычный текст без HTML.']);
-                }
+            if (strip_tags($document->title) !== $document->title) {
+                throw ValidationException::withMessages(['title' => 'Название документа должно содержать обычный текст без HTML.']);
             }
 
             if ($document->title === '') {

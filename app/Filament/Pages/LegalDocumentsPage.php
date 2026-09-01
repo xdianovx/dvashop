@@ -9,7 +9,7 @@ use BackedEnum;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
-use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
@@ -83,7 +83,7 @@ class LegalDocumentsPage extends Page
             ->disabled(fn (): bool => ! $this->canUpdate())
             ->components([
                 Section::make('Юридические документы')
-                    ->description('Пустой документ автоматически остаётся выключенным. Содержимое хранится как безопасный обычный текст.')
+                    ->description('Пустой документ автоматически остаётся выключенным. Разрешены только безопасные элементы форматирования.')
                     ->schema([
                         Repeater::make('documents')
                             ->label('Документы')
@@ -96,10 +96,26 @@ class LegalDocumentsPage extends Page
                                     ->required()
                                     ->maxLength(255),
                                 Toggle::make('is_active')->label('Показывать на сайте'),
-                                Textarea::make('body')
+                                RichEditor::make('body')
                                     ->label('Содержимое')
                                     ->placeholder('Документ не заполнен')
-                                    ->rows(14)
+                                    ->toolbarButtons([
+                                        ['paragraph', 'h2', 'h3', 'h4'],
+                                        ['bold', 'italic', 'underline', 'strike', 'link'],
+                                        ['bulletList', 'orderedList', 'blockquote'],
+                                        ['alignStart', 'alignCenter', 'alignEnd', 'alignJustify'],
+                                        ['horizontalRule', 'table'],
+                                        ['undo', 'redo'],
+                                    ])
+                                    ->floatingToolbars([
+                                        'table' => [
+                                            'tableAddColumnBefore', 'tableAddColumnAfter', 'tableDeleteColumn',
+                                            'tableAddRowBefore', 'tableAddRowAfter', 'tableDeleteRow',
+                                            'tableMergeCells', 'tableSplitCell',
+                                            'tableToggleHeaderRow', 'tableToggleHeaderCell', 'tableDelete',
+                                        ],
+                                    ])
+                                    ->fileAttachments(false)
                                     ->maxLength(60000)
                                     ->columnSpanFull(),
                             ])
@@ -108,7 +124,7 @@ class LegalDocumentsPage extends Page
                             ->deletable(false)
                             ->reorderable(false)
                             ->collapsible()
-                            ->itemLabel(fn (array $state): string => (string) ($state['title'] ?? $state['_label'] ?? 'Документ'))
+                            ->itemLabel(fn (array $state): string => (string) ($state['_label'] ?? 'Системный документ'))
                             ->columnSpanFull(),
                     ]),
             ]);

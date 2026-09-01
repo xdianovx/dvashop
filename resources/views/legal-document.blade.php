@@ -12,13 +12,7 @@
                 <h1 class="legal-page__title">{{ $pageData->title }}</h1>
 
                 <div class="legal-page__body">
-                    @foreach ($pageData->paragraphs as $paragraph)
-                        <p>
-                            @foreach ($paragraph as $line)
-                                {{ $line }}@if (! $loop->last)<br>@endif
-                            @endforeach
-                        </p>
-                    @endforeach
+                    {{ $pageData->body }}
                 </div>
 
                 @if ($pageData->requisites !== [])

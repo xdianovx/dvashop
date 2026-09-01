@@ -171,6 +171,7 @@ test('cart progressive enhancement hooks badge toast and mutations into approved
     $part = file_get_contents(resource_path('views/part.blade.php'));
     $item = file_get_contents(resource_path('views/components/cart-item.blade.php'));
     $summary = file_get_contents(resource_path('views/components/cart-summary.blade.php'));
+    $cart = file_get_contents(resource_path('views/cart.blade.php'));
     $scripts = file_get_contents(resource_path('js/app.js'));
     $styles = file_get_contents(resource_path('scss/_header.scss'));
 
@@ -185,7 +186,9 @@ test('cart progressive enhancement hooks badge toast and mutations into approved
         ->and($item)
         ->toContain('data-cart-update', 'data-cart-remove', 'data-cart-item-line-total')
         ->and($summary)
-        ->toContain('data-cart-clear', 'data-cart-subtotal', 'data-cart-total')
+        ->toContain('data-cart-subtotal', 'data-cart-total')
+        ->and($cart)
+        ->toContain('data-cart-clear')
         ->and($scripts)
         ->toContain("Accept: 'application/json'", "'X-Requested-With': 'XMLHttpRequest'", 'textContent', 'header__cart-badge--pulse')
         ->and($styles)

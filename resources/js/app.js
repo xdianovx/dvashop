@@ -850,8 +850,15 @@ document.querySelectorAll('[data-faq-toggle]').forEach((toggle) => {
     });
 });
 
-// Inquiry forms remain ordinary POST forms; JavaScript only adds modal and AJAX progress.
-function createInquiryModalController(modal) {
+const openStorefrontModals = new Set();
+
+// Shared dialog behavior: focus trap, Escape, focus return and body scroll lock.
+function createModalController(modal, {
+    openClass,
+    closeSelector,
+    onOpen = () => {},
+    onClose = () => {},
+}) {
     const dialog = modal.querySelector('[role="dialog"]');
     let returnFocus = null;
 
@@ -859,7 +866,7 @@ function createInquiryModalController(modal) {
 
     const focusableSelector = [
         'a[href]:not([tabindex="-1"])',
-        'button:not([disabled])',
+        'button:not([disabled]):not([tabindex="-1"])',
         'input:not([disabled]):not([type="hidden"]):not([tabindex="-1"])',
         'select:not([disabled])',
         'textarea:not([disabled])',
@@ -873,31 +880,29 @@ function createInquiryModalController(modal) {
         const style = window.getComputedStyle(element);
         return style.display !== 'none' && style.visibility !== 'hidden';
     });
-    const isOpen = () => modal.classList.contains('inquiry-modal--open');
-    const clearInquiryHash = () => {
-        if (['#storefront-inquiry', '#storefront-inquiry-success'].includes(window.location.hash)) {
-            window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
-        }
-    };
+    const isOpen = () => modal.classList.contains(openClass);
     const open = (trigger = null) => {
         if (trigger instanceof HTMLElement) returnFocus = trigger;
-        clearInquiryHash();
-        modal.classList.add('inquiry-modal--open');
+        modal.classList.add(openClass);
         modal.setAttribute('aria-hidden', 'false');
+        openStorefrontModals.add(modal);
+        document.body.classList.add('storefront-modal-open');
+        onOpen();
         window.setTimeout(() => {
-            clearInquiryHash();
             dialog.focus();
         }, 0);
     };
     const close = (restoreFocus = true) => {
-        modal.classList.remove('inquiry-modal--open');
+        modal.classList.remove(openClass);
         modal.setAttribute('aria-hidden', 'true');
-        clearInquiryHash();
+        openStorefrontModals.delete(modal);
+        document.body.classList.toggle('storefront-modal-open', openStorefrontModals.size > 0);
+        onClose();
 
         if (restoreFocus && returnFocus?.isConnected) returnFocus.focus();
     };
 
-    modal.querySelectorAll('[data-inquiry-close]').forEach((control) => {
+    modal.querySelectorAll(closeSelector).forEach((control) => {
         control.addEventListener('click', (event) => {
             event.preventDefault();
             close();
@@ -939,15 +944,31 @@ function createInquiryModalController(modal) {
         }
     });
 
-    const requestedByHash = modal.id !== '' && window.location.hash === `#${modal.id}`;
-
-    if (modal.hasAttribute('data-inquiry-auto-open') || requestedByHash) {
-        open();
-    } else {
-        modal.setAttribute('aria-hidden', 'true');
-    }
+    modal.setAttribute('aria-hidden', 'true');
 
     return { open, close, isOpen, returnFocus: () => returnFocus };
+}
+
+// Inquiry forms remain ordinary POST forms; JavaScript only adds modal and AJAX progress.
+function createInquiryModalController(modal) {
+    const clearInquiryHash = () => {
+        if (['#storefront-inquiry', '#storefront-inquiry-success'].includes(window.location.hash)) {
+            window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+        }
+    };
+    const controller = createModalController(modal, {
+        openClass: 'inquiry-modal--open',
+        closeSelector: '[data-inquiry-close]',
+        onOpen: clearInquiryHash,
+        onClose: clearInquiryHash,
+    });
+
+    if (!controller) return null;
+
+    const requestedByHash = modal.id !== '' && window.location.hash === `#${modal.id}`;
+    if (modal.hasAttribute('data-inquiry-auto-open') || requestedByHash) controller.open();
+
+    return controller;
 }
 
 function initInquiryForms() {
@@ -1049,6 +1070,287 @@ function initInquiryForms() {
 }
 
 initStorefrontFeature('inquiry', initInquiryForms);
+
+function initStories() {
+    const modal = document.querySelector('[data-story-modal]');
+    const swiperElement = modal?.querySelector('[data-story-swiper]');
+    const slides = swiperElement ? [...swiperElement.querySelectorAll('[data-story-slide]')] : [];
+    const progress = modal?.querySelector('[data-story-progress]');
+    const status = modal?.querySelector('[data-story-status]');
+    const pauseButton = modal?.querySelector('[data-story-pause]');
+    const pauseIcon = pauseButton?.querySelector('[data-story-pause-icon]');
+    const playIcon = pauseButton?.querySelector('[data-story-play-icon]');
+
+    if (!modal || !swiperElement || slides.length === 0 || !progress || !status || !pauseButton || !pauseIcon || !playIcon) return;
+
+    let frame = null;
+    let failedMediaTimer = null;
+    let imageStartedAt = 0;
+    let imageElapsed = 0;
+    let paused = false;
+    let currentFill = null;
+    let swiper;
+    let controller;
+
+    const clearFrame = () => {
+        if (frame !== null) window.cancelAnimationFrame(frame);
+        frame = null;
+    };
+
+    const clearFailedMediaTimer = () => {
+        if (failedMediaTimer !== null) window.clearTimeout(failedMediaTimer);
+        failedMediaTimer = null;
+    };
+
+    const stopPlayback = (reset = false) => {
+        clearFrame();
+        slides.forEach((slide) => {
+            const video = slide.querySelector('video');
+            if (video) {
+                video.pause();
+                video.muted = true;
+                if (reset) {
+                    try {
+                        video.currentTime = 0;
+                    } catch (_error) {
+                        // Metadata can still be unavailable; playback will start at zero on load.
+                    }
+                }
+            }
+        });
+    };
+
+    const updatePauseControl = () => {
+        pauseIcon.hidden = paused;
+        playIcon.hidden = !paused;
+        pauseButton.setAttribute('aria-label', paused ? 'Продолжить сторис' : 'Приостановить сторис');
+    };
+
+    const setProgress = (value) => {
+        currentFill?.style.setProperty('--story-progress', String(Math.max(0, Math.min(1, value))));
+    };
+
+    const renderProgress = (slide) => {
+        const itemIndex = Number(slide.dataset.itemIndex);
+        const groupSize = Number(slide.dataset.groupSize);
+        progress.replaceChildren();
+
+        for (let index = 0; index < groupSize; index += 1) {
+            const segment = document.createElement('span');
+            const fill = document.createElement('span');
+            segment.className = 'story-modal__progress-segment';
+            fill.className = 'story-modal__progress-fill';
+            fill.style.setProperty('--story-progress', index < itemIndex ? '1' : '0');
+            segment.append(fill);
+            progress.append(segment);
+            if (index === itemIndex) currentFill = fill;
+        }
+    };
+
+    const advance = () => {
+        clearFailedMediaTimer();
+        if (swiper.activeIndex >= slides.length - 1) {
+            controller.close();
+            return;
+        }
+        swiper.slideNext();
+    };
+
+    const scheduleFailedMediaAdvance = (slide) => {
+        clearFailedMediaTimer();
+        if (!controller.isOpen() || slide !== slides[swiper.activeIndex]) return;
+
+        failedMediaTimer = window.setTimeout(() => {
+            failedMediaTimer = null;
+            if (controller.isOpen() && slide === slides[swiper.activeIndex]) advance();
+        }, 1400);
+    };
+
+    const markMediaUnavailable = (slide) => {
+        slide.dataset.storyMediaFailed = 'true';
+        slide.querySelector('video')?.pause();
+        const fallback = slide.querySelector('[data-story-media-fallback]');
+        if (fallback) fallback.hidden = false;
+
+        if (!controller?.isOpen() || slide !== slides[swiper?.activeIndex]) return;
+
+        clearFrame();
+        setProgress(1);
+        status.textContent = 'Медиа недоступно. Переходим к следующей сторис.';
+        scheduleFailedMediaAdvance(slide);
+    };
+
+    const handlePlayRejection = (slide, video, error) => {
+        if (!controller.isOpen() || slide !== slides[swiper.activeIndex]) return;
+
+        if (video.error || !['NotAllowedError', 'AbortError'].includes(error?.name)) {
+            markMediaUnavailable(slide);
+            return;
+        }
+
+        paused = true;
+        clearFrame();
+        updatePauseControl();
+        status.textContent = 'Автовоспроизведение приостановлено. Нажмите продолжить.';
+    };
+
+    const playVideo = (slide, video) => {
+        video.muted = true;
+        const playback = video.play();
+        if (playback instanceof Promise) {
+            playback.catch((error) => handlePlayRejection(slide, video, error));
+        }
+    };
+
+    const runFrame = () => {
+        if (paused || document.hidden || !controller.isOpen()) return;
+        const slide = slides[swiper.activeIndex];
+        if (slide.dataset.storyMediaFailed === 'true') return;
+        const video = slide.querySelector('video');
+
+        if (video) {
+            const ratio = Number.isFinite(video.duration) && video.duration > 0 ? video.currentTime / video.duration : 0;
+            setProgress(ratio);
+        } else {
+            const duration = Math.max(3000, Number(slide.dataset.durationMs) || 10000);
+            imageElapsed = performance.now() - imageStartedAt;
+            setProgress(imageElapsed / duration);
+            if (imageElapsed >= duration) {
+                advance();
+                return;
+            }
+        }
+
+        frame = window.requestAnimationFrame(runFrame);
+    };
+
+    const startCurrent = () => {
+        clearFailedMediaTimer();
+        stopPlayback(true);
+        imageElapsed = 0;
+        imageStartedAt = performance.now();
+        const slide = slides[swiper.activeIndex];
+        slides.forEach((candidate, index) => {
+            const active = index === swiper.activeIndex;
+            candidate.setAttribute('aria-hidden', String(!active));
+            candidate.inert = !active;
+        });
+        renderProgress(slide);
+        status.textContent = slide.getAttribute('aria-label') || 'Сторис';
+
+        if (slide.dataset.storyMediaFailed === 'true') {
+            setProgress(1);
+            status.textContent = 'Медиа недоступно. Переходим к следующей сторис.';
+            scheduleFailedMediaAdvance(slide);
+            return;
+        }
+
+        const video = slide.querySelector('video');
+        if (video) {
+            video.onended = advance;
+            video.muted = true;
+            if (!paused && !document.hidden) playVideo(slide, video);
+        }
+
+        if (!paused && !document.hidden) frame = window.requestAnimationFrame(runFrame);
+    };
+
+    controller = createModalController(modal, {
+        openClass: 'story-modal--open',
+        closeSelector: '[data-story-close]',
+        onClose: () => {
+            clearFailedMediaTimer();
+            stopPlayback(true);
+            paused = false;
+            updatePauseControl();
+        },
+    });
+    if (!controller) return;
+
+    slides.forEach((slide) => {
+        const media = slide.querySelector('.story-modal__media');
+        if (!media) {
+            markMediaUnavailable(slide);
+            return;
+        }
+
+        media.addEventListener('error', () => markMediaUnavailable(slide));
+        if (media instanceof HTMLImageElement && media.complete && media.naturalWidth === 0) {
+            markMediaUnavailable(slide);
+        }
+    });
+
+    swiper = new Swiper(swiperElement, {
+        slidesPerView: 1,
+        speed: 250,
+        on: { slideChangeTransitionEnd: startCurrent },
+    });
+
+    document.querySelectorAll('[data-story-open]').forEach((trigger) => {
+        trigger.addEventListener('click', () => {
+            const groupIndex = Number(trigger.dataset.storyOpen);
+            const targetIndex = slides.findIndex((slide) => Number(slide.dataset.groupIndex) === groupIndex);
+            if (targetIndex < 0) return;
+            paused = false;
+            updatePauseControl();
+            swiper.slideTo(targetIndex, 0);
+            controller.open(trigger);
+            swiper.update();
+            startCurrent();
+        });
+    });
+
+    modal.querySelector('[data-story-prev]')?.addEventListener('click', () => swiper.slidePrev());
+    modal.querySelector('[data-story-next]')?.addEventListener('click', advance);
+    pauseButton.addEventListener('click', () => {
+        paused = !paused;
+        updatePauseControl();
+        const slide = slides[swiper.activeIndex];
+        const video = slide.querySelector('video');
+
+        if (paused) {
+            if (!video) imageElapsed = Math.max(0, performance.now() - imageStartedAt);
+            clearFrame();
+            video?.pause();
+            return;
+        }
+
+        if (slide.dataset.storyMediaFailed === 'true') return;
+        if (!video) imageStartedAt = performance.now() - imageElapsed;
+        if (video) playVideo(slide, video);
+        frame = window.requestAnimationFrame(runFrame);
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (!controller.isOpen()) return;
+        if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            swiper.slidePrev();
+        } else if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            advance();
+        }
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (!controller.isOpen()) return;
+        const video = slides[swiper.activeIndex].querySelector('video');
+
+        if (document.hidden) {
+            if (!video) imageElapsed = Math.max(0, performance.now() - imageStartedAt);
+            clearFrame();
+            video?.pause();
+        } else if (!paused) {
+            const slide = slides[swiper.activeIndex];
+            if (slide.dataset.storyMediaFailed === 'true') return;
+            if (!video) imageStartedAt = performance.now() - imageElapsed;
+            if (video) playVideo(slide, video);
+            frame = window.requestAnimationFrame(runFrame);
+        }
+    });
+}
+
+initStorefrontFeature('stories', initStories);
 
 // Ordinary navigation remains browser-native; this only provides progress feedback.
 document.addEventListener('submit', (event) => {
