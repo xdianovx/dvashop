@@ -18,6 +18,7 @@
             @endif
         </span>
     </div>
+    <a href="{{ $product->url }}" class="btn btn--outline product-card__more">Подробнее</a>
     @if ($product->variantId)
         <form action="{{ route('cart.items.store') }}" method="post" data-cart-add>
             @csrf
