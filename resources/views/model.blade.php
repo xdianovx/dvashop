@@ -35,7 +35,6 @@
                             <x-model-card
                                 :href="route('catalog.model', [$make->slug, $otherModel->slug])"
                                 :name="$otherModel->title"
-                                :sub="$otherModel->generations_count.' поколений'"
                                 :img="$otherModelImages->get($otherModel->getKey())"
                                 variant="other"
                             />
