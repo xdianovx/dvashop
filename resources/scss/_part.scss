@@ -243,20 +243,32 @@
 .part-qty {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
-    padding: 6px 12px;
-    border-radius: var(--radius-pill);
-    background-color: var(--color-primary);
-    color: var(--color-on-primary);
+    width: 159px;
+    height: 68px;
+    padding: 8px 19px;
+    border: 1px solid var(--color-border);
+    border-radius: 48px;
+    background-color: var(--color-surface);
+    color: var(--color-primary-dark);
 }
 
 .part-qty__btn {
-    width: 20px;
-    height: 20px;
-    color: var(--color-on-primary);
-    font-size: 16px;
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    color: var(--color-primary-dark);
     line-height: 1;
     cursor: pointer;
+}
+
+.part-qty__btn svg {
+    width: 100%;
+    height: 100%;
 }
 
 .part-qty__btn:disabled {
@@ -265,14 +277,16 @@
 }
 
 .part-qty__value {
-    width: 40px;
+    flex: 1 0 0;
+    min-width: 0;
     padding: 0;
     border: 0;
     background: transparent;
-    color: var(--color-on-primary);
-    font-family: var(--font-body);
-    font-size: var(--fs-base);
-    line-height: var(--lh-snug);
+    color: var(--color-primary-dark);
+    font-family: 'Gilroy', system-ui, sans-serif;
+    font-weight: var(--fw-bold);
+    font-size: 26px;
+    line-height: 1.5;
     text-align: center;
     appearance: textfield;
 }
