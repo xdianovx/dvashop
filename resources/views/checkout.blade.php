@@ -25,7 +25,6 @@
                             <x-form-field label="Телефон" name="customer_phone" placeholder="+7 (___) ___-__-__" :required="true" />
                             <x-form-field label="Email" name="customer_email" type="email" placeholder="mail@yandex.ru" />
                             <x-form-field class="checkout-form__full" label="Город" name="customer_city" placeholder="Москва" :required="true" />
-                            <x-form-field class="checkout-form__full" label="Адрес" name="customer_address" placeholder="Улица, дом, квартира" />
                             <x-form-field class="checkout-form__full" label="Комментарий к заказу" name="customer_comment" placeholder="Текст...." :textarea="true" />
                         </div>
                     </section>
