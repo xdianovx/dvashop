@@ -77,7 +77,7 @@
                                 <x-model-card
                                     :href="$generation['url']"
                                     :name="collect([$generation['title'], $generation['body']])->filter()->implode(' · ')"
-                                    :sub="collect([$generation['make_title'].' '.$generation['model_title'], $generation['years_label']])->filter()->implode(' · ')"
+                                    :sub="$generation['make_title'].' '.$generation['model_title']"
                                     :img="$generation['image']"
                                     variant="body"
                                 />

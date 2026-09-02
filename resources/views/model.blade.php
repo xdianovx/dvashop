@@ -18,7 +18,6 @@
                             <x-model-card
                                 :href="route('catalog.generation', [$make->slug, $model->slug, $generation->slug])"
                                 :name="$generation->body ?: $generation->title"
-                                :sub="$generation->years_label"
                                 :img="$generation->image_url"
                                 variant="body"
                             />
