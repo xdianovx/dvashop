@@ -21,10 +21,15 @@
     color: var(--color-ink);
 }
 
+.cart-aside {
+    display: flex;
+    flex-direction: column;
+}
+
 .cart-clear-form {
-    grid-column: 2;
-    justify-self: start;
-    margin-left: 24px;
+    display: flex;
+    justify-content: center;
+    margin-top: 16px;
 }
 
 // Plain red text, not a button — clearing the cart should not compete with
@@ -199,6 +204,13 @@
 
 .cart-item__remove:hover {
     color: #f40b0b;
+}
+
+.cart-item__qty-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
 }
 
 .cart-item__qty {
@@ -451,14 +463,6 @@
         margin-bottom: 0;
     }
 
-    .cart-clear-form {
-        order: 5;
-        align-self: flex-end;
-        margin-top: 16px;
-        margin-bottom: var(--section-gap);
-        margin-left: 0;
-    }
-
     .cart-clear {
         font-size: var(--fs-sm);
     }
@@ -540,6 +544,10 @@
         color: var(--color-slate);
     }
 
+    .cart-item__qty-col {
+        display: contents;
+    }
+
     .cart-item__qty {
         grid-column: 1 / -1;
         grid-row: 2;
@@ -584,6 +592,10 @@
     }
 
     .cart-item__unit {
+        grid-column: 1 / -1;
+        grid-row: 4;
+        margin-top: 3.5px;
+        margin-left: 6px;
         font-size: 10px;
         line-height: 1;
     }

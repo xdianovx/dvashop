@@ -633,8 +633,7 @@ function initCartAjax() {
             content.replaceChildren(template.content.cloneNode(true));
         }
 
-        // The clear control sits next to the heading, outside the replaced
-        // content, so it has to be dropped by hand once the cart is empty.
+        // Covers the case where the control was rendered outside the replaced content.
         document.querySelectorAll('[data-cart-clear]').forEach((form) => form.remove());
     };
 
