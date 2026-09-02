@@ -8,6 +8,7 @@
 }
 
 .related-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -180,4 +181,16 @@
     .related-card__title {
         font-size: var(--fs-base);
     }
+}
+
+// Same stretched link as the product card, so the whole tile opens the product.
+.related-card__title::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+}
+
+.related-card__fav {
+    z-index: 2;
 }
