@@ -74,6 +74,42 @@ function createFieldChoices(select, searchPlaceholder) {
     }
 }
 
+// The vendor search box lives inside the dropdown. The vehicle search types
+// straight into the field instead, so the cloned input replaces the value row.
+function inlineChoicesSearch(instance, placeholder) {
+    if (!instance) return;
+
+    const container = instance.containerOuter?.element;
+    const inner = instance.containerInner?.element;
+    const input = instance.input?.element;
+
+    if (!container || !inner || !input) return;
+
+    inner.append(input);
+    container.classList.add('choices--inline-search');
+    input.placeholder = placeholder;
+
+    const selectedLabel = () => {
+        const selected = instance.getValue();
+        return selected && selected.value !== '' ? selected.label : '';
+    };
+    const showLabel = () => {
+        input.value = selectedLabel();
+    };
+
+    input.addEventListener('focus', () => {
+        input.value = '';
+    });
+    instance.passedElement.element.addEventListener('change', () => {
+        window.setTimeout(showLabel, 0);
+    });
+    container.addEventListener('hideDropdown', () => {
+        window.setTimeout(showLabel, 0);
+    });
+
+    showLabel();
+}
+
 // Vehicle models are loaded only for the selected active make. Without JavaScript,
 // the disabled model field leaves the existing make-only catalog redirect intact.
 document.querySelectorAll('[data-vehicle-search]').forEach((form) => {
@@ -90,6 +126,9 @@ document.querySelectorAll('[data-vehicle-search]').forEach((form) => {
     const modelPlaceholder = 'Выберите модель автомобиля';
     const makeChoices = createFieldChoices(make, 'Поиск марки');
     const modelChoices = createFieldChoices(model, 'Поиск модели');
+
+    inlineChoicesSearch(makeChoices, 'Выберите марку автомобиля');
+    inlineChoicesSearch(modelChoices, modelPlaceholder);
 
     if (makeChoices && make.disabled) makeChoices.disable();
     if (modelChoices) modelChoices.disable();
