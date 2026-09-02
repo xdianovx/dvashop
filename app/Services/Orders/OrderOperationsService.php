@@ -94,6 +94,9 @@ class OrderOperationsService
 
             if ($firstCancellation) {
                 $this->inventory->restoreForCancellation($locked);
+                $locked->promoCodeRedemption()
+                    ->whereNull('released_at')
+                    ->update(['released_at' => now()]);
             }
 
             $locked->forceFill([

@@ -34,4 +34,6 @@ enum AdminPermission: string
     case ManageHomepageContent = 'manage_homepage_content';
     case ViewStaticContent = 'view_static_content';
     case ManageStaticContent = 'manage_static_content';
+    case ViewPromoCodes = 'view_promo_codes';
+    case ManagePromoCodes = 'manage_promo_codes';
 }

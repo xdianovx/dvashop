@@ -109,7 +109,7 @@ class CartController extends Controller
         return redirect()->route('cart.show');
     }
 
-    /** @return array{items_count: int, subtotal: float} */
+    /** @return array<string, mixed> */
     private function cartPayload(CartManager $cartManager, Cart $cart): array
     {
         return $cartManager->totals($cart);

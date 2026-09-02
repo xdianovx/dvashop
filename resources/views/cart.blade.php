@@ -24,7 +24,7 @@
                 @endif
                 <div class="cart-layout">
                     <div class="cart-list" data-cart-list>@foreach ($items as $item)<x-cart-item :item="$item" />@endforeach</div>
-                    <x-cart-summary :count="$totals['items_count']" :subtotal="$totals['subtotal']" :has-unavailable-prices="$hasUnavailablePrices" />
+                    <x-cart-summary :totals="$totals" :has-unavailable-prices="$hasUnavailablePrices" />
                 </div>
             @endif
         </div>

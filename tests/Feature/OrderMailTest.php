@@ -170,6 +170,64 @@ test('order emails render stored snapshots and configured store name without int
     Mail::assertSent(ManagerOrderCreatedMail::class, fn (ManagerOrderCreatedMail $mail): bool => str_contains($mail->render(), 'МагазПороги'));
 });
 
+test('promo order emails and Bitrix contain gross discount delivery and final snapshots', function (): void {
+    Http::fake(['bitrix.example.test/*' => Http::response(['result' => 913], 200)]);
+    $order = orderForNotification();
+    $order->forceFill([
+        'promo_code_snapshot' => 'MAIL500',
+        'promo_name_snapshot' => 'Почтовая скидка',
+        'discount_total' => 500,
+        'total' => 3000,
+    ])->save();
+    $order->items()->update([
+        'discount_snapshot' => 500,
+        'final_total_snapshot' => 2500,
+    ]);
+    $order->load('items');
+
+    app(SendCustomerOrderEmail::class)->handle(new OrderCreated($order));
+    app(SendManagerOrderEmail::class)->handle(new OrderCreated($order));
+    app(SendOrderToBitrix::class)->handle(new OrderCreated($order));
+
+    foreach ([CustomerOrderCreatedMail::class, ManagerOrderCreatedMail::class] as $mailClass) {
+        Mail::assertSent($mailClass, function ($mail): bool {
+            $html = $mail->render();
+
+            return str_contains($html, 'MAIL500')
+                && str_contains($html, '500,00')
+                && str_contains($html, '2 500,00')
+                && str_contains($html, '3 000,00');
+        });
+    }
+
+    $comments = '';
+    Http::assertSent(function (Request $request) use (&$comments): bool {
+        $comments = (string) data_get($request->data(), 'fields.COMMENTS');
+
+        return true;
+    });
+    expect($comments)->toContain(
+        'Товары: 3 000,00 ₽',
+        'Промокод: MAIL500',
+        'Скидка: 500,00 ₽',
+        'Сумма до скидки: 3 000,00 ₽',
+        'Сумма: 2 500,00 ₽',
+        'Стоимость доставки: 500 ₽',
+        'Итого: 3 000,00 ₽',
+    );
+});
+
+test('order emails without promo do not render an empty promo row', function (): void {
+    config()->set('shop.orders.bitrix_enabled', false);
+    $order = orderForNotification();
+
+    app(SendCustomerOrderEmail::class)->handle(new OrderCreated($order));
+    app(SendManagerOrderEmail::class)->handle(new OrderCreated($order));
+
+    Mail::assertSent(CustomerOrderCreatedMail::class, fn (CustomerOrderCreatedMail $mail): bool => ! str_contains($mail->render(), 'Скидка по промокоду'));
+    Mail::assertSent(ManagerOrderCreatedMail::class, fn (ManagerOrderCreatedMail $mail): bool => ! str_contains($mail->render(), 'Промокод'));
+});
+
 test('store name has safe fallback when database value is empty', function (): void {
     $settings = app(ShopSettingsService::class)->current();
     $settings->forceFill(['store_name' => ''])->save();

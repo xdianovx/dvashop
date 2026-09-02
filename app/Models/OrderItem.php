@@ -19,6 +19,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'price_snapshot',
     'old_price_snapshot',
     'total_snapshot',
+    'discount_snapshot',
+    'final_total_snapshot',
     'title',
     'sku',
     'quantity',
@@ -72,6 +74,22 @@ class OrderItem extends Model
             : round((float) $this->price_snapshot * max(1, (int) $this->quantity), 2);
     }
 
+    public function finalLineTotal(): float
+    {
+        return $this->final_total_snapshot !== null
+            ? round((float) $this->final_total_snapshot, 2)
+            : round(max(0, $this->lineTotal() - (float) $this->discount_snapshot), 2);
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $item): void {
+            $item->discount_snapshot ??= 0;
+            $item->final_total_snapshot ??= $item->total_snapshot
+                ?? ((float) $item->price_snapshot * max(1, (int) $item->quantity));
+        });
+    }
+
     protected function casts(): array
     {
         return [
@@ -82,6 +100,8 @@ class OrderItem extends Model
             'price_snapshot' => 'decimal:2',
             'old_price_snapshot' => 'decimal:2',
             'total_snapshot' => 'decimal:2',
+            'discount_snapshot' => 'decimal:2',
+            'final_total_snapshot' => 'decimal:2',
             'price' => 'decimal:2',
             'total' => 'decimal:2',
         ];

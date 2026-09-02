@@ -66,6 +66,42 @@ test('OrderResource lists order totals and checkout metadata', function () {
         ->assertTableColumnExists('delivery_method');
 });
 
+test('OrderResource presents promo financial snapshots as read only fields', function (): void {
+    $order = Order::factory()->create([
+        'promo_code_snapshot' => 'ADMIN10',
+        'subtotal' => 1000,
+        'discount_total' => 100,
+        'delivery_price' => 200,
+        'total' => 1100,
+    ]);
+    OrderItem::factory()->for($order)->create([
+        'total_snapshot' => 1000,
+        'discount_snapshot' => 100,
+        'final_total_snapshot' => 900,
+    ]);
+
+    Livewire::test(EditOrder::class, ['record' => $order->getKey()])
+        ->assertFormFieldExists('promo_code_snapshot', fn ($field): bool => $field->isDisabled())
+        ->assertFormFieldExists('subtotal', fn ($field): bool => $field->isDisabled())
+        ->assertFormFieldExists('discount_total', fn ($field): bool => $field->isDisabled())
+        ->assertFormFieldExists('delivery_price', fn ($field): bool => $field->isDisabled())
+        ->assertFormFieldExists('total', fn ($field): bool => $field->isDisabled())
+        ->assertSet('data.promo_code_snapshot', 'ADMIN10')
+        ->assertSet('data.discount_total', '100.00');
+
+    Livewire::test(EditOrder::class, ['record' => $order->getKey()])
+        ->set('data.promo_code_snapshot', 'FORGED')
+        ->set('data.discount_total', 999)
+        ->set('data.items.'.($order->items()->firstOrFail()->getKey()).'.discount_snapshot', 999)
+        ->fillForm(['manager_comment' => 'История защищена'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($order->refresh()->promo_code_snapshot)->toBe('ADMIN10')
+        ->and($order->discount_total)->toBe('100.00')
+        ->and($order->items()->firstOrFail()->discount_snapshot)->toBe('100.00');
+});
+
 test('OrderResource updates only operational fields and keeps item snapshots readonly', function () {
     $order = Order::factory()->create();
     $item = OrderItem::factory()->for($order)->create([

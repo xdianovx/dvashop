@@ -75,6 +75,13 @@ class OrderResource extends Resource
                         ->label('Сумма товаров')
                         ->prefix('₽')
                         ->disabled(),
+                    TextInput::make('discount_total')
+                        ->label('Скидка')
+                        ->prefix('₽')
+                        ->disabled(),
+                    TextInput::make('promo_code_snapshot')
+                        ->label('Промокод')
+                        ->disabled(),
                     TextInput::make('delivery_price')
                         ->label('Доставка')
                         ->prefix('₽')
@@ -176,7 +183,15 @@ class OrderResource extends Resource
                                 ->prefix('₽')
                                 ->disabled(),
                             TextInput::make('total_snapshot')
-                                ->label('Сумма')
+                                ->label('До скидки')
+                                ->prefix('₽')
+                                ->disabled(),
+                            TextInput::make('discount_snapshot')
+                                ->label('Скидка')
+                                ->prefix('₽')
+                                ->disabled(),
+                            TextInput::make('final_total_snapshot')
+                                ->label('После скидки')
                                 ->prefix('₽')
                                 ->disabled(),
                         ])

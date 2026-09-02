@@ -34,7 +34,7 @@
                             </td>
                             <td align="center">{{ $item->quantity }}</td>
                             <td align="right">{{ number_format((float) $item->price_snapshot, 2, ',', ' ') }} ₽</td>
-                            <td align="right"><strong>{{ number_format($item->lineTotal(), 2, ',', ' ') }} ₽</strong></td>
+                            <td align="right"><strong>{{ number_format($item->finalLineTotal(), 2, ',', ' ') }} ₽</strong></td>
                         </tr>
                     @endforeach
                     </tbody>
@@ -43,6 +43,7 @@
                     <tr><td>Способ оплаты</td><td align="right">{{ $order->payment_method_title_snapshot ?: 'Не указан' }}</td></tr>
                     <tr><td>Способ доставки</td><td align="right">{{ $order->delivery_method_title_snapshot ?: 'Не указан' }}</td></tr>
                     <tr><td>Стоимость доставки</td><td align="right">{{ $order->deliveryPriceText() }}</td></tr>
+                    @if ((float) $order->discount_total > 0)<tr><td>Скидка по промокоду {{ $order->promo_code_snapshot }}</td><td align="right">−{{ number_format((float) $order->discount_total, 2, ',', ' ') }} ₽</td></tr>@endif
                     <tr><td style="padding-top:10px;font-size:18px;"><strong>{{ $order->total_is_final ? 'Итого' : 'Сумма товаров (без доставки)' }}</strong></td><td align="right" style="padding-top:10px;font-size:18px;"><strong>{{ number_format((float) $order->total, 2, ',', ' ') }} ₽</strong></td></tr>
                 </table>
                 <p style="margin:24px 0 0;padding:16px;background:#fff7e7;border-left:4px solid #d99a21;">Мы свяжемся с вами для подтверждения заказа.</p>

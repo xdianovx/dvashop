@@ -48,11 +48,14 @@
                             <li class="checkout-order__item">
                                 <span class="checkout-order__thumb"><img src="{{ $item->image_snapshot }}" alt="" aria-hidden="true"></span>
                                 <div class="checkout-order__info"><p class="checkout-order__name">{{ $item->title_snapshot }}</p>@if ($item->optionSummary())<p class="checkout-order__opts">{{ $item->optionSummary() }}</p>@endif<p class="checkout-order__qty">{{ $item->quantity }} шт. × {{ number_format((float) $item->price_snapshot, 0, ',', ' ') }} ₽</p></div>
-                                <span class="checkout-order__sum">{{ number_format($item->lineTotal(), 0, ',', ' ') }} ₽</span>
+                                <span class="checkout-order__sum">{{ number_format($item->finalLineTotal(), 0, ',', ' ') }} ₽</span>
                             </li>
                         @endforeach
                     </ul>
                     <div class="checkout-order__row"><span>Товары</span><span class="checkout-order__value">{{ number_format((float) $order->subtotal, 0, ',', ' ') }} ₽</span></div>
+                    @if ((float) $order->discount_total > 0)
+                        <div class="checkout-order__row"><span>Скидка по промокоду {{ $order->promo_code_snapshot }}</span><span class="checkout-order__value">−{{ number_format((float) $order->discount_total, 0, ',', ' ') }} ₽</span></div>
+                    @endif
                     <div class="checkout-order__row"><span>Доставка</span><span class="checkout-order__value">{{ $order->deliveryPriceText() }}</span></div>
                     <div class="checkout-order__total"><span>{{ $order->total_is_final ? 'Итого' : 'Сумма товаров (без доставки)' }}</span><span class="checkout-order__total-value">{{ number_format((float) $order->total, 0, ',', ' ') }} ₽</span></div>
                 </aside>

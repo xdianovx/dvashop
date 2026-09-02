@@ -19,6 +19,7 @@ use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
 use App\Models\ProductOptionTemplateItem;
 use App\Models\ProductOptionValue;
+use App\Models\PromoCode;
 use App\Models\ShopSetting;
 use App\Models\SiteNavigationItem;
 use App\Models\User;
@@ -362,6 +363,34 @@ test('role database values remain unchanged by the authorization matrix', functi
         'manager',
         'customer',
     ]);
+});
+
+test('promo permissions are view only for managers and manageable only by privileged roles', function (): void {
+    $promo = PromoCode::factory()->create();
+    $actors = [
+        'super_admin' => User::factory()->superAdmin()->create(),
+        'admin' => User::factory()->admin()->create(),
+        'manager' => User::factory()->manager()->create(),
+        'customer' => User::factory()->create(),
+        'inactive' => User::factory()->admin()->inactive()->create(),
+        'blocked' => User::factory()->admin()->blocked()->create(),
+    ];
+
+    foreach ($actors as $label => $actor) {
+        $mayView = in_array($label, ['super_admin', 'admin', 'manager'], true);
+        $mayManage = in_array($label, ['super_admin', 'admin'], true);
+
+        expect($actor->canPerformAdminAction(AdminPermission::ViewPromoCodes), "{$label}:permission:view-promo")->toBe($mayView)
+            ->and($actor->canPerformAdminAction(AdminPermission::ManagePromoCodes), "{$label}:permission:manage-promo")->toBe($mayManage)
+            ->and($actor->can('viewAny', PromoCode::class), "{$label}:promo:viewAny")->toBe($mayView)
+            ->and($actor->can('view', $promo), "{$label}:promo:view")->toBe($mayView)
+            ->and($actor->can('create', PromoCode::class), "{$label}:promo:create")->toBe($mayManage)
+            ->and($actor->can('update', $promo), "{$label}:promo:update")->toBe($mayManage)
+            ->and($actor->can('delete', $promo), "{$label}:promo:delete")->toBe($mayManage)
+            ->and($actor->can('restore', $promo), "{$label}:promo:restore")->toBe($mayManage)
+            ->and($actor->can('forceDelete', $promo), "{$label}:promo:forceDelete")->toBeFalse()
+            ->and($actor->can('replicate', $promo), "{$label}:promo:replicate")->toBeFalse();
+    }
 });
 
 test('an invalid persisted role is denied by panel resource and policy checks', function (): void {

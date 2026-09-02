@@ -39,6 +39,8 @@ test('admin permission matrix is explicit for every role and permission', functi
         'manage_homepage_content',
         'view_static_content',
         'manage_static_content',
+        'view_promo_codes',
+        'manage_promo_codes',
     ]);
 
     $matrix = [
@@ -73,6 +75,8 @@ test('admin permission matrix is explicit for every role and permission', functi
             AdminPermission::ManageHomepageContent,
             AdminPermission::ViewStaticContent,
             AdminPermission::ManageStaticContent,
+            AdminPermission::ViewPromoCodes,
+            AdminPermission::ManagePromoCodes,
         ],
         UserRole::Admin->value => [
             AdminPermission::AccessPanel,
@@ -103,6 +107,8 @@ test('admin permission matrix is explicit for every role and permission', functi
             AdminPermission::ManageHomepageContent,
             AdminPermission::ViewStaticContent,
             AdminPermission::ManageStaticContent,
+            AdminPermission::ViewPromoCodes,
+            AdminPermission::ManagePromoCodes,
         ],
         UserRole::Manager->value => [
             AdminPermission::AccessPanel,
@@ -119,6 +125,7 @@ test('admin permission matrix is explicit for every role and permission', functi
             AdminPermission::ViewPaymentMethods,
             AdminPermission::ViewHomepageContent,
             AdminPermission::ViewStaticContent,
+            AdminPermission::ViewPromoCodes,
         ],
         UserRole::Customer->value => [],
     ];

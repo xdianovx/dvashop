@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\CartController;
+use App\Http\Controllers\CartPromoCodeController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\CheckoutController;
 use App\Http\Controllers\ProductController;
@@ -45,6 +46,12 @@ Route::post('/cart/items', [CartController::class, 'storeItem'])->name('cart.ite
 Route::patch('/cart/items/{item}', [CartController::class, 'updateItem'])->name('cart.items.update');
 Route::delete('/cart/items/{item}', [CartController::class, 'destroyItem'])->name('cart.items.destroy');
 Route::delete('/cart', [CartController::class, 'clear'])->name('cart.clear');
+Route::post('/cart/promo-code', [CartPromoCodeController::class, 'store'])
+    ->middleware('throttle:30,1')
+    ->name('cart.promo-code.store');
+Route::delete('/cart/promo-code', [CartPromoCodeController::class, 'destroy'])
+    ->middleware('throttle:30,1')
+    ->name('cart.promo-code.destroy');
 Route::get('/checkout', [CheckoutController::class, 'show'])->name('checkout.show');
 Route::post('/checkout', [CheckoutController::class, 'store'])->name('checkout.store');
 Route::get('/thanks/{order:number}', [CheckoutController::class, 'success'])->name('checkout.success');

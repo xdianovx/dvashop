@@ -17,6 +17,8 @@ use Illuminate\Support\Str;
 #[Fillable([
     'token',
     'user_id',
+    'promo_code_id',
+    'promo_code_applied_at',
     'status',
     'expires_at',
 ])]
@@ -28,6 +30,11 @@ class Cart extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function promoCode(): BelongsTo
+    {
+        return $this->belongsTo(PromoCode::class)->withTrashed();
     }
 
     public function items(): HasMany
@@ -63,6 +70,7 @@ class Cart extends Model
         return [
             'status' => CartStatus::class,
             'expires_at' => 'datetime',
+            'promo_code_applied_at' => 'datetime',
         ];
     }
 }

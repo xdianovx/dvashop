@@ -45,11 +45,12 @@
                             </td>
                             <td align="center">{{ $item->quantity }}</td>
                             <td align="right">{{ number_format((float) $item->price_snapshot, 2, ',', ' ') }} ₽</td>
-                            <td align="right"><strong>{{ number_format($item->lineTotal(), 2, ',', ' ') }} ₽</strong></td>
+                            <td align="right"><strong>{{ number_format($item->finalLineTotal(), 2, ',', ' ') }} ₽</strong></td>
                         </tr>
                     @endforeach
                     </tbody>
                 </table>
+                @if ((float) $order->discount_total > 0)<div style="margin-top:12px;text-align:right;">Промокод {{ $order->promo_code_snapshot }}: −{{ number_format((float) $order->discount_total, 2, ',', ' ') }} ₽</div>@endif
                 <div style="margin-top:20px;text-align:right;font-size:20px;"><strong>{{ $order->total_is_final ? 'Итого' : 'Сумма товаров (без доставки)' }}: {{ number_format((float) $order->total, 2, ',', ' ') }} ₽</strong></div>
             </td></tr>
         </table>
