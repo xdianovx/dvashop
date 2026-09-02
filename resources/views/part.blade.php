@@ -47,15 +47,6 @@
             <div class="part-buy">
                 <h1 class="part-buy__title">{{ $seoH1 ?? $product->title }}</h1>
                 <p
-                    class="part-buy__article"
-                    data-selected-sku-row
-                    @if (blank($displaySku)) hidden @endif
-                >
-                    Артикул: <span data-selected-sku>{{ $displaySku }}</span>
-                </p>
-                @if ($product->category)<p class="part-buy__article">Категория: {{ $product->category->title }}</p>@endif
-                @if ($product->partType)<p class="part-buy__article">Тип детали: {{ $product->partType->full_title ?: $product->partType->title }}</p>@endif
-                <p
                     class="part-buy__stock part-buy__stock--{{ $selectedStockModifier }}"
                     data-selected-stock
                     data-in-stock-label="{{ \App\Enums\StockStatus::InStock->label() }}"
