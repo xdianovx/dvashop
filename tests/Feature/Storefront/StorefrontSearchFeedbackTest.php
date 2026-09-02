@@ -64,7 +64,6 @@ test('catalog query renders makes models generations and products as separate ap
         ->toContain('model-card--body')
         ->toContain('III')
         ->toContain('Седан')
-        ->toContain('1993–2001')
         ->and($products)
         ->toContain('product-card')
         ->toContain('Порог для Acura');

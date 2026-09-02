@@ -1138,6 +1138,35 @@ function initInquiryForms() {
 
 initStorefrontFeature('inquiry', initInquiryForms);
 
+// Static info modals: delivery details opened from the product page rows.
+function initInfoModals() {
+    const controllers = new Map();
+
+    document.querySelectorAll('[data-info-modal]').forEach((modal) => {
+        const controller = createModalController(modal, {
+            openClass: 'info-modal--open',
+            closeSelector: '[data-info-close]',
+        });
+
+        if (controller && modal.id !== '') controllers.set(modal.id, controller);
+    });
+
+    if (controllers.size === 0) return;
+
+    document.querySelectorAll('[data-info-open]').forEach((trigger) => {
+        trigger.addEventListener('click', (event) => {
+            const controller = controllers.get(trigger.dataset.infoOpen);
+            if (!controller) return;
+
+            event.preventDefault();
+            controller.open(trigger);
+        });
+    });
+}
+
+initStorefrontFeature('info-modal', initInfoModals);
+
+
 function initStories() {
     const modal = document.querySelector('[data-story-modal]');
     const swiperElement = modal?.querySelector('[data-story-swiper]');

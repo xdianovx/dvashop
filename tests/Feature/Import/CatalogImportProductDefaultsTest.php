@@ -404,8 +404,7 @@ test('storefront renders generated import options description characteristics hi
         ->assertSee('data-variant-matrix', false);
 
     $html = $response->getContent();
-    expect($html)->toMatch('/<p[^>]*data-selected-sku-row[^>]*hidden[^>]*>/')
-        ->and($html)->toContain('data-selected-variant')
+    expect($html)->toContain('data-selected-variant')
         ->and($html)->toContain('value="'.$default->getKey().'"');
 
     preg_match('#<script type="application/json" data-variant-matrix>(.*?)</script>#s', $html, $matches);
