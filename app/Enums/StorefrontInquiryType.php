@@ -23,7 +23,7 @@ enum StorefrontInquiryType: string
     public function allowedSourceCodes(): array
     {
         return match ($this) {
-            self::GeneralConsultation => ['faq', 'about', 'home'],
+            self::GeneralConsultation => ['faq', 'about', 'home', 'checkout'],
             self::ProductConsultation => ['product'],
             self::Partnership => ['partners'],
             self::CustomPart => ['home'],

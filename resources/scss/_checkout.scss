@@ -362,6 +362,27 @@
     opacity: 0.92;
 }
 
+.checkout-order__one-click {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 347px;
+    height: 68px;
+    margin: 8px auto 0;
+    border: 1px solid var(--color-primary-dark);
+    border-radius: 47px;
+    font-family: var(--font-body);
+    font-size: 20px;
+    line-height: 1;
+    color: var(--color-ink);
+    background-color: var(--color-surface);
+}
+
+.checkout-order__one-click:hover {
+    color: var(--color-on-dark);
+    background-color: var(--color-primary-dark);
+}
+
 .checkout-order__agree {
     display: flex;
     gap: 9.59px;
@@ -607,7 +628,15 @@
         margin: 20.8px auto 0;
         border-radius: 38px;
         font-size: 12px;
+    }
 
+    .checkout-order__one-click {
+        width: 206px;
+        height: auto;
+        min-height: 36px;
+        margin-top: 8px;
+        border-radius: 38px;
+        font-size: 12px;
     }
 
     .checkout-order__agree {
