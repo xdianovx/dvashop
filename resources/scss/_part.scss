@@ -414,6 +414,9 @@
 
 .part-delivery__more {
     flex-shrink: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
     font-family: var(--font-display);
     font-weight: var(--fw-medium);
     font-size: 14px;

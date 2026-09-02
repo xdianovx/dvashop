@@ -272,10 +272,12 @@ test('product page preserves approved delivery and related product visual contra
     foreach (['part-delivery', 'part-delivery__row', 'part-delivery__info', 'part-delivery__icon', 'part-delivery__more', 'part-related', 'part-related__title'] as $class) {
         $response->assertSee($class, false);
     }
-    $response->assertSee('Курьер до двери')
-        ->assertSee('490 ₽')
-        ->assertDontSee('Скрытый самовывоз')
-        ->assertSee('href="'.route('payment').'"', false)
+    $response->assertSee('Стоимость доставки: от 490 руб.')
+        ->assertSee('Расчётное время доставки: 1–3 дня')
+        ->assertSee('Возврат товара: в течение 2 недель')
+        ->assertSee('data-info-open="part-delivery-info"', false)
+        ->assertSee('data-info-open="part-delivery-time-info"', false)
+        ->assertSee('data-info-open="part-return-info"', false)
         ->assertSee('С этим товаром покупают')
         ->assertSee('Related visual product');
 });

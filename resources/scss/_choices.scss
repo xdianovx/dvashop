@@ -64,7 +64,7 @@
 
 .search__form .search__field .choices__list--single .choices__placeholder {
     opacity: 1;
-    color: var(--color-muted);
+    color: #000;
 }
 
 .search__form .search__field .choices[data-type*='select-one']::after {
@@ -94,7 +94,7 @@
 }
 
 .search__form .search__field .choices.is-disabled .choices__item {
-    color: var(--color-muted);
+    color: #000;
     cursor: default;
 }
 

@@ -142,19 +142,46 @@
                     </div>
                 </form>
 
-                @if ($deliveryMethods->isNotEmpty())
-                    <ul class="part-delivery">
-                        @foreach ($deliveryMethods as $method)
-                            <li class="part-delivery__row">
-                                <span class="part-delivery__info">
-                                    <span class="part-delivery__icon" aria-hidden="true"><img src="/img/part/deliver.svg" alt=""></span>
-                                    {{ $method->title }} — {{ $method->priceLabel() }}
-                                </span>
-                                <a href="{{ route('payment') }}" class="part-delivery__more">Подробнее ›</a>
-                            </li>
-                        @endforeach
-                    </ul>
-                @endif
+                <ul class="part-delivery">
+                    <li class="part-delivery__row">
+                        <span class="part-delivery__info">
+                            <span class="part-delivery__icon" aria-hidden="true"><img src="/img/part/cost.svg" alt=""></span>
+                            Стоимость доставки: от 490 руб.
+                        </span>
+                        <button type="button" class="part-delivery__more" data-info-open="part-delivery-info">Подробнее ›</button>
+                    </li>
+                    <li class="part-delivery__row">
+                        <span class="part-delivery__info">
+                            <span class="part-delivery__icon" aria-hidden="true"><img src="/img/part/deliver.svg" alt=""></span>
+                            Расчётное время доставки: 1–3 дня
+                        </span>
+                        <button type="button" class="part-delivery__more" data-info-open="part-delivery-time-info">Подробнее ›</button>
+                    </li>
+                    <li class="part-delivery__row">
+                        <span class="part-delivery__info">
+                            <span class="part-delivery__icon" aria-hidden="true"><img src="/img/part/vozvrat.svg" alt=""></span>
+                            Возврат товара: в течение 2 недель
+                        </span>
+                        <button type="button" class="part-delivery__more" data-info-open="part-return-info">Подробнее ›</button>
+                    </li>
+                </ul>
+
+                <x-info-modal id="part-delivery-info" title="Доставка">
+                    <p>AVTOPOROGI сотрудничает с крупнейшей транспортной компанией РФ — <strong>«Сдэк».</strong> Это позволяет предложить нам лучшие условия доставки, даже если Вы живете в небольшом городе.</p>
+                    <p>Минимальная стоимость доставки — <strong>490 руб.</strong><br>По Санкт-Петербургу доставка в пределах КАД — <strong>500 руб.</strong></p>
+                    <p>Итоговая стоимость высчитывается при оформлении заказа и зависит от количества и габаритов изделия, а также вашего местоположения.</p>
+                </x-info-modal>
+
+                <x-info-modal id="part-delivery-time-info" title="Расчётное время доставки">
+                    <p>Срок доставки <strong>зависит от вашего местонахождения</strong>, выбранного способа доставки и наличия на складе интересующей вас позиции.</p>
+                    <p>Наш склад находится в г. Санкт-Петербург.</p>
+                    <p>В среднем от заказа до отправления проходит 1-2 дня. Более точные сроки подскажет Ваш менеджер при оформлении заказа.</p>
+                </x-info-modal>
+
+                <x-info-modal id="part-return-info" title="Сроки возврата и обмена">
+                    <p>Срок возврата или обмена товара ненадлежащего качества (производственный недостаток товара) составляет весь гарантийный срок, установленный производителем — <strong>90 дней с момента получения товара</strong> в пункте выдачи транспортной компании, если иное не было оговорено при продаже товара.</p>
+                    <p><strong>Возврату и обмену подлежит товар с сохраненным товарным видом</strong> (отсутствие дефектов, вмятин, сколов, царапин, без следов эксплуатации)<br>и наличием документа, подтверждающего факт покупки данного товара.</p>
+                </x-info-modal>
             </div>
         </div>
 
