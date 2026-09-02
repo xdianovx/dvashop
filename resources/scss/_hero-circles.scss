@@ -13,9 +13,9 @@
 .hero-circles__wrap {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   font-size: 16px;
   overflow-x: auto;
+  gap: 80px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 
@@ -240,8 +240,13 @@
     filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.35));
   }
 
-  &--prev { left: 8px; }
-  &--next { right: 8px; }
+  &--prev {
+    left: 8px;
+  }
+
+  &--next {
+    right: 8px;
+  }
 }
 
 .story-modal__cta {
