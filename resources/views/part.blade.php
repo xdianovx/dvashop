@@ -166,21 +166,55 @@
                     </li>
                 </ul>
 
+                <div class="part-accordion">
+                    <details class="part-accordion__item" open>
+                        <summary class="part-accordion__head">
+                            <span class="part-accordion__title">Доставка</span>
+                            <span class="part-accordion__icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="m6 9 6 6 6-6" />
+                                </svg>
+                            </span>
+                        </summary>
+                        <div class="part-accordion__body"><x-delivery-info code="delivery" /></div>
+                    </details>
+                    <details class="part-accordion__item">
+                        <summary class="part-accordion__head">
+                            <span class="part-accordion__title">Время доставки</span>
+                            <span class="part-accordion__icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="m6 9 6 6 6-6" />
+                                </svg>
+                            </span>
+                        </summary>
+                        <div class="part-accordion__body"><x-delivery-info code="time" /></div>
+                    </details>
+                    <details class="part-accordion__item">
+                        <summary class="part-accordion__head">
+                            <span class="part-accordion__title">Возврат</span>
+                            <span class="part-accordion__icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="m6 9 6 6 6-6" />
+                                </svg>
+                            </span>
+                        </summary>
+                        <div class="part-accordion__body"><x-delivery-info code="return" /></div>
+                    </details>
+                </div>
+
                 <x-info-modal id="part-delivery-info" title="Доставка">
-                    <p>AVTOPOROGI сотрудничает с крупнейшей транспортной компанией РФ — <strong>«Сдэк».</strong> Это позволяет предложить нам лучшие условия доставки, даже если Вы живете в небольшом городе.</p>
-                    <p>Минимальная стоимость доставки — <strong>490 руб.</strong><br>По Санкт-Петербургу доставка в пределах КАД — <strong>500 руб.</strong></p>
-                    <p>Итоговая стоимость высчитывается при оформлении заказа и зависит от количества и габаритов изделия, а также вашего местоположения.</p>
+                    <x-delivery-info code="delivery" />
                 </x-info-modal>
 
                 <x-info-modal id="part-delivery-time-info" title="Расчётное время доставки">
-                    <p>Срок доставки <strong>зависит от вашего местонахождения</strong>, выбранного способа доставки и наличия на складе интересующей вас позиции.</p>
-                    <p>Наш склад находится в г. Санкт-Петербург.</p>
-                    <p>В среднем от заказа до отправления проходит 1-2 дня. Более точные сроки подскажет Ваш менеджер при оформлении заказа.</p>
+                    <x-delivery-info code="time" />
                 </x-info-modal>
 
                 <x-info-modal id="part-return-info" title="Сроки возврата и обмена">
-                    <p>Срок возврата или обмена товара ненадлежащего качества (производственный недостаток товара) составляет весь гарантийный срок, установленный производителем — <strong>90 дней с момента получения товара</strong> в пункте выдачи транспортной компании, если иное не было оговорено при продаже товара.</p>
-                    <p><strong>Возврату и обмену подлежит товар с сохраненным товарным видом</strong> (отсутствие дефектов, вмятин, сколов, царапин, без следов эксплуатации)<br>и наличием документа, подтверждающего факт покупки данного товара.</p>
+                    <x-delivery-info code="return" />
                 </x-info-modal>
             </div>
         </div>
