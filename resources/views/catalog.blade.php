@@ -58,7 +58,7 @@
                                 <x-model-card
                                     :href="$model['url']"
                                     :name="$model['model_title']"
-                                    :sub="$model['make_title'].' · '.$model['generation_count'].' покол.'"
+                                    :sub="$model['make_title']"
                                     :img="$model['image']"
                                     variant="model"
                                 />

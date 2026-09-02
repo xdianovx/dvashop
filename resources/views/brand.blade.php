@@ -15,7 +15,7 @@
             </form>
             <ul class="model-grid brand-page__grid">
                 @foreach ($models as $vehicleModel)
-                    <li><x-model-card :href="route('catalog.model', [$make->slug, $vehicleModel->slug])" :name="$vehicleModel->title" :sub="$vehicleModel->generations_count.' поколений'" :img="$modelImages->get($vehicleModel->getKey())" variant="model" /></li>
+                    <li><x-model-card :href="route('catalog.model', [$make->slug, $vehicleModel->slug])" :name="$vehicleModel->title" :img="$modelImages->get($vehicleModel->getKey())" variant="model" /></li>
                 @endforeach
             </ul>
             <x-storefront-seo-text :text="$seoText ?? null" />
