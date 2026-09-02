@@ -64,7 +64,9 @@ class SendOrderToBitrix implements ShouldQueueAfterCommit
                 $item->optionSummary() !== '' ? 'Опции: '.$item->optionSummary() : null,
                 'Количество: '.$item->quantity,
                 'Цена: '.$this->money($item->price_snapshot),
-                'Сумма: '.$this->money($item->lineTotal()),
+                'Сумма до скидки: '.$this->money($item->lineTotal()),
+                (float) $item->discount_snapshot > 0 ? 'Скидка: '.$this->money($item->discount_snapshot) : null,
+                'Сумма: '.$this->money($item->finalLineTotal()),
             ])->filter()->implode("\n"))
             ->implode("\n\n");
 
@@ -86,6 +88,8 @@ class SendOrderToBitrix implements ShouldQueueAfterCommit
                 filled($order->customer_comment) ? 'Комментарий: '.$order->customer_comment : null,
                 "Товары:\n".$items,
                 'Товары: '.$this->money($order->subtotal),
+                filled($order->promo_code_snapshot) ? 'Промокод: '.$order->promo_code_snapshot : null,
+                (float) $order->discount_total > 0 ? 'Скидка: '.$this->money($order->discount_total) : null,
                 'Доставка: '.($order->delivery_method_title_snapshot ?: 'Не указана'),
                 filled($order->delivery_method_description_snapshot)
                     ? 'Описание доставки: '.$order->delivery_method_description_snapshot

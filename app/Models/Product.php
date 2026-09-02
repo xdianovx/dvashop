@@ -87,6 +87,11 @@ class Product extends Model
         return $this->belongsTo(ProductOptionTemplate::class, 'product_option_template_id');
     }
 
+    public function promoCodes(): BelongsToMany
+    {
+        return $this->belongsToMany(PromoCode::class, 'promo_code_products');
+    }
+
     public function isAutoPart(): bool
     {
         return $this->product_type === ProductType::AutoPart;

@@ -17,6 +17,7 @@ use App\Filament\Resources\ProductOptionGroups\ProductOptionGroupResource;
 use App\Filament\Resources\ProductOptionGroups\RelationManagers\ValuesRelationManager;
 use App\Filament\Resources\ProductOptionTemplates\ProductOptionTemplateResource;
 use App\Filament\Resources\Products\ProductResource;
+use App\Filament\Resources\PromoCodes\PromoCodeResource;
 use App\Filament\Resources\SiteNavigationItems\SiteNavigationItemResource;
 use App\Filament\Resources\StorefrontInquiries\StorefrontInquiryResource;
 use App\Filament\Resources\Users\UserResource;
@@ -29,6 +30,7 @@ use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
+use App\Models\PromoCode;
 use App\Models\SiteNavigationItem;
 use App\Models\StorefrontInquiry;
 use App\Models\User;
@@ -117,6 +119,7 @@ test('filament discovery contains no deleted technical resources and every disco
         ProductOptionGroupResource::class,
         ProductOptionTemplateResource::class,
         ProductResource::class,
+        PromoCodeResource::class,
         SiteNavigationItemResource::class,
         StorefrontInquiryResource::class,
         UserResource::class,
@@ -294,6 +297,7 @@ test('every discovered resource and content page route follows the explicit role
         ProductOptionGroupResource::class => ProductOptionGroup::factory()->create(),
         ProductOptionTemplateResource::class => ProductOptionTemplate::factory()->create(),
         ProductResource::class => Product::factory()->create(),
+        PromoCodeResource::class => PromoCode::factory()->create(),
         SiteNavigationItemResource::class => SiteNavigationItem::factory()->create(),
         StorefrontInquiryResource::class => StorefrontInquiry::factory()->create(),
         UserResource::class => User::factory()->create(),

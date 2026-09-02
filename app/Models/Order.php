@@ -13,12 +13,18 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Str;
 
 #[Fillable([
     'number',
     'user_id',
     'cart_id',
+    'promo_code_id',
+    'promo_code_snapshot',
+    'promo_name_snapshot',
+    'promo_discount_type_snapshot',
+    'promo_discount_value_snapshot',
     'status',
     'payment_status',
     'payment_method',
@@ -39,6 +45,7 @@ use Illuminate\Support\Str;
     'comment',
     'manager_comment',
     'subtotal',
+    'discount_total',
     'delivery_price',
     'total',
     'total_is_final',
@@ -64,6 +71,16 @@ class Order extends Model
         return $this->belongsTo(Cart::class);
     }
 
+    public function promoCode(): BelongsTo
+    {
+        return $this->belongsTo(PromoCode::class)->withTrashed();
+    }
+
+    public function promoCodeRedemption(): HasOne
+    {
+        return $this->hasOne(PromoCodeRedemption::class);
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class);
@@ -72,13 +89,15 @@ class Order extends Model
     public function recalculateTotals(): void
     {
         $subtotal = round((float) $this->items()->sum('total_snapshot'), 2);
+        $discountTotal = min($subtotal, round((float) $this->items()->sum('discount_snapshot'), 2));
         $deliveryPrice = round((float) $this->delivery_price, 2);
 
         $totalIsFinal = $this->delivery_price_mode_snapshot !== DeliveryPriceMode::OnRequest;
 
         $this->forceFill([
             'subtotal' => $subtotal,
-            'total' => round($subtotal + $deliveryPrice, 2),
+            'discount_total' => $discountTotal,
+            'total' => round(max(0, $subtotal - $discountTotal) + $deliveryPrice, 2),
             'total_is_final' => $totalIsFinal,
         ])->save();
     }
@@ -113,6 +132,8 @@ class Order extends Model
             'delivery_method' => DeliveryMethod::class,
             'delivery_price_mode_snapshot' => DeliveryPriceMode::class,
             'subtotal' => 'decimal:2',
+            'promo_discount_value_snapshot' => 'decimal:4',
+            'discount_total' => 'decimal:2',
             'delivery_price' => 'decimal:2',
             'total' => 'decimal:2',
             'total_is_final' => 'boolean',

@@ -464,6 +464,27 @@ const updateCartBadge = (count, pulse = false) => {
     });
 };
 
+const updatePromoPanels = (cart) => {
+    document.querySelectorAll('[data-promo-panel]').forEach((panel) => {
+        const applyForm = panel.querySelector('[data-promo-apply]');
+        const applied = panel.querySelector('[data-promo-applied]');
+        const feedback = panel.querySelector('[data-promo-feedback]');
+        const input = panel.querySelector('input[name="promo_code"]');
+
+        if (applyForm) applyForm.hidden = Boolean(cart.promo_applied);
+        if (applied) applied.hidden = !cart.promo_applied;
+        const code = panel.querySelector('[data-promo-code]');
+        const name = panel.querySelector('[data-promo-name]');
+        if (code) code.textContent = cart.promo_code || '';
+        if (name) name.textContent = cart.promo_name || '';
+        if (feedback) {
+            feedback.textContent = cart.promo_message || '';
+            feedback.classList.remove('promo-code__feedback--error');
+        }
+        if (cart.promo_applied && input) input.value = '';
+    });
+};
+
 const updateCartTotals = (cart, pulse = false) => {
     if (!cart || typeof cart !== 'object') return;
 
@@ -471,9 +492,23 @@ const updateCartTotals = (cart, pulse = false) => {
     document.querySelectorAll('[data-cart-items-count]').forEach((element) => {
         element.textContent = String(cart.items_count);
     });
-    document.querySelectorAll('[data-cart-subtotal], [data-cart-total]').forEach((element) => {
+    document.querySelectorAll('[data-cart-subtotal]').forEach((element) => {
         element.textContent = formatCartPrice(cart.subtotal);
     });
+    document.querySelectorAll('[data-cart-total]').forEach((element) => {
+        element.textContent = formatCartPrice(cart.total);
+    });
+    document.querySelectorAll('[data-cart-discount]').forEach((element) => {
+        element.textContent = `−${formatCartPrice(cart.discount_total)}`;
+    });
+    document.querySelectorAll('[data-cart-discount-row]').forEach((element) => {
+        element.hidden = Number(cart.discount_total) <= 0;
+    });
+    document.querySelectorAll('[data-checkout-total]').forEach((element) => {
+        element.dataset.checkoutSubtotal = String(cart.total);
+        element.closest('.checkout-layout')?.dispatchEvent(new CustomEvent('cart:totals-updated'));
+    });
+    updatePromoPanels(cart);
 };
 
 const cartRequest = async (form, data) => {
@@ -650,6 +685,37 @@ function initCartAjax() {
             }
         });
     });
+
+    document.querySelectorAll('[data-promo-panel]').forEach((panel) => {
+        const applyForm = panel.querySelector('[data-promo-apply]');
+        const removeForm = panel.querySelector('[data-promo-remove]');
+        const applied = panel.querySelector('[data-promo-applied]');
+        const feedback = panel.querySelector('[data-promo-feedback]');
+        const input = panel.querySelector('input[name="promo_code"]');
+
+        [applyForm, removeForm].forEach((form) => {
+            form?.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const button = event.submitter || form.querySelector('button[type="submit"]');
+                if (!(button instanceof HTMLButtonElement) || button.disabled) return;
+
+                button.disabled = true;
+                beginRequest(form === applyForm ? 'Проверяем промокод…' : 'Удаляем промокод…');
+
+                try {
+                    const payload = await cartRequest(form, new FormData(form));
+                    updateCartTotals(payload.cart);
+                } catch (error) {
+                    feedback.textContent = error.message || 'Не удалось применить промокод.';
+                    feedback.classList.add('promo-code__feedback--error');
+                    if (form === applyForm) input?.focus();
+                } finally {
+                    button.disabled = false;
+                    endRequest();
+                }
+            });
+        });
+    });
 }
 
 initStorefrontFeature('cart-ajax', initCartAjax);
@@ -791,9 +857,9 @@ document.querySelectorAll('.checkout-layout').forEach((form) => {
 
     if (!deliveryOutput || !totalOutput || deliveryInputs.length === 0) return;
 
-    const subtotal = Number(totalOutput.dataset.checkoutSubtotal);
     const formatPrice = (value) => `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value)} ₽`;
     const renderCheckoutTotal = () => {
+        const subtotal = Number(totalOutput.dataset.checkoutSubtotal);
         const selected = deliveryInputs.find((input) => input.checked);
 
         if (!selected) {
@@ -819,6 +885,7 @@ document.querySelectorAll('.checkout-layout').forEach((form) => {
     };
 
     deliveryInputs.forEach((input) => input.addEventListener('change', renderCheckoutTotal));
+    form.addEventListener('cart:totals-updated', renderCheckoutTotal);
     renderCheckoutTotal();
 });
 

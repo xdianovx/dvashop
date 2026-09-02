@@ -7,9 +7,12 @@ use App\Enums\StockStatus;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\ProductVariant;
+use App\Models\PromoCode;
+use App\Services\Promotions\PromoCodePricingService;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cookie;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class CartManager
@@ -24,6 +27,7 @@ class CartManager
 
     public function __construct(
         private readonly StorefrontProductAvailability $availability,
+        private readonly PromoCodePricingService $promoPricing,
     ) {}
 
     public function current(Request $request): Cart
@@ -114,23 +118,133 @@ class CartManager
     {
         $cart = $this->current($request);
         $cart->items()->delete();
+        $cart->forceFill([
+            'promo_code_id' => null,
+            'promo_code_applied_at' => null,
+        ])->save();
 
         return $cart;
     }
 
-    /**
-     * @return array{items_count: int, subtotal: float}
-     */
-    public function totals(Cart $cart): array
+    /** @return array<string, mixed> */
+    public function applyPromoCode(Request $request, mixed $rawCode): array
     {
-        $items = $cart->items()->get(['quantity', 'price_snapshot']);
+        $code = PromoCode::normalizeCode($rawCode);
 
-        return [
-            'items_count' => (int) $items->sum('quantity'),
-            'subtotal' => round((float) $items->sum(
+        if (! preg_match('/\A[A-Z0-9_-]{3,64}\z/', $code)) {
+            throw ValidationException::withMessages([
+                'promo_code' => 'Введите код из 3–64 символов: латинские буквы, цифры, дефис или подчёркивание.',
+            ]);
+        }
+
+        $cart = $this->current($request);
+
+        return DB::transaction(function () use ($cart, $code): array {
+            $lockedCart = Cart::query()->whereKey($cart->getKey())->lockForUpdate()->firstOrFail();
+            $promo = PromoCode::query()
+                ->whereRaw('UPPER(code) = ?', [$code])
+                ->lockForUpdate()
+                ->first();
+
+            if (! $promo instanceof PromoCode) {
+                throw ValidationException::withMessages([
+                    'promo_code' => 'Промокод не найден.',
+                ]);
+            }
+
+            $items = $lockedCart->items()->orderBy('id')->get();
+            $result = $this->promoPricing->calculate(
+                $promo,
+                $items,
+                $promo->activeRedemptions()->count(),
+            );
+
+            if (! $result->valid) {
+                throw ValidationException::withMessages([
+                    'promo_code' => $result->message ?? 'Промокод не действует.',
+                ]);
+            }
+
+            $lockedCart->forceFill([
+                'promo_code_id' => $promo->getKey(),
+                'promo_code_applied_at' => now(),
+            ])->save();
+
+            return $this->totals($lockedCart->refresh(), 'Промокод применён.');
+        });
+    }
+
+    /** @return array<string, mixed> */
+    public function removePromoCode(Request $request): array
+    {
+        $cart = $this->current($request);
+        $cart->forceFill([
+            'promo_code_id' => null,
+            'promo_code_applied_at' => null,
+        ])->save();
+
+        return $this->totals($cart->refresh(), 'Промокод удалён.');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function totals(Cart $cart, ?string $promoMessage = null): array
+    {
+        if ($cart->promo_code_id === null) {
+            $items = $cart->items()->get(['quantity', 'price_snapshot']);
+            $subtotal = round((float) $items->sum(
                 fn (CartItem $item): float => $item->lineTotal()
-            ), 2),
-        ];
+            ), 2);
+
+            return $this->totalsPayload(
+                (int) $items->sum('quantity'),
+                $subtotal,
+                0,
+                null,
+                $promoMessage,
+            );
+        }
+
+        $items = $cart->items()->orderBy('id')->get();
+        $subtotal = round((float) $items->sum(
+            fn (CartItem $item): float => $item->lineTotal()
+        ), 2);
+        $promo = PromoCode::withTrashed()->find($cart->promo_code_id);
+
+        if (! $promo instanceof PromoCode) {
+            $this->detachPromo($cart);
+
+            return $this->totalsPayload(
+                (int) $items->sum('quantity'),
+                $subtotal,
+                0,
+                null,
+                'Промокод больше не действует и был удалён.',
+            );
+        }
+
+        $result = $this->promoPricing->calculate($promo, $items);
+
+        if (! $result->valid) {
+            $this->detachPromo($cart);
+
+            return $this->totalsPayload(
+                (int) $items->sum('quantity'),
+                $subtotal,
+                0,
+                null,
+                $result->message.' Промокод удалён из корзины.',
+            );
+        }
+
+        return $this->totalsPayload(
+            (int) $items->sum('quantity'),
+            $subtotal,
+            $result->discountAmount(),
+            $promo,
+            $promoMessage,
+        );
     }
 
     private function findActiveCart(string $token): ?Cart
@@ -145,13 +259,40 @@ class CartManager
             ->first();
     }
 
-    /** @return array{items_count: int, subtotal: float} */
+    /** @return array<string, mixed> */
     private function emptySummary(): array
     {
+        return $this->totalsPayload(0, 0, 0);
+    }
+
+    /** @return array<string, mixed> */
+    private function totalsPayload(
+        int $itemsCount,
+        float $subtotal,
+        float $discount,
+        ?PromoCode $promo = null,
+        ?string $promoMessage = null,
+    ): array {
+        $discount = round(min($subtotal, max(0, $discount)), 2);
+
         return [
-            'items_count' => 0,
-            'subtotal' => 0.0,
+            'items_count' => $itemsCount,
+            'subtotal' => round($subtotal, 2),
+            'discount_total' => $discount,
+            'total' => round(max(0, $subtotal - $discount), 2),
+            'promo_applied' => $promo instanceof PromoCode,
+            'promo_code' => $promo?->code,
+            'promo_name' => $promo?->name,
+            'promo_message' => $promoMessage,
         ];
+    }
+
+    private function detachPromo(Cart $cart): void
+    {
+        $cart->forceFill([
+            'promo_code_id' => null,
+            'promo_code_applied_at' => null,
+        ])->save();
     }
 
     private function createCart(?Authenticatable $user): Cart

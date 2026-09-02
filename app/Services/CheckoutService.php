@@ -16,6 +16,10 @@ use App\Models\DeliveryMethodSetting;
 use App\Models\Order;
 use App\Models\PaymentMethodSetting;
 use App\Models\ProductVariant;
+use App\Models\PromoCode;
+use App\Models\PromoCodeRedemption;
+use App\Services\Promotions\PromoCodePricingResult;
+use App\Services\Promotions\PromoCodePricingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -27,6 +31,7 @@ class CheckoutService
     public function __construct(
         private readonly CartManager $cartManager,
         private readonly StorefrontProductAvailability $availability,
+        private readonly PromoCodePricingService $promoPricing,
     ) {}
 
     /**
@@ -75,6 +80,35 @@ class CheckoutService
             }
 
             $subtotal = $this->subtotal($lockedCart);
+            $promo = null;
+            $promoPricing = null;
+
+            if ($lockedCart->promo_code_id !== null) {
+                $promo = PromoCode::withTrashed()
+                    ->whereKey($lockedCart->promo_code_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $promo instanceof PromoCode) {
+                    throw ValidationException::withMessages([
+                        'promo_code' => 'Промокод больше не действует. Проверьте сумму заказа.',
+                    ]);
+                }
+
+                $promoPricing = $this->promoPricing->calculate(
+                    $promo,
+                    $lockedCart->items,
+                    $promo->activeRedemptions()->count(),
+                );
+
+                if (! $promoPricing->valid) {
+                    throw ValidationException::withMessages([
+                        'promo_code' => 'Промокод больше не действует. Проверьте сумму заказа.',
+                    ]);
+                }
+            }
+
+            $discountTotal = $promoPricing?->discountAmount() ?? 0.0;
             $deliveryPrice = $deliverySetting->price_mode === DeliveryPriceMode::Fixed
                 ? round((float) $deliverySetting->base_price, 2)
                 : 0.0;
@@ -84,6 +118,11 @@ class CheckoutService
             $order = Order::query()->create([
                 'user_id' => $request->user()?->getAuthIdentifier(),
                 'cart_id' => $lockedCart->getKey(),
+                'promo_code_id' => $promo?->getKey(),
+                'promo_code_snapshot' => $promo?->code,
+                'promo_name_snapshot' => $promo?->name,
+                'promo_discount_type_snapshot' => $promo?->discount_type->value,
+                'promo_discount_value_snapshot' => $promo?->discount_value,
                 'status' => OrderStatus::New,
                 'payment_status' => PaymentStatus::Pending,
                 'payment_method' => $validated['payment_method'],
@@ -104,13 +143,19 @@ class CheckoutService
                 'delivery_address' => $validated['customer_address'] ?? null,
                 'comment' => $validated['customer_comment'] ?? null,
                 'subtotal' => $subtotal,
+                'discount_total' => $discountTotal,
                 'delivery_price' => $deliveryPrice,
-                'total' => round($subtotal + $deliveryPrice, 2),
+                'total' => round(max(0, $subtotal - $discountTotal) + $deliveryPrice, 2),
                 'total_is_final' => $totalIsFinal,
                 'placed_at' => now(),
             ]);
 
             foreach ($lockedCart->items as $item) {
+                $lineDiscount = $promoPricing instanceof PromoCodePricingResult
+                    ? $promoPricing->lineDiscountAmount((int) $item->getKey())
+                    : 0.0;
+                $lineTotal = $item->lineTotal();
+
                 $order->items()->create([
                     'product_id' => $item->product_id,
                     'product_variant_id' => $item->product_variant_id,
@@ -120,14 +165,24 @@ class CheckoutService
                     'image_snapshot' => $item->image_snapshot,
                     'price_snapshot' => $item->price_snapshot,
                     'old_price_snapshot' => $item->old_price_snapshot,
-                    'total_snapshot' => $item->lineTotal(),
+                    'total_snapshot' => $lineTotal,
+                    'discount_snapshot' => $lineDiscount,
+                    'final_total_snapshot' => round(max(0, $lineTotal - $lineDiscount), 2),
                     // Legacy fields are retained for backward compatibility.
                     'title' => $item->title_snapshot,
                     'sku' => $item->sku_snapshot,
                     'quantity' => $item->quantity,
                     'stock_was_decremented' => $stockDecrementedByCartItem[$item->getKey()] ?? false,
                     'price' => $item->price_snapshot,
-                    'total' => $item->lineTotal(),
+                    'total' => $lineTotal,
+                ]);
+            }
+
+            if ($promo instanceof PromoCode && $promoPricing instanceof PromoCodePricingResult) {
+                PromoCodeRedemption::query()->create([
+                    'promo_code_id' => $promo->getKey(),
+                    'order_id' => $order->getKey(),
+                    'discount_amount' => $promoPricing->discountAmount(),
                 ]);
             }
 

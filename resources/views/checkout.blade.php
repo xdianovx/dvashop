@@ -14,6 +14,7 @@
         @elseif ($deliveryMethods->isEmpty() || $paymentMethods->isEmpty())
             <p role="alert">Оформление заказа временно недоступно. Свяжитесь с нами для уточнения условий.</p>
         @else
+            <x-promo-code-form :totals="$totals" class="checkout-promo" />
             <form class="checkout-layout" action="{{ route('checkout.store') }}" method="post">
                 @csrf
                 <div class="checkout-main">
@@ -73,10 +74,11 @@
                         @endforeach
                     </ul>
                     <div class="checkout-order__row"><span>{{ $totals['items_count'] }} товар(ов) на сумму</span><span class="checkout-order__value">{{ number_format($totals['subtotal'], 0, ',', ' ') }} ₽</span></div>
+                    <div class="checkout-order__row" data-cart-discount-row @if ($totals['discount_total'] <= 0) hidden @endif><span>Скидка</span><span class="checkout-order__value" data-cart-discount>−{{ number_format($totals['discount_total'], 0, ',', ' ') }} ₽</span></div>
                     <div class="checkout-order__row"><span>Доставка</span><span class="checkout-order__value" data-checkout-delivery>—</span></div>
                     <div class="checkout-order__total">
                         <span data-checkout-total-label>Сумма товаров</span>
-                        <span class="checkout-order__total-value" data-checkout-total data-checkout-subtotal="{{ number_format((float) $totals['subtotal'], 2, '.', '') }}">{{ number_format($totals['subtotal'], 0, ',', ' ') }} ₽</span>
+                        <span class="checkout-order__total-value" data-checkout-total data-checkout-subtotal="{{ number_format((float) $totals['total'], 2, '.', '') }}">{{ number_format($totals['total'], 0, ',', ' ') }} ₽</span>
                     </div>
                     <button type="submit" class="btn checkout-order__submit">Заказать</button>
                     <label class="checkout-order__agree">
