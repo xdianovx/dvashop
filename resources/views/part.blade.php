@@ -130,9 +130,20 @@
                     @endif
                     <label class="part-option-group__label" for="product-quantity">Количество:</label>
                     <div class="part-qty" data-product-qty>
-                        <button type="button" class="part-qty__btn" data-product-qty-step="-1" aria-label="Убавить количество">−</button>
+                        <button type="button" class="part-qty__btn" data-product-qty-step="-1" aria-label="Убавить количество">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M5 12h14" />
+                            </svg>
+                        </button>
                         <input id="product-quantity" class="part-qty__value" type="number" name="quantity" value="1" min="1" max="{{ $selectedMaxQuantity }}" data-product-quantity required>
-                        <button type="button" class="part-qty__btn" data-product-qty-step="1" aria-label="Добавить количество">+</button>
+                        <button type="button" class="part-qty__btn" data-product-qty-step="1" aria-label="Добавить количество">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M12 5v14" />
+                                <path d="M5 12h14" />
+                            </svg>
+                        </button>
                     </div>
                     <div class="part-buy__actions">
                         <button type="submit" class="btn part-buy__cart" data-add-to-cart @disabled(! $selectedCanBePurchased)>
