@@ -41,7 +41,7 @@ final readonly class SeoMetadataService
         return [
             'meta_title' => $metaTitle,
             'meta_description' => $metaDescription,
-            'h1' => $this->plain($model->getAttribute('seo_h1')) ?? $title,
+            'h1' => $this->plain($model->getAttribute('seo_h1')) ?? $this->headingTitle($model),
             'seo_text' => $this->nullableString($model->getAttribute('seo_text')),
             'canonical_url' => $this->plain($model->getAttribute('canonical_url')),
             'noindex' => (bool) $model->getAttribute('noindex'),
@@ -76,6 +76,16 @@ final readonly class SeoMetadataService
             $model instanceof VehicleModel => $model->display_title,
             $model instanceof VehicleGeneration => $this->generationTitle($model),
             default => throw new InvalidArgumentException('SEO metadata is not supported for '.get_class($model).'.'),
+        };
+    }
+
+    // Catalog listings name what the page lists, while meta titles keep the plain entity name.
+    private function headingTitle(Model $model): string
+    {
+        return match (true) {
+            $model instanceof VehicleMake => 'Модели автомобилей '.$model->title,
+            $model instanceof VehicleModel => 'Поколения модели '.$model->display_title,
+            default => $this->entityTitle($model),
         };
     }
 
