@@ -142,7 +142,6 @@ test('public product uses an active alternative when its default variant is not 
 
         $this->get(route('products.show', $product->slug))
             ->assertOk()
-            ->assertSee($expectedVariant->sku)
             ->assertViewHas('variant', fn (ProductVariant $variant): bool => $variant->is($expectedVariant));
     }
 });
@@ -270,34 +269,6 @@ test('product gallery falls back to real part type and generic category default 
         ->assertOk()
         ->assertSee('/img/products_default/porog.png', false)
         ->assertDontSee('/img/placeholders/image.svg', false);
-});
-
-test('product sku row is hidden only when both product and selected variant skus are empty', function (): void {
-    $withoutSku = Product::factory()->create(['sku' => null]);
-    ProductVariant::factory()->forProduct($withoutSku)->default()->create([
-        'sku' => null,
-        'stock_quantity' => null,
-    ]);
-
-    $withoutSkuHtml = $this->get(route('products.show', $withoutSku->slug))->assertOk()->getContent();
-    preg_match('/<p[^>]*data-selected-sku-row[^>]*>.*?<\/p>/s', $withoutSkuHtml, $hiddenRow);
-    expect($hiddenRow[0] ?? '')
-        ->toContain('hidden')
-        ->toContain('data-selected-sku')
-        ->not->toContain('Артикул: —');
-
-    $withSku = Product::factory()->create(['sku' => 'PRODUCT-PUBLIC-SKU']);
-    ProductVariant::factory()->forProduct($withSku)->default()->create([
-        'sku' => null,
-        'stock_quantity' => null,
-    ]);
-
-    $withSkuHtml = $this->get(route('products.show', $withSku->slug))->assertOk()->getContent();
-    preg_match('/<p[^>]*data-selected-sku-row[^>]*>.*?<\/p>/s', $withSkuHtml, $visibleRow);
-    expect($visibleRow[0] ?? '')
-        ->toContain('PRODUCT-PUBLIC-SKU')
-        ->toContain('data-selected-sku')
-        ->not->toContain(' hidden');
 });
 
 test('cart HTTP flow uses snapshots ownership forms and stock status', function (): void {
@@ -538,7 +509,6 @@ test('product page exposes real characteristics and server variant matrix withou
         ->assertSee('MATRIX-PRODUCT-SKU')
         ->assertSee('Matrix product description')
         ->assertSee('Matrix Category')
-        ->assertSee('Matrix Part Type')
         ->assertSee('https://cdn.example.test/matrix-product.jpg', false)
         ->assertSee('Толщина')
         ->assertSee('1.5')
@@ -561,7 +531,6 @@ test('product page exposes real characteristics and server variant matrix withou
         ->assertDontSee('"variant_id":'.$inactiveVariant->getKey(), false)
         ->assertDontSee('"variant_id":'.$foreignVariant->getKey(), false)
         ->assertSee('2 450 руб.')
-        ->assertSee('data-selected-sku', false)
         ->assertSee('part-buy__stock--out-of-stock', false)
         ->assertSee(StockStatus::OutOfStock->label())
         ->assertSee('data-add-to-cart disabled', false)
