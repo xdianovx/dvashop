@@ -186,3 +186,48 @@
         font-size: 12px;
     }
 }
+// Inline search: the cloned input sits in the field itself, so the value row
+// and the dropdown search box are both dropped.
+.search__form .search__field .choices--inline-search .choices__list--single {
+    display: none;
+}
+
+.search__form .search__field .choices--inline-search .choices__inner .choices__input--cloned {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: transparent;
+    border: 0;
+    border-radius: 0;
+    font-family: var(--font-body);
+    font-weight: var(--fw-regular);
+    font-size: var(--fs-base);
+    line-height: var(--lh-snug);
+    color: var(--color-primary-dark);
+    text-overflow: ellipsis;
+}
+
+.search__form .search__field .choices--inline-search .choices__inner .choices__input--cloned:focus {
+    outline: none;
+}
+
+.search__form .search__field .choices--inline-search .choices__inner .choices__input--cloned::placeholder {
+    color: #000;
+    opacity: 1;
+}
+
+.search__form .search__field .choices--inline-search.is-disabled .choices__inner .choices__input--cloned {
+    cursor: default;
+}
+
+.search__form .search__field .choices--inline-search .choices__list--dropdown .choices__input {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .search__form .search__field .choices--inline-search .choices__inner .choices__input--cloned {
+        font-size: 10px;
+    }
+}
