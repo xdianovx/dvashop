@@ -320,7 +320,7 @@
     border-radius: 10px;
     font-family: var(--font-display);
     font-weight: var(--fw-medium);
-    font-size: 20px;
+    font-size: 16px;
     color: var(--color-ink);
     transition: background-color 0.15s ease, color 0.15s ease;
 }
@@ -631,6 +631,7 @@
         font-size: 20px;
     }
 }
+
 // ── Delivery accordion (mobile) ─────────────────────────
 .part-accordion {
     display: none;
@@ -692,6 +693,6 @@
     color: var(--color-primary-dark);
 }
 
-.part-accordion__body p + p {
+.part-accordion__body p+p {
     margin-top: 11px;
 }

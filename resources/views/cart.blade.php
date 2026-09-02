@@ -6,13 +6,6 @@
     <div class="container cart-page">
         <x-breadcrumbs :items="[['label' => 'Главная', 'url' => route('home')], ['label' => 'Моя корзина']]" />
         <h1 class="cart-title">Моя корзина</h1>
-        @if ($items->isNotEmpty())
-            <form class="cart-clear-form" action="{{ route('cart.clear') }}" method="post" data-cart-clear>
-                @csrf
-                @method('DELETE')
-                <button type="submit" class="cart-clear">Очистить корзину</button>
-            </form>
-        @endif
         @if ($errors->any())<div class="cart-page__error" role="alert">{{ $errors->first() }}</div>@endif
 
         <div class="cart-content" data-cart-content>
@@ -24,7 +17,14 @@
                 @endif
                 <div class="cart-layout">
                     <div class="cart-list" data-cart-list>@foreach ($items as $item)<x-cart-item :item="$item" />@endforeach</div>
-                    <x-cart-summary :totals="$totals" :has-unavailable-prices="$hasUnavailablePrices" />
+                    <div class="cart-aside">
+                        <x-cart-summary :totals="$totals" :has-unavailable-prices="$hasUnavailablePrices" />
+                        <form class="cart-clear-form" action="{{ route('cart.clear') }}" method="post" data-cart-clear>
+                            @csrf
+                            @method('DELETE')
+                            <button type="submit" class="cart-clear">Очистить корзину</button>
+                        </form>
+                    </div>
                 </div>
             @endif
         </div>
