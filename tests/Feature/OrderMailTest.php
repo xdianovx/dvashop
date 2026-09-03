@@ -170,18 +170,19 @@ test('order emails render stored snapshots and configured store name without int
     Mail::assertSent(ManagerOrderCreatedMail::class, fn (ManagerOrderCreatedMail $mail): bool => str_contains($mail->render(), 'МагазПороги'));
 });
 
-test('promo order emails and Bitrix contain gross discount delivery and final snapshots', function (): void {
+test('promo order emails and Bitrix distinguish gross discount delivery and final snapshots', function (): void {
     Http::fake(['bitrix.example.test/*' => Http::response(['result' => 913], 200)]);
     $order = orderForNotification();
     $order->forceFill([
-        'promo_code_snapshot' => 'MAIL500',
+        'promo_code_snapshot' => 'MAIL400',
         'promo_name_snapshot' => 'Почтовая скидка',
-        'discount_total' => 500,
-        'total' => 3000,
+        'discount_total' => 400,
+        'delivery_price' => 250,
+        'total' => 2850,
     ])->save();
     $order->items()->update([
-        'discount_snapshot' => 500,
-        'final_total_snapshot' => 2500,
+        'discount_snapshot' => 400,
+        'final_total_snapshot' => 2600,
     ]);
     $order->load('items');
 
@@ -193,10 +194,16 @@ test('promo order emails and Bitrix contain gross discount delivery and final sn
         Mail::assertSent($mailClass, function ($mail): bool {
             $html = $mail->render();
 
-            return str_contains($html, 'MAIL500')
-                && str_contains($html, '500,00')
-                && str_contains($html, '2 500,00')
-                && str_contains($html, '3 000,00');
+            return str_contains($html, 'Товары')
+                && str_contains($html, '3 000,00')
+                && str_contains($html, 'Промокод')
+                && str_contains($html, 'MAIL400')
+                && str_contains($html, 'Скидка')
+                && str_contains($html, '400,00')
+                && str_contains($html, 'Стоимость доставки')
+                && str_contains($html, '250 ₽')
+                && str_contains($html, 'Итого')
+                && str_contains($html, '2 850,00');
         });
     }
 
@@ -208,12 +215,12 @@ test('promo order emails and Bitrix contain gross discount delivery and final sn
     });
     expect($comments)->toContain(
         'Товары: 3 000,00 ₽',
-        'Промокод: MAIL500',
-        'Скидка: 500,00 ₽',
+        'Промокод: MAIL400',
+        'Скидка: 400,00 ₽',
         'Сумма до скидки: 3 000,00 ₽',
-        'Сумма: 2 500,00 ₽',
-        'Стоимость доставки: 500 ₽',
-        'Итого: 3 000,00 ₽',
+        'Сумма: 2 600,00 ₽',
+        'Стоимость доставки: 250 ₽',
+        'Итого: 2 850,00 ₽',
     );
 });
 
@@ -224,7 +231,7 @@ test('order emails without promo do not render an empty promo row', function ():
     app(SendCustomerOrderEmail::class)->handle(new OrderCreated($order));
     app(SendManagerOrderEmail::class)->handle(new OrderCreated($order));
 
-    Mail::assertSent(CustomerOrderCreatedMail::class, fn (CustomerOrderCreatedMail $mail): bool => ! str_contains($mail->render(), 'Скидка по промокоду'));
+    Mail::assertSent(CustomerOrderCreatedMail::class, fn (CustomerOrderCreatedMail $mail): bool => ! str_contains($mail->render(), '<td>Промокод</td>'));
     Mail::assertSent(ManagerOrderCreatedMail::class, fn (ManagerOrderCreatedMail $mail): bool => ! str_contains($mail->render(), 'Промокод'));
 });
 

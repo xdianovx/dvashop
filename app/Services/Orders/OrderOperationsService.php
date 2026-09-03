@@ -93,10 +93,10 @@ class OrderOperationsService
                 && $targetStatus === OrderStatus::Canceled;
 
             if ($firstCancellation) {
-                $this->inventory->restoreForCancellation($locked);
                 $locked->promoCodeRedemption()
                     ->whereNull('released_at')
                     ->update(['released_at' => now()]);
+                $this->inventory->restoreForCancellation($locked);
             }
 
             $locked->forceFill([

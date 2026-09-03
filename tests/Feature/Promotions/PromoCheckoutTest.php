@@ -16,6 +16,7 @@ use App\Services\CartManager;
 use App\Services\CheckoutService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Validation\ValidationException;
 
@@ -83,7 +84,7 @@ test('checkout without promo preserves gross totals and zero discount snapshots'
         ->and(PromoCodeRedemption::query()->count())->toBe(0);
 });
 
-test('percentage promo persists immutable order and exact line snapshots with delivery after discount', function (): void {
+test('percentage promo checkout without address persists immutable order and exact line snapshots', function (): void {
     Event::fake([OrderCreated::class]);
     $promo = PromoCode::factory()->create([
         'code' => 'CHECKOUT10',
@@ -91,14 +92,18 @@ test('percentage promo persists immutable order and exact line snapshots with de
         'discount_value' => 10,
     ]);
     [$cart] = promoCheckoutCart(333.33, 3, $promo);
+    $checkoutData = promoCheckoutData();
+    unset($checkoutData['customer_address']);
 
-    $order = app(CheckoutService::class)->createOrderFromCart(promoCheckoutRequest($cart), promoCheckoutData());
+    $order = app(CheckoutService::class)->createOrderFromCart(promoCheckoutRequest($cart), $checkoutData);
     $lineDiscount = (float) $order->items->sum('discount_snapshot');
 
     expect($order->subtotal)->toBe('999.99')
         ->and($order->discount_total)->toBe('100.00')
         ->and($order->delivery_price)->toBe('700.00')
         ->and($order->total)->toBe('1599.99')
+        ->and($order->customer_address)->toBeNull()
+        ->and($order->delivery_address)->toBeNull()
         ->and($order->promo_code_snapshot)->toBe('CHECKOUT10')
         ->and($order->promo_name_snapshot)->toBe('Checkout ten')
         ->and($order->promo_discount_type_snapshot)->toBe('percentage')
@@ -150,6 +155,69 @@ test('on request delivery keeps non-final wording contract with discounted merch
         ->and($order->total)->toBe('900.00');
 });
 
+test('valid promo preserves finite stock reservation and creates one order and redemption', function (): void {
+    Event::fake([OrderCreated::class]);
+    $promo = PromoCode::factory()->create(['discount_value' => 10]);
+    [$cart, $variant] = promoCheckoutCart(1000, 2, $promo);
+    $stock = $variant->stock_quantity;
+
+    $order = app(CheckoutService::class)->createOrderFromCart(
+        promoCheckoutRequest($cart),
+        promoCheckoutData(),
+    );
+
+    expect($variant->refresh()->stock_quantity)->toBe($stock - 2)
+        ->and(Order::query()->count())->toBe(1)
+        ->and(PromoCodeRedemption::query()->count())->toBe(1)
+        ->and($order->discount_total)->toBe('200.00')
+        ->and($order->items->first()->stock_was_decremented)->toBeTrue();
+    Event::assertDispatchedTimes(OrderCreated::class, 1);
+});
+
+test('unlimited promo skips quota selects while preserving redemption history', function (int $existingCount): void {
+    Event::fake([OrderCreated::class]);
+    $promo = PromoCode::factory()->create([
+        'discount_value' => 10,
+        'usage_limit' => null,
+    ]);
+    $existingRedemptions = PromoCodeRedemption::factory()
+        ->count($existingCount)
+        ->for($promo)
+        ->create();
+    [$cart] = promoCheckoutCart(1000, 1, $promo);
+    $queries = [];
+    DB::listen(function ($query) use (&$queries): void {
+        $queries[] = strtolower($query->sql);
+    });
+
+    $order = app(CheckoutService::class)->createOrderFromCart(
+        promoCheckoutRequest($cart),
+        promoCheckoutData(),
+    );
+
+    $redemptionQueries = collect($queries)->filter(
+        fn (string $sql): bool => str_contains($sql, 'promo_code_redemptions')
+    );
+    $quotaSelects = $redemptionQueries->filter(
+        fn (string $sql): bool => preg_match('/^select .* from ["`]?promo_code_redemptions/i', $sql) === 1
+    );
+    $redemptionInserts = $redemptionQueries->filter(
+        fn (string $sql): bool => preg_match('/^insert into ["`]?promo_code_redemptions/i', $sql) === 1
+    );
+
+    expect($order->discount_total)->toBe('100.00')
+        ->and($quotaSelects)->toHaveCount(0)
+        ->and($redemptionInserts)->toHaveCount(1)
+        ->and($redemptionQueries)->toHaveCount(1)
+        ->and(PromoCodeRedemption::query()->whereKey($existingRedemptions->modelKeys())->count())->toBe($existingCount)
+        ->and(PromoCodeRedemption::query()->where('promo_code_id', $promo->getKey())->count())->toBe($existingCount + 1)
+        ->and(PromoCodeRedemption::query()->where('order_id', $order->getKey())->exists())->toBeTrue();
+    Event::assertDispatchedTimes(OrderCreated::class, 1);
+})->with([
+    'one existing redemption' => [1],
+    'fifty existing redemptions' => [50],
+]);
+
 test('invalid promo aborts atomically before stock reservation and never creates full price order', function (array $attributes): void {
     Event::fake([OrderCreated::class]);
     $promo = PromoCode::factory()->create($attributes);
@@ -168,6 +236,7 @@ test('invalid promo aborts atomically before stock reservation and never creates
     Event::assertNotDispatched(OrderCreated::class);
 })->with([
     'disabled' => [['is_active' => false]],
+    'scheduled' => [['starts_at' => fn () => now()->addMinute()]],
     'expired' => [['ends_at' => fn () => now()->subMinute()]],
 ]);
 
@@ -177,13 +246,24 @@ test('usage limit one rejects a second checkout after an active redemption', fun
     PromoCodeRedemption::factory()->for($promo)->create();
     [$cart, $variant] = promoCheckoutCart(1000, 1, $promo);
     $stock = $variant->stock_quantity;
+    $queries = [];
+    DB::listen(function ($query) use (&$queries): void {
+        $queries[] = strtolower($query->sql);
+    });
 
     expect(fn () => app(CheckoutService::class)->createOrderFromCart(
         promoCheckoutRequest($cart),
         promoCheckoutData(),
     ))->toThrow(ValidationException::class);
 
+    $quotaSelects = collect($queries)->filter(
+        fn (string $sql): bool => preg_match('/^select .* from ["`]?promo_code_redemptions/i', $sql) === 1
+    );
+
     expect(Order::query()->count())->toBe(1)
         ->and(PromoCodeRedemption::query()->count())->toBe(1)
-        ->and($variant->refresh()->stock_quantity)->toBe($stock);
+        ->and($quotaSelects)->toHaveCount(1)
+        ->and($variant->refresh()->stock_quantity)->toBe($stock)
+        ->and($cart->refresh()->status)->toBe(CartStatus::Active);
+    Event::assertNotDispatched(OrderCreated::class);
 });

@@ -108,6 +108,8 @@ test('CheckoutService creates immutable order snapshots customer fields totals a
         ->and($order->payment_method_description_snapshot)->toBe('Payment snapshot description')
         ->and($order->customer_name)->toBe('Иван Петров')
         ->and($order->customer_city)->toBe('Москва')
+        ->and($order->customer_address)->toBe('Ленинградское шоссе, 1')
+        ->and($order->delivery_address)->toBe('Ленинградское шоссе, 1')
         ->and($order->customer_comment)->toBe('Позвонить заранее')
         ->and($order->subtotal)->toBe('5000.00')
         ->and($order->delivery_price)->toBe('700.00')
@@ -131,6 +133,27 @@ test('CheckoutService creates immutable order snapshots customer fields totals a
         ->and($order->payment_method_title_snapshot)->not->toBe('Changed payment title');
 
     Event::assertDispatched(OrderCreated::class, fn (OrderCreated $event): bool => $event->order->is($order));
+});
+
+test('CheckoutService creates a transport company order without customer address and preserves totals', function (): void {
+    Event::fake([OrderCreated::class]);
+    [$cart] = cartWithSnapshotItem();
+    $checkoutData = validCheckoutData();
+    unset($checkoutData['customer_address']);
+
+    $order = app(CheckoutService::class)->createOrderFromCart(
+        checkoutRequest($cart),
+        $checkoutData,
+    );
+
+    expect($order->exists)->toBeTrue()
+        ->and($order->delivery_method)->toBe(DeliveryMethod::TransportCompany)
+        ->and($order->customer_address)->toBeNull()
+        ->and($order->delivery_address)->toBeNull()
+        ->and($order->subtotal)->toBe('5000.00')
+        ->and($order->discount_total)->toBe('0.00')
+        ->and($order->delivery_price)->toBe('700.00')
+        ->and($order->total)->toBe('5700.00');
 });
 
 test('CheckoutService excludes technical variant management metadata from cart and order snapshots', function () {

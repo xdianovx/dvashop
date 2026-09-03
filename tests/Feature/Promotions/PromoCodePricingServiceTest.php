@@ -12,6 +12,7 @@ use App\Services\Promotions\PromoCodePricingResult;
 use App\Services\Promotions\PromoCodePricingService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -107,6 +108,39 @@ test('targeted promo without targets has no eligible lines', function (): void {
 
     expect($result->valid)->toBeFalse()
         ->and($result->discountCents)->toBe(0);
+});
+
+test('target graph queries remain bounded when cart item count grows', function (): void {
+    $category = ProductCategory::factory()->create();
+    $partType = PartType::factory()->create(['product_category_id' => $category->getKey()]);
+    $products = Product::factory()->count(6)->forCategory($category)->create(['part_type_id' => $partType->getKey()]);
+    $items = $products->map(fn (Product $product): CartItem => promoPricingItem(100, product: $product));
+    $promo = pricingPromo(['applies_to_all' => false]);
+    $promo->products()->attach($products->first());
+    $promo->productCategories()->attach($category);
+    $promo->partTypes()->attach($partType);
+    $queries = [];
+    DB::listen(function ($query) use (&$queries): void {
+        $queries[] = strtolower($query->sql);
+    });
+
+    pricePromo($promo->fresh(), $items->first());
+    $oneItemTargetQueries = collect($queries)->filter(
+        fn (string $sql): bool => str_contains($sql, 'promo_code_products')
+            || str_contains($sql, 'promo_code_product_categories')
+            || str_contains($sql, 'promo_code_part_types')
+    )->count();
+
+    $queries = [];
+    pricePromo($promo->fresh(), ...$items->all());
+    $manyItemTargetQueries = collect($queries)->filter(
+        fn (string $sql): bool => str_contains($sql, 'promo_code_products')
+            || str_contains($sql, 'promo_code_product_categories')
+            || str_contains($sql, 'promo_code_part_types')
+    )->count();
+
+    expect($oneItemTargetQueries)->toBe(3)
+        ->and($manyItemTargetQueries)->toBe($oneItemTargetQueries);
 });
 
 test('sale items are excluded by default and included when configured', function (): void {
