@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\PaymentMethodSetting;
 use App\Services\CartManager;
 use App\Services\CheckoutService;
+use App\Services\Integrations\UisPayloadBuilder;
 use App\Services\Seo\SeoData;
 use App\ViewData\Storefront\GlobalStorefrontData;
 use Illuminate\Http\RedirectResponse;
@@ -40,8 +41,11 @@ class CheckoutController extends Controller
         ]);
     }
 
-    public function store(Request $request, CheckoutService $checkoutService): RedirectResponse
-    {
+    public function store(
+        Request $request,
+        CheckoutService $checkoutService,
+        UisPayloadBuilder $uisPayloadBuilder,
+    ): RedirectResponse {
         $order = $checkoutService->createOrderFromCart($request, $request->only([
             'customer_name',
             'customer_phone',
@@ -55,6 +59,7 @@ class CheckoutController extends Controller
         ]));
         $token = Str::random(48);
         $request->session()->put(self::SUCCESS_SESSION_PREFIX.$order->getKey(), $token);
+        $request->session()->flash('uis_success_payload', $uisPayloadBuilder->forOrder($order));
 
         return redirect()->route('checkout.success', ['order' => $order->number, 'token' => $token]);
     }

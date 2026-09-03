@@ -58,10 +58,12 @@ class SendInquiryToBitrix implements ShouldQueueAfterCommit
     }
 
     /**
-     * @return array{TITLE:string,NAME:string,PHONE:array<int, array{VALUE:string,VALUE_TYPE:string}>,EMAIL:array<int, array{VALUE:string,VALUE_TYPE:string}>,COMMENTS:string}
+     * @return array{TITLE:string,NAME:string,PHONE:array<int, array{VALUE:string,VALUE_TYPE:string}>,EMAIL:array<int, array{VALUE:string,VALUE_TYPE:string}>,COMMENTS:string,SOURCE_ID?:string,ASSIGNED_BY_ID?:string}
      */
     private function fields(StorefrontInquiry $inquiry): array
     {
+        $sourceId = trim((string) config('shop.bitrix.source_id'));
+        $responsibleId = trim((string) config('shop.bitrix.responsible_id'));
         $product = collect([
             $inquiry->product_title_snapshot,
             $inquiry->variant_sku_snapshot ? 'SKU: '.$inquiry->variant_sku_snapshot : null,
@@ -81,6 +83,8 @@ class SendInquiryToBitrix implements ShouldQueueAfterCommit
                 'Код источника: '.$inquiry->source_code,
                 'Источник: '.$inquiry->source_url,
             ])->filter()->implode("\n\n"),
+            ...($sourceId !== '' ? ['SOURCE_ID' => $sourceId] : []),
+            ...($responsibleId !== '' ? ['ASSIGNED_BY_ID' => $responsibleId] : []),
         ];
     }
 }

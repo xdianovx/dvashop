@@ -52,10 +52,12 @@ class SendOrderToBitrix implements ShouldQueueAfterCommit
     }
 
     /**
-     * @return array{TITLE:string,NAME:string,PHONE:array<int, array{VALUE:string,VALUE_TYPE:string}>,EMAIL:array<int, array{VALUE:string,VALUE_TYPE:string}>,COMMENTS:string}
+     * @return array{TITLE:string,NAME:string,PHONE:array<int, array{VALUE:string,VALUE_TYPE:string}>,EMAIL:array<int, array{VALUE:string,VALUE_TYPE:string}>,COMMENTS:string,SOURCE_ID?:string,ASSIGNED_BY_ID?:string}
      */
     private function fields(Order $order): array
     {
+        $sourceId = trim((string) config('shop.bitrix.source_id'));
+        $responsibleId = trim((string) config('shop.bitrix.responsible_id'));
         $items = $order->items
             ->values()
             ->map(fn (OrderItem $item, int $index): string => collect([
@@ -102,6 +104,8 @@ class SendOrderToBitrix implements ShouldQueueAfterCommit
                     : null,
                 ($order->total_is_final ? 'Итого: ' : 'Сумма товаров (без доставки): ').$this->money($order->total),
             ])->filter()->implode("\n"),
+            ...($sourceId !== '' ? ['SOURCE_ID' => $sourceId] : []),
+            ...($responsibleId !== '' ? ['ASSIGNED_BY_ID' => $responsibleId] : []),
         ];
     }
 

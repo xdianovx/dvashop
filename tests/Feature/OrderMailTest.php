@@ -31,6 +31,8 @@ beforeEach(function (): void {
         'shop.orders.bitrix_enabled' => true,
         'shop.orders_manager_email' => 'env-manager@example.test',
         'shop.bitrix.webhook_url' => 'https://bitrix.example.test/rest/1/secret-token',
+        'shop.bitrix.source_id' => null,
+        'shop.bitrix.responsible_id' => null,
         'shop.bitrix.order_method' => 'crm.lead.add',
     ]);
 
@@ -247,6 +249,10 @@ test('store name has safe fallback when database value is empty', function (): v
 
 test('order Bitrix payload contains only order and item snapshots', function (): void {
     Http::fake(['bitrix.example.test/*' => Http::response(['result' => 912], 200)]);
+    config()->set([
+        'shop.bitrix.source_id' => 25,
+        'shop.bitrix.responsible_id' => 130633,
+    ]);
     $order = orderForNotification();
 
     app(SendOrderToBitrix::class)->handle(new OrderCreated($order));
@@ -255,7 +261,11 @@ test('order Bitrix payload contains only order and item snapshots', function ():
         $fields = $request->data()['fields'] ?? [];
         $comments = (string) ($fields['COMMENTS'] ?? '');
 
-        return array_keys($fields) === ['TITLE', 'NAME', 'PHONE', 'EMAIL', 'COMMENTS']
+        return array_keys($fields) === ['TITLE', 'NAME', 'PHONE', 'EMAIL', 'COMMENTS', 'SOURCE_ID', 'ASSIGNED_BY_ID']
+            && $fields['SOURCE_ID'] === '25'
+            && $fields['ASSIGNED_BY_ID'] === '130633'
+            && $fields['TITLE'] === 'Заказ '.$order->number
+            && $fields['NAME'] === 'Анна Смирнова'
             && str_contains($comments, $order->number)
             && str_contains($comments, 'Порог тестовый')
             && str_contains($comments, 'SNAP-SKU')
@@ -267,6 +277,23 @@ test('order Bitrix payload contains only order and item snapshots', function ():
             && str_contains($comments, '3 500,00 ₽')
             && ! str_contains($comments, '__dvashop')
             && ! str_contains(json_encode($fields, JSON_THROW_ON_ERROR), 'UF_');
+    });
+});
+
+test('order Bitrix payload omits empty source and responsible fields', function (): void {
+    Http::fake(['bitrix.example.test/*' => Http::response(['result' => 912], 200)]);
+    config()->set([
+        'shop.bitrix.source_id' => null,
+        'shop.bitrix.responsible_id' => '   ',
+    ]);
+
+    app(SendOrderToBitrix::class)->handle(new OrderCreated(orderForNotification()));
+
+    Http::assertSent(function (Request $request): bool {
+        $fields = $request->data()['fields'] ?? [];
+
+        return ! array_key_exists('SOURCE_ID', $fields)
+            && ! array_key_exists('ASSIGNED_BY_ID', $fields);
     });
 });
 

@@ -38,6 +38,8 @@ beforeEach(function (): void {
     config()->set([
         'shop.inquiries.manager_email' => 'env-manager@example.test',
         'shop.bitrix.webhook_url' => 'https://bitrix.example.test/rest/1/secret-token',
+        'shop.bitrix.source_id' => null,
+        'shop.bitrix.responsible_id' => null,
         'shop.bitrix.inquiry_method' => 'crm.lead.add',
     ]);
     Mail::fake();
@@ -113,21 +115,49 @@ test('inquiry email falls back to environment and a missing recipient only logs 
     Log::shouldHaveReceived('warning')->once();
 });
 
-test('bitrix sends only standard fields without invented custom fields', function (): void {
-    Http::fake(['bitrix.example.test/*' => Http::response(['result' => 731], 200)]);
-    config()->set('shop.inquiries.bitrix_enabled', true);
+test('bitrix sends configured source and responsible fields to the exact lead endpoint', function (): void {
+    Http::fake(['example.test/*' => Http::response(['result' => 731], 200)]);
+    config()->set([
+        'shop.inquiries.bitrix_enabled' => true,
+        'shop.bitrix.webhook_url' => 'https://example.test/rest/7/token/',
+        'shop.bitrix.source_id' => 25,
+        'shop.bitrix.responsible_id' => 130633,
+    ]);
 
     app(SendInquiryToBitrix::class)->handle(new StorefrontInquiryCreated(inquiryForDelivery()));
 
     Http::assertSent(function (Request $request): bool {
         $fields = $request->data()['fields'] ?? [];
 
-        return $request->url() === 'https://bitrix.example.test/rest/1/secret-token/crm.lead.add.json'
-            && array_keys($fields) === ['TITLE', 'NAME', 'PHONE', 'EMAIL', 'COMMENTS']
+        return $request->url() === 'https://example.test/rest/7/token/crm.lead.add.json'
+            && array_keys($fields) === ['TITLE', 'NAME', 'PHONE', 'EMAIL', 'COMMENTS', 'SOURCE_ID', 'ASSIGNED_BY_ID']
+            && $fields['SOURCE_ID'] === '25'
+            && $fields['ASSIGNED_BY_ID'] === '130633'
+            && $fields['NAME'] === 'Иван Петров'
+            && data_get($fields, 'PHONE.0.VALUE') === '+79991112233'
             && ! str_contains(json_encode($fields, JSON_THROW_ON_ERROR), 'UF_')
+            && str_contains($fields['COMMENTS'], 'Перезвоните после 18:00')
             && str_contains($fields['COMMENTS'], 'Исторический товар')
             && str_contains($fields['COMMENTS'], 'Код источника: product')
             && str_contains($fields['COMMENTS'], 'https://shop.example.test/products/historic');
+    });
+});
+
+test('bitrix omits empty inquiry source and responsible fields', function (): void {
+    Http::fake(['bitrix.example.test/*' => Http::response(['result' => 731], 200)]);
+    config()->set([
+        'shop.inquiries.bitrix_enabled' => true,
+        'shop.bitrix.source_id' => '',
+        'shop.bitrix.responsible_id' => '   ',
+    ]);
+
+    app(SendInquiryToBitrix::class)->handle(new StorefrontInquiryCreated(inquiryForDelivery()));
+
+    Http::assertSent(function (Request $request): bool {
+        $fields = $request->data()['fields'] ?? [];
+
+        return ! array_key_exists('SOURCE_ID', $fields)
+            && ! array_key_exists('ASSIGNED_BY_ID', $fields);
     });
 });
 
