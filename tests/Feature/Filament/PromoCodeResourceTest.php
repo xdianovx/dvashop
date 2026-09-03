@@ -68,6 +68,31 @@ test('promo list aggregates redemptions without per record queries', function ()
     expect($standaloneRedemptionQueries->count())->toBeLessThanOrEqual(1);
 });
 
+test('current status filter returns only the requested computed state', function (): void {
+    $this->actingAs(User::factory()->admin()->create());
+    $active = PromoCode::factory()->create(['usage_limit' => 1]);
+    PromoCodeRedemption::factory()->for($active)->released()->create();
+    $scheduled = PromoCode::factory()->create(['starts_at' => now()->addDay()]);
+    $expired = PromoCode::factory()->create(['ends_at' => now()->subDay()]);
+    $exhausted = PromoCode::factory()->create(['usage_limit' => 1]);
+    PromoCodeRedemption::factory()->for($exhausted)->create();
+    $disabled = PromoCode::factory()->create(['is_active' => false]);
+    $records = collect([$active, $scheduled, $expired, $exhausted, $disabled]);
+
+    foreach ([
+        'active' => $active,
+        'scheduled' => $scheduled,
+        'expired' => $expired,
+        'exhausted' => $exhausted,
+        'disabled' => $disabled,
+    ] as $status => $expected) {
+        Livewire::test(ListPromoCodes::class)
+            ->filterTable('current_status', $status)
+            ->assertCanSeeTableRecords([$expected])
+            ->assertCanNotSeeTableRecords($records->reject(fn (PromoCode $promo): bool => $promo->is($expected)));
+    }
+});
+
 test('manager has index and view only while customer and disabled users are denied', function (string $role, bool $index, bool $view): void {
     $promo = PromoCode::factory()->create();
     $actor = match ($role) {

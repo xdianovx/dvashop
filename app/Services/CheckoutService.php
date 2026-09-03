@@ -45,10 +45,34 @@ class CheckoutService
         $order = DB::transaction(function () use ($cart, $request, $validated): Order {
             /** @var Cart $lockedCart */
             $lockedCart = Cart::query()
-                ->with('items')
                 ->whereKey($cart->getKey())
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            $promo = null;
+            $activePromoUsageCount = null;
+
+            if ($lockedCart->promo_code_id !== null) {
+                $promo = PromoCode::withTrashed()
+                    ->whereKey($lockedCart->promo_code_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $promo instanceof PromoCode) {
+                    throw ValidationException::withMessages([
+                        'promo_code' => 'Промокод больше не действует. Проверьте сумму заказа.',
+                    ]);
+                }
+
+                if ($promo->usage_limit !== null) {
+                    $activePromoUsageCount = $promo->activeRedemptions()
+                        ->lockForUpdate()
+                        ->get(['id'])
+                        ->count();
+                }
+            }
+
+            $lockedCart->load(['items' => fn ($query) => $query->orderBy('id')]);
 
             if ($lockedCart->status !== CartStatus::Active || $lockedCart->items->isEmpty()) {
                 throw ValidationException::withMessages([
@@ -80,25 +104,13 @@ class CheckoutService
             }
 
             $subtotal = $this->subtotal($lockedCart);
-            $promo = null;
             $promoPricing = null;
 
-            if ($lockedCart->promo_code_id !== null) {
-                $promo = PromoCode::withTrashed()
-                    ->whereKey($lockedCart->promo_code_id)
-                    ->lockForUpdate()
-                    ->first();
-
-                if (! $promo instanceof PromoCode) {
-                    throw ValidationException::withMessages([
-                        'promo_code' => 'Промокод больше не действует. Проверьте сумму заказа.',
-                    ]);
-                }
-
+            if ($promo instanceof PromoCode) {
                 $promoPricing = $this->promoPricing->calculate(
                     $promo,
                     $lockedCart->items,
-                    $promo->activeRedemptions()->count(),
+                    $activePromoUsageCount,
                 );
 
                 if (! $promoPricing->valid) {
@@ -222,7 +234,7 @@ class CheckoutService
             'customer_phone' => ['required', 'string', 'max:255'],
             'customer_email' => ['nullable', 'email', 'max:255'],
             'customer_city' => ['required', 'string', 'max:255'],
-            'customer_address' => ['required_unless:delivery_method,'.DeliveryMethod::Pickup->value, 'nullable', 'string', 'max:255'],
+            'customer_address' => ['nullable', 'string', 'max:255'],
             'customer_comment' => ['nullable', 'string', 'max:5000'],
             'delivery_method' => ['required', Rule::enum(DeliveryMethod::class)],
             'payment_method' => ['required', Rule::enum(PaymentMethod::class)],

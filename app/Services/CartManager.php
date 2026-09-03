@@ -153,10 +153,13 @@ class CartManager
             }
 
             $items = $lockedCart->items()->orderBy('id')->get();
+            $activePromoUsageCount = $promo->usage_limit !== null
+                ? $promo->activeRedemptions()->count()
+                : null;
             $result = $this->promoPricing->calculate(
                 $promo,
                 $items,
-                $promo->activeRedemptions()->count(),
+                $activePromoUsageCount,
             );
 
             if (! $result->valid) {

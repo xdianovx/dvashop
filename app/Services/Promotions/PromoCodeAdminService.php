@@ -175,6 +175,17 @@ final class PromoCodeAdminService
         }
 
         if ($type === PromoDiscountType::Fixed) {
+            $fixedAmountIsCentExact = Validator::make(
+                ['discount_value' => $validated['discount_value']],
+                ['discount_value' => ['decimal:0,2']],
+            )->passes();
+
+            if (! $fixedAmountIsCentExact) {
+                throw ValidationException::withMessages([
+                    'discount_value' => 'Фиксированная скидка должна быть указана с точностью не более двух знаков после запятой.',
+                ]);
+            }
+
             $validated['max_discount_amount'] = null;
         }
 

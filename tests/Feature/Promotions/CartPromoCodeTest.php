@@ -7,6 +7,7 @@ use App\Models\PromoCode;
 use App\Models\PromoCodeRedemption;
 use App\Services\CartManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
@@ -54,6 +55,42 @@ test('ordinary and JSON apply normalize code and return discount totals', functi
     expect($json->json('cart.items_count'))->toBe(2);
 });
 
+test('unlimited promo apply skips redemption quota queries regardless of history size', function (int $existingCount): void {
+    [$cart] = promoCart();
+    $promo = cartPromo(['usage_limit' => null]);
+    PromoCodeRedemption::factory()->count($existingCount)->for($promo)->create();
+    $queries = [];
+    DB::listen(function ($query) use (&$queries): void {
+        $queries[] = strtolower($query->sql);
+    });
+
+    $this->withCredentials()->withCookies([CartManager::COOKIE_NAME => $cart->token])
+        ->postJson(route('cart.promo-code.store'), ['promo_code' => 'SAVE10'])
+        ->assertOk()
+        ->assertJsonPath('cart.discount_total', 100)
+        ->assertJsonPath('cart.total', 900)
+        ->assertJsonPath('cart.promo_applied', true);
+
+    $redemptionQueries = collect($queries)->filter(
+        fn (string $sql): bool => str_contains($sql, 'promo_code_redemptions')
+    );
+    $redemptionSelects = $redemptionQueries->filter(
+        fn (string $sql): bool => preg_match('/^select .* from ["`]?promo_code_redemptions/i', $sql) === 1
+    );
+    $redemptionInserts = $redemptionQueries->filter(
+        fn (string $sql): bool => preg_match('/^insert into ["`]?promo_code_redemptions/i', $sql) === 1
+    );
+
+    expect($redemptionSelects)->toHaveCount(0)
+        ->and($redemptionInserts)->toHaveCount(0)
+        ->and($redemptionQueries)->toHaveCount(0)
+        ->and($cart->refresh()->promo_code_id)->toBe($promo->getKey())
+        ->and(PromoCodeRedemption::query()->where('promo_code_id', $promo->getKey())->count())->toBe($existingCount);
+})->with([
+    'one existing redemption' => [1],
+    'fifty existing redemptions' => [50],
+]);
+
 test('invalid unknown and unavailable promo applications are rejected', function (array $attributes, string $code): void {
     [$cart] = promoCart();
 
@@ -77,10 +114,35 @@ test('exhausted promo is rejected', function (): void {
     [$cart] = promoCart();
     $promo = cartPromo(['usage_limit' => 1]);
     PromoCodeRedemption::factory()->for($promo)->create();
+    $queries = [];
+    DB::listen(function ($query) use (&$queries): void {
+        $queries[] = strtolower($query->sql);
+    });
 
     $this->withCredentials()->withCookies([CartManager::COOKIE_NAME => $cart->token])
         ->postJson(route('cart.promo-code.store'), ['promo_code' => 'SAVE10'])
         ->assertUnprocessable();
+
+    $redemptionSelects = collect($queries)->filter(
+        fn (string $sql): bool => preg_match('/^select .* from ["`]?promo_code_redemptions/i', $sql) === 1
+    );
+
+    expect($redemptionSelects)->toHaveCount(1)
+        ->and($cart->refresh()->promo_code_id)->toBeNull();
+});
+
+test('released redemption makes limited promo available again', function (): void {
+    [$cart] = promoCart();
+    $promo = cartPromo(['usage_limit' => 1]);
+    PromoCodeRedemption::factory()->released()->for($promo)->create();
+
+    $this->withCredentials()->withCookies([CartManager::COOKIE_NAME => $cart->token])
+        ->postJson(route('cart.promo-code.store'), ['promo_code' => 'SAVE10'])
+        ->assertOk()
+        ->assertJsonPath('cart.discount_total', 100)
+        ->assertJsonPath('cart.promo_applied', true);
+
+    expect($cart->refresh()->promo_code_id)->toBe($promo->getKey());
 });
 
 test('remove works with no JS and JSON', function (): void {
@@ -118,6 +180,73 @@ test('second valid promo replaces first while invalid second leaves first attach
         ->assertOk()
         ->assertJsonPath('cart.discount_total', 200);
     expect($cart->refresh()->promo_code_id)->toBe($second->getKey());
+});
+
+test('quantity update keeps an eligible promo attached and recalculates every total', function (): void {
+    [$cart, $item] = promoCart(750, 1);
+    $promo = cartPromo(['discount_value' => 10]);
+    $cart->update(['promo_code_id' => $promo->getKey()]);
+
+    $this->withCredentials()->withCookies([CartManager::COOKIE_NAME => $cart->token])
+        ->patchJson(route('cart.items.update', $item), ['quantity' => 2])
+        ->assertOk()
+        ->assertJsonPath('cart.items_count', 2)
+        ->assertJsonPath('cart.subtotal', 1500)
+        ->assertJsonPath('cart.discount_total', 150)
+        ->assertJsonPath('cart.total', 1350)
+        ->assertJsonPath('cart.promo_applied', true)
+        ->assertJsonPath('cart.promo_code', 'SAVE10');
+
+    expect($cart->refresh()->promo_code_id)->toBe($promo->getKey());
+});
+
+test('removing one eligible item keeps the promo and drops the old discount from the response', function (): void {
+    [$cart, $firstItem] = promoCart(750, 1);
+    $promo = cartPromo(['discount_value' => 10]);
+    $cart->update(['promo_code_id' => $promo->getKey()]);
+    $secondVariant = ProductVariant::factory()->default()->create([
+        'price' => 1250,
+        'stock_quantity' => 100,
+    ]);
+    $request = Request::create('/cart', 'POST', [], [CartManager::COOKIE_NAME => $cart->token]);
+    app(CartManager::class)->addItem($request, $secondVariant->getKey());
+
+    $this->withCredentials()->withCookies([CartManager::COOKIE_NAME => $cart->token])
+        ->deleteJson(route('cart.items.destroy', $firstItem))
+        ->assertOk()
+        ->assertJsonPath('cart.items_count', 1)
+        ->assertJsonPath('cart.subtotal', 1250)
+        ->assertJsonPath('cart.discount_total', 125)
+        ->assertJsonPath('cart.total', 1125)
+        ->assertJsonPath('cart.promo_applied', true)
+        ->assertJsonPath('cart.promo_code', 'SAVE10');
+
+    expect($cart->refresh()->promo_code_id)->toBe($promo->getKey());
+});
+
+test('removing the only targeted line detaches promo while preserving noneligible cart totals', function (): void {
+    [$cart, $targetedItem] = promoCart(1000, 1);
+    $promo = cartPromo(['applies_to_all' => false, 'discount_value' => 10]);
+    $promo->products()->attach($targetedItem->product_id);
+    $cart->update(['promo_code_id' => $promo->getKey()]);
+    $otherVariant = ProductVariant::factory()->default()->create([
+        'price' => 800,
+        'stock_quantity' => 100,
+    ]);
+    $request = Request::create('/cart', 'POST', [], [CartManager::COOKIE_NAME => $cart->token]);
+    app(CartManager::class)->addItem($request, $otherVariant->getKey());
+
+    $this->withCredentials()->withCookies([CartManager::COOKIE_NAME => $cart->token])
+        ->deleteJson(route('cart.items.destroy', $targetedItem))
+        ->assertOk()
+        ->assertJsonPath('cart.items_count', 1)
+        ->assertJsonPath('cart.subtotal', 800)
+        ->assertJsonPath('cart.discount_total', 0)
+        ->assertJsonPath('cart.total', 800)
+        ->assertJsonPath('cart.promo_applied', false)
+        ->assertJsonPath('cart.promo_code', null);
+
+    expect($cart->refresh()->promo_code_id)->toBeNull();
 });
 
 test('quantity and item mutations recalculate or detach promo and clear removes it', function (): void {

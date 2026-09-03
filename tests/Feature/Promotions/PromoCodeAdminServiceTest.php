@@ -81,6 +81,50 @@ test('admin service rejects duplicate case invalid code percentage dates and for
     }
 });
 
+test('fixed discounts accept whole cents and reject fractional cents on create and update', function (): void {
+    $service = app(PromoCodeAdminService::class);
+    $actor = promoAdmin();
+
+    foreach ([100, 100.99] as $index => $amount) {
+        $promo = $service->create($actor, promoAdminData([
+            'code' => 'FIXED-VALID-'.$index,
+            'discount_type' => PromoDiscountType::Fixed->value,
+            'discount_value' => $amount,
+        ]));
+
+        expect((float) $promo->discount_value)->toBe((float) $amount);
+    }
+
+    foreach ([100.999, 0.001] as $index => $amount) {
+        expect(fn () => $service->create($actor, promoAdminData([
+            'code' => 'FIXED-INVALID-'.$index,
+            'discount_type' => PromoDiscountType::Fixed->value,
+            'discount_value' => $amount,
+        ])))->toThrow(ValidationException::class, 'не более двух знаков');
+    }
+
+    $promo = $service->create($actor, promoAdminData([
+        'code' => 'FIXED-UPDATE',
+        'discount_type' => PromoDiscountType::Fixed->value,
+        'discount_value' => 100,
+    ]));
+    $updated = $service->update($actor, $promo, promoAdminData([
+        'code' => 'FIXED-UPDATE',
+        'discount_type' => PromoDiscountType::Fixed->value,
+        'discount_value' => 100.99,
+    ]));
+
+    expect($updated->discount_value)->toBe('100.9900');
+
+    foreach ([100.999, 0.001] as $amount) {
+        expect(fn () => $service->update($actor, $promo, promoAdminData([
+            'code' => 'FIXED-UPDATE',
+            'discount_type' => PromoDiscountType::Fixed->value,
+            'discount_value' => $amount,
+        ])))->toThrow(ValidationException::class, 'не более двух знаков');
+    }
+});
+
 test('target IDs are validated synced with OR semantics and cleared for all catalog', function (): void {
     $service = app(PromoCodeAdminService::class);
     $actor = promoAdmin();

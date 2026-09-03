@@ -50,7 +50,13 @@
                     @endforeach
                     </tbody>
                 </table>
-                @if ((float) $order->discount_total > 0)<div style="margin-top:12px;text-align:right;">Промокод {{ $order->promo_code_snapshot }}: −{{ number_format((float) $order->discount_total, 2, ',', ' ') }} ₽</div>@endif
+                @if (filled($order->promo_code_snapshot) && (float) $order->discount_total > 0)
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="4" style="margin-top:12px;font-size:14px;">
+                        <tr><td>Товары</td><td align="right">{{ number_format((float) $order->subtotal, 2, ',', ' ') }} ₽</td></tr>
+                        <tr><td>Промокод</td><td align="right">{{ $order->promo_code_snapshot }}</td></tr>
+                        <tr><td>Скидка</td><td align="right">−{{ number_format((float) $order->discount_total, 2, ',', ' ') }} ₽</td></tr>
+                    </table>
+                @endif
                 <div style="margin-top:20px;text-align:right;font-size:20px;"><strong>{{ $order->total_is_final ? 'Итого' : 'Сумма товаров (без доставки)' }}: {{ number_format((float) $order->total, 2, ',', ' ') }} ₽</strong></div>
             </td></tr>
         </table>

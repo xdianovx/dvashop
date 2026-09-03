@@ -109,7 +109,8 @@ class PromoCodeResource extends Resource
                     TextInput::make('discount_value')
                         ->label(fn (Get $get): string => $get('discount_type') === PromoDiscountType::Fixed->value ? 'Сумма скидки' : 'Процент скидки')
                         ->numeric()
-                        ->minValue(0.0001)
+                        ->minValue(fn (Get $get): float => $get('discount_type') === PromoDiscountType::Fixed->value ? 0.01 : 0.0001)
+                        ->step(fn (Get $get): float => $get('discount_type') === PromoDiscountType::Fixed->value ? 0.01 : 0.0001)
                         ->maxValue(fn (Get $get): ?int => $get('discount_type') === PromoDiscountType::Percentage->value ? 100 : null)
                         ->suffix(fn (Get $get): string => $get('discount_type') === PromoDiscountType::Fixed->value ? '₽' : '%')
                         ->required(),

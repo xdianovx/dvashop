@@ -292,7 +292,7 @@ test('cart HTTP flow uses snapshots ownership forms and stock status', function 
     expect($item->refresh()->quantity)->toBe(2);
 });
 
-test('checkout uses active settings delivery price and protects immutable success snapshots', function (): void {
+test('checkout without address uses active settings delivery price and protects immutable success snapshots', function (): void {
     $delivery = DeliveryMethodSetting::factory()->create(['code' => DeliveryMethod::Courier, 'title' => 'Курьер', 'base_price' => 490, 'price_mode' => DeliveryPriceMode::Fixed, 'is_active' => true]);
     $payment = PaymentMethodSetting::factory()->create(['code' => PaymentMethod::Card, 'title' => 'Карта', 'is_active' => true]);
     $variant = ProductVariant::factory()->default()->create(['price' => 1500, 'stock_quantity' => null]);
@@ -304,7 +304,6 @@ test('checkout uses active settings delivery price and protects immutable succes
         'customer_phone' => '+79990000000',
         'customer_email' => 'ivan@example.test',
         'customer_city' => 'Москва',
-        'customer_address' => 'Улица, 1',
         'delivery_method' => $delivery->code->value,
         'payment_method' => $payment->code->value,
         'agree_terms' => '1',
@@ -312,7 +311,12 @@ test('checkout uses active settings delivery price and protects immutable succes
 
     $response->assertRedirect();
     $order = Order::query()->firstOrFail();
-    expect($order->delivery_price)->toBe('490.00')->and($order->total)->toBe('3490.00');
+    expect($order->customer_address)->toBeNull()
+        ->and($order->delivery_address)->toBeNull()
+        ->and($order->subtotal)->toBe('3000.00')
+        ->and($order->discount_total)->toBe('0.00')
+        ->and($order->delivery_price)->toBe('490.00')
+        ->and($order->total)->toBe('3490.00');
     $this->get($response->headers->get('Location'))->assertOk()->assertSee($order->number)->assertSee('Иван Петров');
 
     $foreignOrder = Order::factory()->create();
