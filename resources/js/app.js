@@ -5,6 +5,7 @@ import 'swiper/css/thumbs';
 import 'swiper/css/pagination';
 import Choices from 'choices.js';
 import 'choices.js/public/assets/styles/choices.css';
+import { trackUisOfflineRequest } from './modules/uis-form-tracking.js';
 
 const storefrontLoader = document.querySelector('[data-storefront-loader]');
 const storefrontLoaderLabel = storefrontLoader?.querySelector('[data-storefront-loader-label]');
@@ -1125,9 +1126,10 @@ function initInquiryForms() {
             beginRequest('Отправляем заявку…');
 
             try {
+                const submittedFormData = new FormData(form);
                 const response = await fetch(form.action, {
                     method: 'POST',
-                    body: new FormData(form),
+                    body: submittedFormData,
                     credentials: 'same-origin',
                     headers: {
                         Accept: 'application/json',
@@ -1157,6 +1159,7 @@ function initInquiryForms() {
                 const trigger = modalController.returnFocus();
                 modalController.close(false);
                 successController?.open(trigger);
+                trackUisOfflineRequest(payload.uis);
             } catch (_error) {
                 const warning = document.createElement('p');
                 warning.className = 'inquiry-modal__errors';
