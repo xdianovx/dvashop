@@ -1,13 +1,19 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Listeners;
 
 use App\Events\OrderCreated;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Services\Integrations\BitrixWebhookClient;
+use App\Services\Promotions\PromoCodePricingService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 use Throwable;
 
 class SendOrderToBitrix implements ShouldQueueAfterCommit
@@ -17,7 +23,10 @@ class SendOrderToBitrix implements ShouldQueueAfterCommit
     /** @var list<int> */
     public array $backoff = [30, 120, 600];
 
-    public function __construct(private readonly BitrixWebhookClient $client) {}
+    public function __construct(
+        private readonly BitrixWebhookClient $client,
+        private readonly PromoCodePricingService $pricing,
+    ) {}
 
     public function handle(OrderCreated $event): void
     {
@@ -25,21 +34,42 @@ class SendOrderToBitrix implements ShouldQueueAfterCommit
             return;
         }
 
-        $order = Order::query()->with('items')->findOrFail($event->order->getKey());
+        // Longer than both HTTP timeouts; serialize duplicate deliveries per order.
+        $lock = Cache::lock('bitrix-order:'.$event->order->getKey(), 60);
 
-        if ($order->bitrix_sent_at !== null) {
-            return;
+        if (! $lock->get()) {
+            throw new LockTimeoutException('Bitrix order delivery is already in progress.');
         }
 
-        $entityId = $this->client->addLead(
-            $this->fields($order),
-            (string) config('shop.bitrix.order_method', 'crm.lead.add'),
-        );
+        try {
+            // Re-read after acquiring the lock, not from the serialized event.
+            $order = Order::query()->with('items')->findOrFail($event->order->getKey());
 
-        $order->forceFill([
-            'bitrix_sent_at' => now(),
-            'bitrix_entity_id' => $entityId,
-        ])->save();
+            if ($order->bitrix_sent_at !== null) {
+                return;
+            }
+
+            $rows = $this->productRows($order);
+            $entityId = $order->bitrix_entity_id;
+
+            if ($entityId === null) {
+                $entityId = $this->client->addLead(
+                    $this->fields($order),
+                    (string) config('shop.bitrix.order_method', 'crm.lead.add'),
+                );
+
+                // Keep the remote ID even if productrows.set fails; do not roll it back.
+                $order->forceFill(['bitrix_entity_id' => $entityId])->save();
+            }
+
+            if ($rows !== []) {
+                $this->client->setLeadProductRows($entityId, $rows);
+            }
+
+            $order->forceFill(['bitrix_sent_at' => now()])->save();
+        } finally {
+            $lock->release();
+        }
     }
 
     public function failed(OrderCreated $event, Throwable $exception): void
@@ -52,7 +82,7 @@ class SendOrderToBitrix implements ShouldQueueAfterCommit
     }
 
     /**
-     * @return array{TITLE:string,NAME:string,PHONE:array<int, array{VALUE:string,VALUE_TYPE:string}>,EMAIL:array<int, array{VALUE:string,VALUE_TYPE:string}>,COMMENTS:string,SOURCE_ID?:string,ASSIGNED_BY_ID?:string}
+     * @return array{TITLE:string,NAME:string,PHONE:array<int, array{VALUE:string,VALUE_TYPE:string}>,EMAIL:array<int, array{VALUE:string,VALUE_TYPE:string}>,COMMENTS:string,OPPORTUNITY:string,CURRENCY_ID:string,IS_MANUAL_OPPORTUNITY:string,SOURCE_ID?:string,ASSIGNED_BY_ID?:string}
      */
     private function fields(Order $order): array
     {
@@ -104,9 +134,64 @@ class SendOrderToBitrix implements ShouldQueueAfterCommit
                     : null,
                 ($order->total_is_final ? 'Итого: ' : 'Сумма товаров (без доставки): ').$this->money($order->total),
             ])->filter()->implode("\n"),
+            'OPPORTUNITY' => (string) $order->total,
+            'CURRENCY_ID' => 'RUB',
+            // Delivery may be in the lead amount but is deliberately not a product row.
+            'IS_MANUAL_OPPORTUNITY' => 'Y',
             ...($sourceId !== '' ? ['SOURCE_ID' => $sourceId] : []),
             ...($responsibleId !== '' ? ['ASSIGNED_BY_ID' => $responsibleId] : []),
         ];
+    }
+
+    /** @return list<array{PRODUCT_NAME:string,PRICE:string,QUANTITY:int}> */
+    private function productRows(Order $order): array
+    {
+        $rows = [];
+
+        foreach ($order->items as $item) {
+            $quantity = $item->quantity;
+
+            if ($quantity < 1) {
+                throw new InvalidArgumentException('Количество товара заказа должно быть положительным.');
+            }
+
+            // The non-null final snapshot already includes the authoritative promo allocation.
+            $lineCents = $this->pricing->moneyToCents($item->final_total_snapshot);
+
+            if ($lineCents < 0) {
+                throw new InvalidArgumentException('Итоговая сумма товара заказа не может быть отрицательной.');
+            }
+
+            $name = $item->title_snapshot;
+            if (filled($item->sku_snapshot)) {
+                $name .= ' — SKU: '.$item->sku_snapshot;
+            }
+
+            $unitCents = intdiv($lineCents, $quantity);
+            $remainder = $lineCents % $quantity;
+
+            // At most two real-product groups: exact total and quantity, no sub-cent prices.
+            $rows[] = [
+                'PRODUCT_NAME' => $name,
+                'PRICE' => $this->decimalCents($unitCents),
+                'QUANTITY' => $quantity - $remainder,
+            ];
+
+            if ($remainder > 0) {
+                $rows[] = [
+                    'PRODUCT_NAME' => $name,
+                    'PRICE' => $this->decimalCents($unitCents + 1),
+                    'QUANTITY' => $remainder,
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    private function decimalCents(int $cents): string
+    {
+        return intdiv($cents, 100).'.'.str_pad((string) ($cents % 100), 2, '0', STR_PAD_LEFT);
     }
 
     private function money(float|int|string|null $amount): string
