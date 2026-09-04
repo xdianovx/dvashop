@@ -105,11 +105,11 @@ test('order lead amount and form encoded product rows use immutable discounted s
     ])->and($fields['SOURCE_DESCRIPTION'])->toContain(
         'Порог левый', 'SNAP-LEFT', 'Материал: Оцинковка',
         'Порог правый', 'SNAP-RIGHT', 'Сторона: Правая',
-        'Количество: 2', 'Количество: 3', 'Цена: 1 500,00 ₽',
-        'Товары: 3 300,00 ₽', 'Промокод: SAVE401', 'Скидка: 401,00 ₽',
+        'Количество: 2', 'Количество: 3', 'Цена за ед.: 1 500,00 ₽',
+        'Товары до скидки: 3 300,00 ₽', 'Промокод: SAVE401', 'Скидка: 401,00 ₽',
         'Сумма: 2 600,00 ₽', 'Сумма: 299,00 ₽',
-        'Стоимость доставки: 250 ₽', 'Доставка из snapshot', 'Оплата из snapshot',
-        'Итого: 3 149,00 ₽',
+        'Стоимость: 250 ₽', 'Доставка из snapshot', 'Оплата из snapshot',
+        "ИТОГО К ОПЛАТЕ\n\n3 149,00 ₽",
     )->not->toContain('LIVE PRODUCT CHANGED', 'LIVE-SKU-CHANGED');
 
     expect($requests[1]->hasHeader('Content-Type', 'application/x-www-form-urlencoded'))->toBeTrue();
@@ -144,7 +144,7 @@ test('on request delivery keeps the saved non final amount without imaginary del
     app(SendOrderToBitrix::class)->handle(new OrderCreated($order));
 
     Http::assertSent(fn (Request $request): bool => data_get($request->data(), 'fields.OPPORTUNITY') === '2899.00'
-        && str_contains((string) data_get($request->data(), 'fields.SOURCE_DESCRIPTION'), 'Сумма товаров (без доставки): 2 899,00 ₽'));
+        && str_contains((string) data_get($request->data(), 'fields.SOURCE_DESCRIPTION'), "СУММА ТОВАРОВ БЕЗ ДОСТАВКИ\n\n2 899,00 ₽"));
     expect($order->refresh()->total_is_final)->toBeFalse();
 });
 
@@ -264,6 +264,7 @@ test('empty item collection skips product rows and remains idempotent', function
     app(SendOrderToBitrix::class)->handle($event);
 
     Http::assertSentCount(1);
+    expect(Http::recorded()[0][0]->data()['fields']['SOURCE_DESCRIPTION'])->not->toContain("\nТОВАРЫ\n", 'Товар 1');
     expect($order->fresh()->bitrix_sent_at)->not->toBeNull();
 });
 

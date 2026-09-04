@@ -233,36 +233,204 @@ test('promo order emails and Bitrix distinguish gross discount delivery and fina
         return true;
     });
     expect($description)->toContain(
-        'Номер заказа: '.$order->number,
+        "ЗАКАЗ\n\nНомер: ".$order->number,
         'Оформлен: '.$order->placed_at->format('d.m.Y H:i'),
-        'Клиент: Анна Смирнова',
+        "\n\n\nКЛИЕНТ\n\nИмя: Анна Смирнова",
         'Телефон: +79990000000',
         'Email: customer@example.test',
         'Город: Москва',
         'Адрес: Тестовая улица, 1',
-        'Комментарий клиента: Позвонить заранее',
-        '1. Порог тестовый',
+        "\n\n\nКОММЕНТАРИЙ КЛИЕНТА\n\nПозвонить заранее",
+        "\n\n\nТОВАРЫ\n\nТовар 1\n\nПорог тестовый",
         'SKU: SNAP-SKU',
         'Опции: Материал: Оцинковка',
         'Количество: 2',
-        'Цена: 1 500,00 ₽',
-        'Товары: 3 000,00 ₽',
+        'Цена за ед.: 1 500,00 ₽',
+        "\n\n\nИТОГ\n\nТовары до скидки: 3 000,00 ₽",
+        'Сумма товаров: 2 600,00 ₽',
         'Промокод: MAIL400',
         'Скидка: 400,00 ₽',
         'Сумма до скидки: 3 000,00 ₽',
         'Сумма: 2 600,00 ₽',
-        'Стоимость доставки: 250 ₽',
-        'Доставка: Историческая доставка',
-        'Описание доставки: Доставка до двери',
-        'Код доставки: courier',
-        'Оплата: Историческая оплата',
-        'Описание оплаты: Оплата после согласования',
-        'Итого: 2 850,00 ₽',
+        'Стоимость: 250 ₽',
+        "\n\n\nДОСТАВКА\n\nСпособ: Историческая доставка",
+        'Описание: Доставка до двери',
+        'Код: courier',
+        "\n\n\nОПЛАТА\n\nСпособ: Историческая оплата",
+        'Описание: Оплата после согласования',
+        "\n\n\nИТОГО К ОПЛАТЕ\n\n2 850,00 ₽",
     );
     expect(strip_tags($description))->toBe($description);
     Http::assertSentCount(1);
     Http::assertNotSent(fn (Request $request): bool => array_key_exists('COMMENTS', $request->data()['fields'] ?? []));
 });
+
+test('production like discounted order description has separated sections and no repeated options', function (): void {
+    fakeOrderBitrixDelivery(912);
+    $order = orderForNotification();
+    $order->update([
+        'number' => 'DVS-20260904-EXAMPLE',
+        'placed_at' => '2026-09-04 12:43:00',
+        'customer_name' => 'Тестовый клиент',
+        'customer_address' => null,
+        'subtotal' => 4800,
+        'promo_code_snapshot' => 'SALE-EXAMPLE',
+        'discount_total' => 2400,
+        'delivery_method' => DeliveryMethod::TransportCompany,
+        'delivery_method_title_snapshot' => 'Пункт выдачи СДЕК',
+        'delivery_method_description_snapshot' => 'Наш менеджер подберёт ближайший пункт выдачи',
+        'delivery_price_mode_snapshot' => DeliveryPriceMode::OnRequest,
+        'delivery_price' => 0,
+        'payment_method_title_snapshot' => 'При получении',
+        'payment_method_description_snapshot' => 'курьеру / на складе',
+        'total' => 2400,
+        'total_is_final' => false,
+    ]);
+    $item = $order->items->first();
+    $item->update([
+        'title_snapshot' => 'Лонжерон для Audi 80 (B2) Купе 2 дв. — Профиль: Нижняя часть; Положение: Левый; Материал: Оцинковка; Толщина металла: 1 мм',
+        'sku_snapshot' => null,
+        // Snapshot key order need not match the already saved display title.
+        'options_snapshot' => [
+            ...ProductVariant::technicalOptions(),
+            'material' => ['group' => 'Материал', 'value' => 'Оцинковка'],
+            'profile' => ['group' => 'Профиль', 'value' => 'Нижняя часть'],
+            'thickness' => ['group' => 'Толщина металла', 'value' => '1 мм'],
+            'position' => ['group' => 'Положение', 'value' => 'Левый'],
+        ],
+        'quantity' => 2,
+        'price_snapshot' => 1200,
+        'total_snapshot' => 2400,
+        'discount_snapshot' => 1200,
+        'final_total_snapshot' => 1200,
+    ]);
+    $second = $item->replicate();
+    $second->fill([
+        'title_snapshot' => 'Лонжерон для Audi 80 (B2) Купе 2 дв. — Профиль: Нижняя часть; Положение: Левый; Материал: Х/С сталь; Толщина металла: 1,5 мм',
+        'options_snapshot' => array_replace($item->options_snapshot, [
+            'material' => ['group' => 'Материал', 'value' => 'Х/С сталь'],
+            'thickness' => ['group' => 'Толщина металла', 'value' => '1,5 мм'],
+        ]),
+    ])->save();
+    $originalOrder = $order->fresh()->getAttributes();
+    $originalItems = $order->items()->get()->map->getAttributes()->all();
+    $item->product->update(['title' => 'LIVE PRODUCT CHANGED']);
+    $item->variant->update(['title' => 'LIVE VARIANT CHANGED', 'price' => 9999]);
+
+    app(SendOrderToBitrix::class)->handle(new OrderCreated($order));
+
+    Http::assertSentCount(1);
+    $request = Http::recorded()[0][0];
+    expect($request->url())->toEndWith('/crm.lead.add.json');
+    $fields = $request->data()['fields'];
+    expect($fields)->not->toHaveKey('COMMENTS')
+        ->and($fields['OPPORTUNITY'])->toBe('2400.00')
+        ->and($fields['CURRENCY_ID'])->toBe('RUB')
+        ->and($fields['IS_MANUAL_OPPORTUNITY'])->toBe('Y')
+        ->and($fields['SOURCE_DESCRIPTION'])->toBe(<<<'TEXT'
+ЗАКАЗ
+
+Номер: DVS-20260904-EXAMPLE
+Оформлен: 04.09.2026 12:43
+
+
+КЛИЕНТ
+
+Имя: Тестовый клиент
+Телефон: +79990000000
+Email: customer@example.test
+Город: Москва
+
+
+КОММЕНТАРИЙ КЛИЕНТА
+
+Позвонить заранее
+
+
+ТОВАРЫ
+
+Товар 1
+
+Лонжерон для Audi 80 (B2) Купе 2 дв. — Профиль: Нижняя часть; Положение: Левый; Материал: Оцинковка; Толщина металла: 1 мм
+
+Количество: 2
+Цена за ед.: 1 200,00 ₽
+Сумма до скидки: 2 400,00 ₽
+Скидка: 1 200,00 ₽
+Сумма: 1 200,00 ₽
+
+
+Товар 2
+
+Лонжерон для Audi 80 (B2) Купе 2 дв. — Профиль: Нижняя часть; Положение: Левый; Материал: Х/С сталь; Толщина металла: 1,5 мм
+
+Количество: 2
+Цена за ед.: 1 200,00 ₽
+Сумма до скидки: 2 400,00 ₽
+Скидка: 1 200,00 ₽
+Сумма: 1 200,00 ₽
+
+
+ИТОГ
+
+Товары до скидки: 4 800,00 ₽
+Промокод: SALE-EXAMPLE
+Скидка: 2 400,00 ₽
+Сумма товаров: 2 400,00 ₽
+
+
+ДОСТАВКА
+
+Способ: Пункт выдачи СДЕК
+Описание: Наш менеджер подберёт ближайший пункт выдачи
+Код: transport_company
+Стоимость: Доставка рассчитывается отдельно
+
+
+ОПЛАТА
+
+Способ: При получении
+Описание: курьеру / на складе
+
+
+СУММА ТОВАРОВ БЕЗ ДОСТАВКИ
+
+2 400,00 ₽
+TEXT)
+        ->not->toContain('Опции:', '__dvashop', 'LIVE PRODUCT CHANGED', 'LIVE VARIANT CHANGED', 'ИТОГО К ОПЛАТЕ');
+    expect(strip_tags($fields['SOURCE_DESCRIPTION']))->toBe($fields['SOURCE_DESCRIPTION'])
+        ->and(collect($order->fresh()->getAttributes())->except(['bitrix_entity_id', 'bitrix_sent_at', 'updated_at'])->all())
+        ->toBe(collect($originalOrder)->except(['bitrix_entity_id', 'bitrix_sent_at', 'updated_at'])->all())
+        ->and($order->items()->get()->map->getAttributes()->all())->toBe($originalItems);
+});
+
+test('description retains only snapshot options not already displayed in the title', function (string $title, ?string $additional): void {
+    fakeOrderBitrixDelivery(912);
+    $order = orderForNotification();
+    $order->items()->update([
+        'title_snapshot' => $title,
+        'options_snapshot' => [
+            ...ProductVariant::technicalOptions(),
+            'material' => ['group' => 'Материал', 'value' => 'Оцинковка'],
+            'Размер' => '1 мм',
+        ],
+    ]);
+
+    app(SendOrderToBitrix::class)->handle(new OrderCreated($order));
+
+    $description = Http::recorded()[0][0]->data()['fields']['SOURCE_DESCRIPTION'];
+    expect($description)->toContain("Товар 1\n\n".$title)->not->toContain('__dvashop');
+    if ($additional === null) {
+        expect($description)->not->toContain('Опции:');
+    } else {
+        expect($description)->toContain('Опции: '.$additional."\n\nКоличество:");
+    }
+})->with([
+    'bare title retains structured and scalar options' => ['Порог', 'Материал: Оцинковка; Размер: 1 мм'],
+    'full title in different order needs no options line' => ['Порог — Размер: 1 мм; Материал: Оцинковка', null],
+    'partial title retains only the missing option' => ['Порог — Материал: Оцинковка', 'Размер: 1 мм'],
+    'value prefix is not a complete saved option' => ['Порог — Материал: Оцинковка; Размер: 1 мм усиленный', 'Размер: 1 мм'],
+]);
 
 test('order product rows default is false when the environment variable is absent', function (): void {
     $process = new Process([
@@ -331,24 +499,25 @@ test('local failure after saving lead id does not create another lead with produ
         ->and($order->fresh()->bitrix_sent_at)->not->toBeNull();
 });
 
-test('order source description omits absent optional snapshots and never uses COMMENTS', function (): void {
+test('order source description omits absent optional snapshots and never uses COMMENTS', function (?string $empty): void {
     fakeOrderBitrixDelivery(912);
-    $order = orderForNotification(null);
+    $order = orderForNotification($empty);
     $order->update([
-        'customer_city' => null, 'customer_address' => null, 'customer_comment' => null,
-        'delivery_method_description_snapshot' => null, 'payment_method_description_snapshot' => null,
+        'customer_city' => $empty, 'customer_address' => $empty, 'customer_comment' => $empty,
+        'delivery_method_description_snapshot' => $empty, 'payment_method_description_snapshot' => $empty,
+        'promo_code_snapshot' => $empty,
     ]);
-    $order->items()->update(['sku_snapshot' => null, 'options_snapshot' => null]);
+    $order->items()->update(['sku_snapshot' => $empty, 'options_snapshot' => null]);
 
     app(SendOrderToBitrix::class)->handle(new OrderCreated($order));
 
     $fields = Http::recorded()[0][0]->data()['fields'];
     expect($fields)->not->toHaveKey('COMMENTS')
         ->and($fields['SOURCE_DESCRIPTION'])->not->toContain(
-            'Email:', 'Город:', 'Адрес:', 'Комментарий клиента:', 'SKU:', 'Опции:',
-            'Промокод:', 'Скидка:', 'Описание доставки:', 'Описание оплаты:',
+            'Email:', 'Город:', 'Адрес:', 'КОММЕНТАРИЙ КЛИЕНТА', 'SKU:', 'Опции:',
+            'Промокод:', 'Скидка:', 'Описание:',
         );
-});
+})->with([null, '', '   ']);
 
 test('order emails without promo do not render an empty promo row', function (): void {
     config()->set('shop.orders.bitrix_enabled', false);
@@ -447,9 +616,9 @@ test('on request delivery is explicit in order emails and Bitrix and subtotal is
     Http::assertSent(function (Request $request): bool {
         $description = (string) data_get($request->data(), 'fields.SOURCE_DESCRIPTION');
 
-        return str_contains($description, 'Стоимость доставки: Доставка рассчитывается отдельно')
-            && str_contains($description, 'Сумма товаров (без доставки): 3 000,00 ₽')
-            && ! str_contains($description, 'Итого: 3 000,00 ₽');
+        return str_contains($description, 'Стоимость: Доставка рассчитывается отдельно')
+            && str_contains($description, "СУММА ТОВАРОВ БЕЗ ДОСТАВКИ\n\n3 000,00 ₽")
+            && ! str_contains($description, 'ИТОГО К ОПЛАТЕ');
     });
 });
 
