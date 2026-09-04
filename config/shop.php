@@ -21,6 +21,7 @@ return [
         'responsible_id' => env('BITRIX_RESPONSIBLE_ID'),
         'inquiry_method' => env('BITRIX_INQUIRY_METHOD', 'crm.lead.add'),
         'order_method' => env('BITRIX_ORDER_METHOD', 'crm.lead.add'),
+        'order_product_rows_enabled' => (bool) env('BITRIX_ORDER_PRODUCT_ROWS_ENABLED', false),
     ],
 
     'uis' => [

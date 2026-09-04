@@ -13,6 +13,7 @@ test('test suite uses the isolated testing environment', function () {
         ->and(config('shop.orders.bitrix_enabled'))->toBeFalse()
         ->and(config('shop.inquiries.bitrix_enabled'))->toBeFalse()
         ->and(config('shop.bitrix.webhook_url'))->toBe('')
+        ->and(config('shop.bitrix.order_product_rows_enabled'))->toBeFalse()
         ->and(config('shop.orders.customer_email_enabled'))->toBeFalse()
         ->and(config('shop.orders.manager_email_enabled'))->toBeFalse()
         ->and(config('shop.inquiries.email_enabled'))->toBeFalse();
