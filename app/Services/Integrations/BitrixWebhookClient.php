@@ -13,7 +13,7 @@ class BitrixWebhookClient
     public function __construct(private readonly HttpFactory $http) {}
 
     /**
-     * @param  array{TITLE:string,NAME:string,PHONE:array<int, array{VALUE:string,VALUE_TYPE:string}>,EMAIL:array<int, array{VALUE:string,VALUE_TYPE:string}>,COMMENTS:string,SOURCE_ID?:string,ASSIGNED_BY_ID?:string,OPPORTUNITY?:string,CURRENCY_ID?:string,IS_MANUAL_OPPORTUNITY?:string}  $fields
+     * @param  array{TITLE:string,NAME:string,PHONE:array<int, array{VALUE:string,VALUE_TYPE:string}>,EMAIL:array<int, array{VALUE:string,VALUE_TYPE:string}>,COMMENTS?:string,SOURCE_DESCRIPTION?:string,SOURCE_ID?:string,ASSIGNED_BY_ID?:string,OPPORTUNITY?:string,CURRENCY_ID?:string,IS_MANUAL_OPPORTUNITY?:string}  $fields
      */
     public function addLead(array $fields, string $method): string
     {

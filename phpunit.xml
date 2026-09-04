@@ -33,6 +33,7 @@
         <env force="true" name="SHOP_ORDERS_BITRIX_ENABLED" value="false"/>
         <env force="true" name="SHOP_INQUIRIES_BITRIX_ENABLED" value="false"/>
         <env force="true" name="BITRIX_WEBHOOK_URL" value=""/>
+        <env force="true" name="BITRIX_ORDER_PRODUCT_ROWS_ENABLED" value="false"/>
         <env force="true" name="SHOP_ORDERS_CUSTOMER_EMAIL_ENABLED" value="false"/>
         <env force="true" name="SHOP_ORDERS_MANAGER_EMAIL_ENABLED" value="false"/>
         <env force="true" name="SHOP_INQUIRIES_EMAIL_ENABLED" value="false"/>
@@ -62,6 +63,7 @@
         <server name="SHOP_ORDERS_BITRIX_ENABLED" value="false"/>
         <server name="SHOP_INQUIRIES_BITRIX_ENABLED" value="false"/>
         <server name="BITRIX_WEBHOOK_URL" value=""/>
+        <server name="BITRIX_ORDER_PRODUCT_ROWS_ENABLED" value="false"/>
         <server name="SHOP_ORDERS_CUSTOMER_EMAIL_ENABLED" value="false"/>
         <server name="SHOP_ORDERS_MANAGER_EMAIL_ENABLED" value="false"/>
         <server name="SHOP_INQUIRIES_EMAIL_ENABLED" value="false"/>

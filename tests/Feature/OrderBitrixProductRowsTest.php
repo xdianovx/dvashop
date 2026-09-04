@@ -25,6 +25,7 @@ beforeEach(function (): void {
         'shop.orders.manager_email_enabled' => false,
         'shop.bitrix.webhook_url' => 'https://example.test/rest/7/token/',
         'shop.bitrix.order_method' => 'crm.lead.add',
+        'shop.bitrix.order_product_rows_enabled' => true,
         'shop.bitrix.source_id' => 25,
         'shop.bitrix.responsible_id' => 130633,
     ]);
@@ -90,6 +91,7 @@ test('order lead amount and form encoded product rows use immutable discounted s
     expect($requests[0]->url())->toBe('https://example.test/rest/7/token/crm.lead.add.json')
         ->and($requests[1]->url())->toBe('https://example.test/rest/7/token/crm.lead.productrows.set.json');
     $fields = $requests[0]->data()['fields'];
+    expect($fields)->not->toHaveKey('COMMENTS');
     expect($fields)->toMatchArray([
         'TITLE' => 'Заказ '.$order->number,
         'NAME' => 'Тестовый клиент',
@@ -100,7 +102,7 @@ test('order lead amount and form encoded product rows use immutable discounted s
         'OPPORTUNITY' => '3149.00',
         'CURRENCY_ID' => 'RUB',
         'IS_MANUAL_OPPORTUNITY' => 'Y',
-    ])->and($fields['COMMENTS'])->toContain(
+    ])->and($fields['SOURCE_DESCRIPTION'])->toContain(
         'Порог левый', 'SNAP-LEFT', 'Материал: Оцинковка',
         'Порог правый', 'SNAP-RIGHT', 'Сторона: Правая',
         'Количество: 2', 'Количество: 3', 'Цена: 1 500,00 ₽',
@@ -142,7 +144,7 @@ test('on request delivery keeps the saved non final amount without imaginary del
     app(SendOrderToBitrix::class)->handle(new OrderCreated($order));
 
     Http::assertSent(fn (Request $request): bool => data_get($request->data(), 'fields.OPPORTUNITY') === '2899.00'
-        && str_contains((string) data_get($request->data(), 'fields.COMMENTS'), 'Сумма товаров (без доставки): 2 899,00 ₽'));
+        && str_contains((string) data_get($request->data(), 'fields.SOURCE_DESCRIPTION'), 'Сумма товаров (без доставки): 2 899,00 ₽'));
     expect($order->refresh()->total_is_final)->toBeFalse();
 });
 
@@ -184,6 +186,30 @@ test('fully delivered order makes no requests on a stale event retry', function 
     app(SendOrderToBitrix::class)->handle($event);
 
     Http::assertNothingSent();
+});
+
+test('turning product rows off completes a failed rows delivery without further HTTP requests', function (): void {
+    $order = bitrixRowsOrder();
+    Http::swap(new HttpFactory);
+    Http::preventStrayRequests();
+    Http::fake([
+        'example.test/*/crm.lead.add.json' => Http::response(['result' => 123]),
+        'example.test/*/crm.lead.productrows.set.json' => Http::response(['error' => 'temporary'], 500),
+    ]);
+    $event = new OrderCreated($order);
+
+    expect(fn () => app(SendOrderToBitrix::class)->handle($event))->toThrow(RequestException::class);
+    expect($order->fresh()->bitrix_entity_id)->toBe('123')
+        ->and($order->fresh()->bitrix_sent_at)->toBeNull();
+    Http::assertSentCount(2);
+
+    config()->set('shop.bitrix.order_product_rows_enabled', false);
+    Http::fake();
+    app(SendOrderToBitrix::class)->handle($event);
+
+    Http::assertNothingSent();
+    expect($order->fresh()->bitrix_entity_id)->toBe('123')
+        ->and($order->fresh()->bitrix_sent_at)->not->toBeNull();
 });
 
 test('lead add failure leaves the order unsent and retry can create its lead', function (): void {

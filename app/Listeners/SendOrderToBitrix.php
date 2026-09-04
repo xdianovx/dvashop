@@ -49,7 +49,9 @@ class SendOrderToBitrix implements ShouldQueueAfterCommit
                 return;
             }
 
-            $rows = $this->productRows($order);
+            $rows = config('shop.bitrix.order_product_rows_enabled', false)
+                ? $this->productRows($order)
+                : [];
             $entityId = $order->bitrix_entity_id;
 
             if ($entityId === null) {
@@ -82,7 +84,7 @@ class SendOrderToBitrix implements ShouldQueueAfterCommit
     }
 
     /**
-     * @return array{TITLE:string,NAME:string,PHONE:array<int, array{VALUE:string,VALUE_TYPE:string}>,EMAIL:array<int, array{VALUE:string,VALUE_TYPE:string}>,COMMENTS:string,OPPORTUNITY:string,CURRENCY_ID:string,IS_MANUAL_OPPORTUNITY:string,SOURCE_ID?:string,ASSIGNED_BY_ID?:string}
+     * @return array{TITLE:string,NAME:string,PHONE:array<int, array{VALUE:string,VALUE_TYPE:string}>,EMAIL:array<int, array{VALUE:string,VALUE_TYPE:string}>,SOURCE_DESCRIPTION:string,OPPORTUNITY:string,CURRENCY_ID:string,IS_MANUAL_OPPORTUNITY:string,SOURCE_ID?:string,ASSIGNED_BY_ID?:string}
      */
     private function fields(Order $order): array
     {
@@ -109,7 +111,7 @@ class SendOrderToBitrix implements ShouldQueueAfterCommit
             'EMAIL' => filled($order->customer_email)
                 ? [['VALUE' => $order->customer_email, 'VALUE_TYPE' => 'WORK']]
                 : [],
-            'COMMENTS' => collect([
+            'SOURCE_DESCRIPTION' => collect([
                 'Номер заказа: '.$order->number,
                 'Оформлен: '.($order->placed_at ?? $order->created_at)?->format('d.m.Y H:i'),
                 'Клиент: '.$order->customer_name,
@@ -117,7 +119,7 @@ class SendOrderToBitrix implements ShouldQueueAfterCommit
                 filled($order->customer_email) ? 'Email: '.$order->customer_email : null,
                 filled($order->customer_city) ? 'Город: '.$order->customer_city : null,
                 filled($order->customer_address) ? 'Адрес: '.$order->customer_address : null,
-                filled($order->customer_comment) ? 'Комментарий: '.$order->customer_comment : null,
+                filled($order->customer_comment) ? 'Комментарий клиента: '.$order->customer_comment : null,
                 "Товары:\n".$items,
                 'Товары: '.$this->money($order->subtotal),
                 filled($order->promo_code_snapshot) ? 'Промокод: '.$order->promo_code_snapshot : null,
