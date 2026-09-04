@@ -30,6 +30,12 @@
         <env force="true" name="MAIL_MAILER" value="array"/>
         <env force="true" name="QUEUE_CONNECTION" value="sync"/>
         <env force="true" name="SESSION_DRIVER" value="array"/>
+        <env force="true" name="SHOP_ORDERS_BITRIX_ENABLED" value="false"/>
+        <env force="true" name="SHOP_INQUIRIES_BITRIX_ENABLED" value="false"/>
+        <env force="true" name="BITRIX_WEBHOOK_URL" value=""/>
+        <env force="true" name="SHOP_ORDERS_CUSTOMER_EMAIL_ENABLED" value="false"/>
+        <env force="true" name="SHOP_ORDERS_MANAGER_EMAIL_ENABLED" value="false"/>
+        <env force="true" name="SHOP_INQUIRIES_EMAIL_ENABLED" value="false"/>
         <env force="true" name="PULSE_ENABLED" value="false"/>
         <env force="true" name="TELESCOPE_ENABLED" value="false"/>
         <env force="true" name="NIGHTWATCH_ENABLED" value="false"/>
@@ -53,6 +59,12 @@
         <server name="MAIL_MAILER" value="array"/>
         <server name="QUEUE_CONNECTION" value="sync"/>
         <server name="SESSION_DRIVER" value="array"/>
+        <server name="SHOP_ORDERS_BITRIX_ENABLED" value="false"/>
+        <server name="SHOP_INQUIRIES_BITRIX_ENABLED" value="false"/>
+        <server name="BITRIX_WEBHOOK_URL" value=""/>
+        <server name="SHOP_ORDERS_CUSTOMER_EMAIL_ENABLED" value="false"/>
+        <server name="SHOP_ORDERS_MANAGER_EMAIL_ENABLED" value="false"/>
+        <server name="SHOP_INQUIRIES_EMAIL_ENABLED" value="false"/>
         <server name="PULSE_ENABLED" value="false"/>
         <server name="TELESCOPE_ENABLED" value="false"/>
         <server name="NIGHTWATCH_ENABLED" value="false"/>

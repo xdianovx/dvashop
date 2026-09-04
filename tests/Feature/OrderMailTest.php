@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use App\Enums\DeliveryMethod;
 use App\Enums\DeliveryPriceMode;
 use App\Enums\PaymentMethod;
@@ -83,6 +85,15 @@ function orderForNotification(?string $customerEmail = 'customer@example.test'):
     return $order->load('items');
 }
 
+function fakeOrderBitrixDelivery(int $leadId): void
+{
+    Http::preventStrayRequests();
+    Http::fake([
+        'bitrix.example.test/*/crm.lead.add.json' => Http::response(['result' => $leadId]),
+        'bitrix.example.test/*/crm.lead.productrows.set.json' => Http::response(['result' => true]),
+    ]);
+}
+
 function deliverOrderNotifications(Order $order): void
 {
     $event = new OrderCreated($order);
@@ -93,7 +104,7 @@ function deliverOrderNotifications(Order $order): void
 }
 
 test('order channels honor every independent feature flag combination', function (bool $customer, bool $manager, bool $bitrix): void {
-    Http::fake(['bitrix.example.test/*' => Http::response(['result' => 912], 200)]);
+    fakeOrderBitrixDelivery(912);
     config()->set([
         'shop.orders.customer_email_enabled' => $customer,
         'shop.orders.manager_email_enabled' => $manager,
@@ -109,7 +120,7 @@ test('order channels honor every independent feature flag combination', function
     $manager
         ? Mail::assertSent(ManagerOrderCreatedMail::class)
         : Mail::assertNotSent(ManagerOrderCreatedMail::class);
-    Http::assertSentCount($bitrix ? 1 : 0);
+    Http::assertSentCount($bitrix ? 2 : 0);
 
     $order->refresh();
     expect($order->customer_email_sent_at !== null)->toBe($customer)
@@ -173,7 +184,7 @@ test('order emails render stored snapshots and configured store name without int
 });
 
 test('promo order emails and Bitrix distinguish gross discount delivery and final snapshots', function (): void {
-    Http::fake(['bitrix.example.test/*' => Http::response(['result' => 913], 200)]);
+    fakeOrderBitrixDelivery(913);
     $order = orderForNotification();
     $order->forceFill([
         'promo_code_snapshot' => 'MAIL400',
@@ -211,6 +222,10 @@ test('promo order emails and Bitrix distinguish gross discount delivery and fina
 
     $comments = '';
     Http::assertSent(function (Request $request) use (&$comments): bool {
+        if (! str_ends_with($request->url(), '/crm.lead.add.json')) {
+            return false;
+        }
+
         $comments = (string) data_get($request->data(), 'fields.COMMENTS');
 
         return true;
@@ -248,7 +263,7 @@ test('store name has safe fallback when database value is empty', function (): v
 });
 
 test('order Bitrix payload contains only order and item snapshots', function (): void {
-    Http::fake(['bitrix.example.test/*' => Http::response(['result' => 912], 200)]);
+    fakeOrderBitrixDelivery(912);
     config()->set([
         'shop.bitrix.source_id' => 25,
         'shop.bitrix.responsible_id' => 130633,
@@ -261,7 +276,10 @@ test('order Bitrix payload contains only order and item snapshots', function ():
         $fields = $request->data()['fields'] ?? [];
         $comments = (string) ($fields['COMMENTS'] ?? '');
 
-        return array_keys($fields) === ['TITLE', 'NAME', 'PHONE', 'EMAIL', 'COMMENTS', 'SOURCE_ID', 'ASSIGNED_BY_ID']
+        return array_keys($fields) === ['TITLE', 'NAME', 'PHONE', 'EMAIL', 'COMMENTS', 'OPPORTUNITY', 'CURRENCY_ID', 'IS_MANUAL_OPPORTUNITY', 'SOURCE_ID', 'ASSIGNED_BY_ID']
+            && $fields['OPPORTUNITY'] === '3500.00'
+            && $fields['CURRENCY_ID'] === 'RUB'
+            && $fields['IS_MANUAL_OPPORTUNITY'] === 'Y'
             && $fields['SOURCE_ID'] === '25'
             && $fields['ASSIGNED_BY_ID'] === '130633'
             && $fields['TITLE'] === 'Заказ '.$order->number
@@ -281,7 +299,7 @@ test('order Bitrix payload contains only order and item snapshots', function ():
 });
 
 test('order Bitrix payload omits empty source and responsible fields', function (): void {
-    Http::fake(['bitrix.example.test/*' => Http::response(['result' => 912], 200)]);
+    fakeOrderBitrixDelivery(912);
     config()->set([
         'shop.bitrix.source_id' => null,
         'shop.bitrix.responsible_id' => '   ',
@@ -292,13 +310,14 @@ test('order Bitrix payload omits empty source and responsible fields', function 
     Http::assertSent(function (Request $request): bool {
         $fields = $request->data()['fields'] ?? [];
 
-        return ! array_key_exists('SOURCE_ID', $fields)
+        return str_ends_with($request->url(), '/crm.lead.add.json')
+            && ! array_key_exists('SOURCE_ID', $fields)
             && ! array_key_exists('ASSIGNED_BY_ID', $fields);
     });
 });
 
 test('on request delivery is explicit in order emails and Bitrix and subtotal is not called final', function (): void {
-    Http::fake(['bitrix.example.test/*' => Http::response(['result' => 912], 200)]);
+    fakeOrderBitrixDelivery(912);
     $order = orderForNotification()->forceFill([
         'delivery_price_mode_snapshot' => DeliveryPriceMode::OnRequest,
         'delivery_price' => 0,
@@ -326,7 +345,7 @@ test('on request delivery is explicit in order emails and Bitrix and subtotal is
 });
 
 test('customer SMTP failure does not prevent manager mail or Bitrix', function (): void {
-    Http::fake(['bitrix.example.test/*' => Http::response(['result' => 912], 200)]);
+    fakeOrderBitrixDelivery(912);
     $order = orderForNotification();
     $event = new OrderCreated($order);
     Mail::shouldReceive('to')->with('customer@example.test')->once()->andThrow(new RuntimeException('Customer SMTP unavailable'));
@@ -340,14 +359,14 @@ test('customer SMTP failure does not prevent manager mail or Bitrix', function (
     app(SendOrderToBitrix::class)->handle($event);
 
     Mail::assertSent(ManagerOrderCreatedMail::class);
-    Http::assertSentCount(1);
+    Http::assertSentCount(2);
     expect($order->refresh()->customer_email_sent_at)->toBeNull()
         ->and($order->manager_email_sent_at)->not->toBeNull()
         ->and($order->bitrix_sent_at)->not->toBeNull();
 });
 
 test('manager SMTP failure does not prevent customer mail or Bitrix', function (): void {
-    Http::fake(['bitrix.example.test/*' => Http::response(['result' => 912], 200)]);
+    fakeOrderBitrixDelivery(912);
     $order = orderForNotification();
     $event = new OrderCreated($order);
     Mail::shouldReceive('to')->with('db-manager@example.test')->once()->andThrow(new RuntimeException('Manager SMTP unavailable'));
@@ -361,7 +380,7 @@ test('manager SMTP failure does not prevent customer mail or Bitrix', function (
     app(SendOrderToBitrix::class)->handle($event);
 
     Mail::assertSent(CustomerOrderCreatedMail::class);
-    Http::assertSentCount(1);
+    Http::assertSentCount(2);
     expect($order->refresh()->manager_email_sent_at)->toBeNull()
         ->and($order->customer_email_sent_at)->not->toBeNull()
         ->and($order->bitrix_sent_at)->not->toBeNull();
@@ -385,14 +404,14 @@ test('Bitrix failure keeps order and does not prevent either email', function ()
 });
 
 test('confirmed order channels are idempotent across retries', function (): void {
-    Http::fake(['bitrix.example.test/*' => Http::response(['result' => 912], 200)]);
+    fakeOrderBitrixDelivery(912);
     $order = orderForNotification();
 
     deliverOrderNotifications($order);
     deliverOrderNotifications($order->refresh());
 
     Mail::assertSentCount(2);
-    Http::assertSentCount(1);
+    Http::assertSentCount(2);
 });
 
 test('OrderCreated has exactly three independent after commit queued listeners', function (): void {
