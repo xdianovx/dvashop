@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Services\Feeds\YandexFeedInvalidator;
 use App\Services\Storefront\AboutPageViewDataProvider;
 use App\Services\Storefront\FaqPageViewDataProvider;
 use App\Services\Storefront\GlobalStorefrontDataProvider;
@@ -17,6 +18,8 @@ use App\ViewData\Storefront\HowPageViewData;
 use App\ViewData\Storefront\PartnersPageViewData;
 use App\ViewData\Storefront\PaymentPageViewData;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -55,6 +58,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        //
+        DB::listen(function (QueryExecuted $event): void {
+            app(YandexFeedInvalidator::class)->queryExecuted($event);
+        });
     }
 }

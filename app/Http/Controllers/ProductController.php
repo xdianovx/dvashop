@@ -15,6 +15,7 @@ use App\Services\StorefrontProductAvailability;
 use App\ViewModels\ProductCardViewModel;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 
 class ProductController extends Controller
@@ -25,7 +26,7 @@ class ProductController extends Controller
         private readonly StorefrontProductAvailability $availability,
     ) {}
 
-    public function show(string $productSlug): View
+    public function show(Request $request, string $productSlug): View
     {
         $product = $this->availability->products(Product::query())
             ->where('slug', $productSlug)
@@ -51,7 +52,9 @@ class ProductController extends Controller
             ->firstOrFail();
 
         /** @var ProductVariant|null $variant */
-        $variant = $product->variants->firstWhere('is_default', true) ?? $product->variants->first();
+        $variant = $this->requestedVariant($request, $product->variants)
+            ?? $product->variants->firstWhere('is_default', true)
+            ?? $product->variants->first();
         abort_unless($variant instanceof ProductVariant, 404);
         $product->variants->each(
             fn (ProductVariant $availableVariant): ProductVariant => $availableVariant->setRelation('product', $product)
@@ -119,6 +122,25 @@ class ProductController extends Controller
             'breadcrumbs' => $this->breadcrumbs($product, $generation),
             'description' => $product->description ?: $product->short_description,
         ]));
+    }
+
+    /** @param Collection<int, ProductVariant> $variants */
+    private function requestedVariant(Request $request, Collection $variants): ?ProductVariant
+    {
+        if (! $request->query->has('variant')) {
+            return null;
+        }
+
+        $value = $request->query('variant');
+        abort_unless(is_string($value) && preg_match('/^[1-9][0-9]*$/D', $value) === 1, 404);
+        $id = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        abort_if($id === false, 404);
+
+        /** @var ProductVariant|null $variant */
+        $variant = $variants->first(fn (ProductVariant $candidate): bool => $candidate->getKey() === $id);
+        abort_unless($variant instanceof ProductVariant, 404);
+
+        return $variant;
     }
 
     /**
