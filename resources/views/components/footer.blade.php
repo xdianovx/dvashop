@@ -126,12 +126,16 @@
                         </a>
                     @endif
                     @if ($storefront?->emailUrl && $storefront?->publicEmail)
-                        <a href="{{ $storefront->emailUrl }}" class="footer__contact">
+                        <a href="{{ $storefront->emailUrl }}" class="footer__contact" aria-label="Написать на {{ $storefront->publicEmail }}">
                             <img src="/img/icons/footer-mail.svg" alt="" aria-hidden="true" width="21" height="21">
-                            <span>{{ $storefront->publicEmail }}</span>
+                            <span>Почта</span>
                         </a>
                     @endif
                 </div>
+            @endif
+
+            @if ($storefront?->phoneUrl)
+                <a href="{{ $storefront->phoneUrl }}" class="btn btn--primary footer__mobile-call" data-inquiry-open>Заказать звонок</a>
             @endif
 
             @if ($socials !== [])
@@ -181,7 +185,7 @@
                 <div class="container">
                     @if ($hasRequisites)
                         <p class="footer__legal footer__legal--center">
-                            {{ $storefront->footerCopyright ?: $storefront->legalName }}
+                            {{ $storefront->footerCopyright ?: $storefront->legalName }}<br>
                             @if ($storefront->inn) ИНН: {{ $storefront->inn }}@endif
                             @if ($storefront->ogrn) | ОГРН {{ $storefront->ogrn }}@endif
                             @if ($storefront->legalAddress)<br>{{ $storefront->legalAddress }}@endif

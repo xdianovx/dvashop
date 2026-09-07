@@ -73,8 +73,7 @@
 
     @media screen and (max-width: 900px) {
         font-size: 16px;
-        color: #fff;
-
+        color: var(--color-muted-3);
     }
 }
 
@@ -197,28 +196,39 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 20px;
-    padding-bottom: 40px;
+    gap: 15px;
+    padding-top: 16px;
+    padding-bottom: 32px;
+    border-top: 1px solid var(--color-footer-divider);
+}
+
+.footer__mobile-top .footer__logo img {
+    width: 222px;
 }
 
 .footer__mobile-contacts {
     display: flex;
-    gap: 40px;
+    gap: 32px;
+}
+
+.footer__mobile-contacts .footer__contact {
+    gap: 8px;
+    font-size: 12px;
+}
+
+.footer__mobile-contacts .footer__contact img {
+    width: 14px;
+    height: 14px;
 }
 
 .footer__mobile-call {
-    width: 100%;
-    max-width: 320px;
-    padding: 18px 24px;
+    width: 181px;
+    height: 37px;
+    padding: 0 24px;
     border-radius: 38px;
     font-family: var(--font-form);
     font-size: 12px;
-    color: #fff;
-
-    @media screen and (max-width: 768px) {
-
-        font-size: 14px;
-    }
+    color: var(--color-on-dark);
 }
 
 .footer__mobile-call:hover {
@@ -227,7 +237,13 @@
 
 .footer__socials--center {
     justify-content: center;
+    gap: 5px;
     margin-top: 0;
+}
+
+.footer__socials--center .footer__social {
+    width: 36px;
+    height: 36px;
 }
 
 .footer__mobile-cols {
@@ -238,6 +254,24 @@
     margin-top: 12px;
     text-align: left;
 
+    .footer__col {
+        gap: 12px;
+    }
+
+    .footer__links {
+        gap: 8px;
+    }
+
+    .footer__link {
+        font-size: 10px;
+        line-height: 1.2;
+    }
+
+    .footer__link--arrow::before {
+        width: 6px;
+        height: 11px;
+    }
+
     @media (max-width: 350px) {
         grid-template-columns: 1fr;
         gap: 16px;
@@ -246,17 +280,26 @@
 
 .footer__bottom {
     margin-top: 8px;
-    padding-block: 24px;
+    padding: 12px 15px;
     background-color: var(--color-ink);
     text-align: center;
 }
 
 .footer__legal--center {
     margin-top: 0;
+    font-size: 10px;
+    line-height: 1.2;
+    color: var(--color-footer-legal);
+
+    br {
+        display: inline;
+    }
 }
 
 .footer__offerta {
     margin-top: 16px;
-    font-size: var(--fs-sm);
-    color: var(--color-muted-2);
+    font-size: 10px;
+    line-height: 1.02;
+    color: var(--color-on-dark);
+    opacity: 0.33;
 }

@@ -17,6 +17,9 @@ $color-border-soft: #dbe0e8; // hairline on filled controls (qty pill)
 $color-muted: #868686; // muted text (top nav, placeholders)
 $color-slate: #6b7a90; // secondary text on cards (specs line)
 $color-muted-2: #9c9c9c; // footer muted text
+$color-muted-3: #dedede; // footer headings on mobile
+$color-footer-divider: #323232; // hairline above the mobile footer logo
+$color-footer-legal: #dcdcdc; // requisites text in the mobile footer bottom bar
 $color-on-dark: #ffffff; // text on dark/colored backgrounds
 $color-on-primary: #ebebeb; // text on the blue button
 $color-header-bg: rgba(255, 255, 255, 0.62); // sticky menu backdrop
@@ -93,6 +96,9 @@ $header-height: 65px;
     --color-muted: #{$color-muted};
     --color-slate: #{$color-slate};
     --color-muted-2: #{$color-muted-2};
+    --color-muted-3: #{$color-muted-3};
+    --color-footer-divider: #{$color-footer-divider};
+    --color-footer-legal: #{$color-footer-legal};
     --color-on-dark: #{$color-on-dark};
     --color-on-primary: #{$color-on-primary};
     --color-header-bg: #{$color-header-bg};
