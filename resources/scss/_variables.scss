@@ -31,6 +31,7 @@ $color-surface-soft: #f9fbfa; // product photo plate on the related-products car
 $color-price-old: #a7a7a7; // struck-through old price
 
 $gradient-company: linear-gradient(179deg, #1750b7 1.36%, #022253 122.71%);
+$gradient-checkout: linear-gradient(-82.82deg, #1750b7 15%, #022253 143.53%); // «Оформить заказ»
 
 $shadow-card: 0 14px 32px rgba(17, 24, 39, 0.06); // frosted cards on mobile
 
@@ -109,6 +110,7 @@ $header-height: 65px;
     --color-surface-soft: #{$color-surface-soft};
     --color-price-old: #{$color-price-old};
     --gradient-company: #{$gradient-company};
+    --gradient-checkout: #{$gradient-checkout};
     --shadow-card: #{$shadow-card};
 
     --font-display: #{$font-display};

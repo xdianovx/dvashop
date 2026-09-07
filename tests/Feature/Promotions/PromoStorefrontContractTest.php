@@ -39,7 +39,7 @@ test('cart renders accessible escaped promo controls and discount state', functi
 
 });
 
-test('checkout renders discounted merchandise base and keeps promo form outside order form', function (): void {
+test('checkout renders discounted merchandise base without a promo panel', function (): void {
     DeliveryMethodSetting::factory()->create(['code' => DeliveryMethod::Pickup, 'is_active' => true]);
     PaymentMethodSetting::factory()->create(['code' => PaymentMethod::Card, 'is_active' => true]);
     $promo = PromoCode::factory()->create(['code' => 'CHECKOUT-HTML', 'discount_value' => 10]);
@@ -50,13 +50,14 @@ test('checkout renders discounted merchandise base and keeps promo form outside 
     $response = $this->withCookie(CartManager::COOKIE_NAME, $cart->token)
         ->get(route('checkout.show'))
         ->assertOk()
-        ->assertSee('data-promo-panel', false)
+        ->assertDontSee('data-promo-panel', false)
         ->assertSee('data-cart-discount-row', false);
     preg_match('/data-checkout-subtotal="([0-9.]+)"/', $response->getContent(), $matches);
     expect((float) ($matches[1] ?? -1))->toBe(900.0);
 
+    // The code is applied in the cart, so checkout only reports the discount.
     $checkoutSource = file_get_contents(resource_path('views/checkout.blade.php'));
-    expect(strpos($checkoutSource, '<x-promo-code-form'))->toBeLessThan(strpos($checkoutSource, '<form class="checkout-layout"'))
+    expect($checkoutSource)->not->toContain('<x-promo-code-form')
         ->and(substr_count($checkoutSource, '<form'))->toBe(1);
 });
 
