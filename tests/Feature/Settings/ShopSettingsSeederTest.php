@@ -17,6 +17,7 @@ test('shop settings seeder is idempotent and preserves every manual change', fun
         'store_name' => 'Ручное название',
         'phone_display' => 'Ручной телефон',
         'public_email' => 'manual@example.ru',
+        'max_url' => 'https://max.example.test/manual',
     ])->save();
     $about->forceFill([
         'title' => 'Ручное название ссылки',
@@ -33,6 +34,7 @@ test('shop settings seeder is idempotent and preserves every manual change', fun
         ->and($setting->refresh()->store_name)->toBe('Ручное название')
         ->and($setting->phone_display)->toBe('Ручной телефон')
         ->and($setting->public_email)->toBe('manual@example.ru')
+        ->and($setting->max_url)->toBe('https://max.example.test/manual')
         ->and($about->refresh()->title)->toBe('Ручное название ссылки')
         ->and($about->position)->toBe(777)
         ->and($about->is_active)->toBeFalse()
@@ -83,6 +85,7 @@ test('shop settings seeder creates only safe values and existing route links', f
         ->and($setting->legal_address)->toBe('192082, Россия, г. Санкт-Петербург, ул. Туристская, д. 23 к. 2')
         ->and($setting->vk_url)->toBeNull()
         ->and($setting->telegram_url)->toBeNull()
+        ->and($setting->max_url)->toBeNull()
         ->and($items->pluck('code')->all())->toEqualCanonicalizing([
             'partners',
             'about',

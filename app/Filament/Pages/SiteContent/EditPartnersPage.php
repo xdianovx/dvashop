@@ -39,6 +39,8 @@ class EditPartnersPage extends SiteContentEditorPage
             ->disabled(fn (): bool => ! $this->canUpdate())
             ->components([
                 Section::make('Первый экран')
+                    ->collapsible()
+                    ->collapsed()
                     ->description('Кнопки, изображения и их назначения зафиксированы макетом.')
                     ->schema([
                         Hidden::make('page.id'),
@@ -46,6 +48,8 @@ class EditPartnersPage extends SiteContentEditorPage
                         Textarea::make('page.subtitle')->label('Подзаголовок')->rows(4)->maxLength(5000)->columnSpanFull(),
                     ]),
                 Section::make('Четыре преимущества')
+                    ->collapsible()
+                    ->collapsed()
                     ->schema([
                         Repeater::make('benefits')
                             ->label('Преимущества')
@@ -62,6 +66,8 @@ class EditPartnersPage extends SiteContentEditorPage
                             ->columnSpanFull(),
                     ]),
                 Section::make('Четыре формата сотрудничества')
+                    ->collapsible()
+                    ->collapsed()
                     ->schema([
                         Hidden::make('cooperation.id'),
                         TextInput::make('cooperation.title')->label('Заголовок блока')->maxLength(255),
@@ -80,6 +86,8 @@ class EditPartnersPage extends SiteContentEditorPage
                             ->columnSpanFull(),
                     ]),
                 Section::make('Пять фактов о компании')
+                    ->collapsible()
+                    ->collapsed()
                     ->schema([
                         Hidden::make('about.id'),
                         TextInput::make('about.title')->label('Заголовок блока')->maxLength(255),

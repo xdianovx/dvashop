@@ -67,7 +67,7 @@
                         @foreach ($items as $item)
                             <li class="checkout-order__item">
                                 <span class="checkout-order__thumb"><img src="{{ $item->image_snapshot }}" alt="" aria-hidden="true"></span>
-                                <div class="checkout-order__info"><p class="checkout-order__name">{{ $item->title_snapshot }}</p>@if ($item->optionSummary())<p class="checkout-order__opts">{{ $item->optionSummary() }}</p>@endif<p class="checkout-order__qty">{{ $item->quantity }} шт. × {{ number_format((float) $item->price_snapshot, 0, ',', ' ') }} ₽</p></div>
+                                <div class="checkout-order__info"><p class="checkout-order__name">{{ $item->storefrontTitle() }}</p>@if ($item->optionSummary())<p class="checkout-order__opts">{{ $item->optionSummary() }}</p>@endif<p class="checkout-order__qty">{{ $item->quantity }} шт. × {{ number_format((float) $item->price_snapshot, 0, ',', ' ') }} ₽</p></div>
                                 <span class="checkout-order__sum">{{ number_format($item->lineTotal(), 0, ',', ' ') }} ₽</span>
                             </li>
                         @endforeach

@@ -24,6 +24,7 @@ use Illuminate\Validation\ValidationException;
     'legal_address',
     'vk_url',
     'telegram_url',
+    'max_url',
     'footer_copyright',
     'footer_disclaimer',
 ])]

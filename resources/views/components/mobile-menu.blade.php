@@ -1,7 +1,10 @@
 @props(['storefront' => null])
 
 @php
-    $links = $storefront?->navigationFor(\App\Enums\NavigationZone::Mobile) ?? [];
+    $links = [
+        ...($storefront?->navigationFor(\App\Enums\NavigationZone::HeaderTop) ?? []),
+        ...($storefront?->navigationFor(\App\Enums\NavigationZone::HeaderMain) ?? []),
+    ];
 @endphp
 
 <div class="mobile-menu" data-mobile-menu>

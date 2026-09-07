@@ -36,12 +36,12 @@ class ShopSettingsPage extends Page
 
     public static function getNavigationLabel(): string
     {
-        return 'Настройки магазина';
+        return 'Контактные данные';
     }
 
     public function getTitle(): string
     {
-        return 'Настройки магазина';
+        return 'Контактные данные';
     }
 
     public static function canAccess(): bool
@@ -104,6 +104,7 @@ class ShopSettingsPage extends Page
                     ->schema([
                         TextInput::make('vk_url')->label('ВКонтакте')->placeholder('Не заполнено')->url()->maxLength(255),
                         TextInput::make('telegram_url')->label('Telegram')->placeholder('Не заполнено')->url()->maxLength(255),
+                        TextInput::make('max_url')->label('MAX')->placeholder('Не заполнено')->url()->maxLength(255),
                     ])->columns(2),
                 Section::make('Подвал')
                     ->schema([
@@ -135,7 +136,7 @@ class ShopSettingsPage extends Page
 
         Notification::make()
             ->success()
-            ->title('Настройки магазина сохранены')
+            ->title('Контактные данные сохранены')
             ->send();
     }
 }

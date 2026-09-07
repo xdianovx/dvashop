@@ -18,7 +18,7 @@ class CartController extends Controller
     {
         $cart = $cartManager->current($request);
         $items = $cart->items()
-            ->with(['variant.product'])
+            ->with('product')
             ->orderBy('id')
             ->get();
         $hasUnavailablePrices = $items->contains(

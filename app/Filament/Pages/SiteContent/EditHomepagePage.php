@@ -46,6 +46,8 @@ class EditHomepagePage extends SiteContentEditorPage
             ->disabled(fn (): bool => ! $this->canUpdate())
             ->components([
                 Section::make('Сторис')
+                    ->collapsible()
+                    ->collapsed()
                     ->description('Кружки и сторис можно добавлять, удалять и менять местами. Пустые кружки на сайте не показываются.')
                     ->schema([
                         Hidden::make('stories_section.id'),
@@ -167,12 +169,16 @@ class EditHomepagePage extends SiteContentEditorPage
                             ->columnSpanFull(),
                     ]),
                 Section::make('Быстрый поиск запчастей')
+                    ->collapsible()
+                    ->collapsed()
                     ->schema([
                         Hidden::make('search_section.id'),
                         TextInput::make('search_section.title')->label('Название секции')->maxLength(255),
                         Toggle::make('search_section.is_active')->label('Показывать секцию'),
                     ])->columns(2),
                 Section::make('Витринные категории')
+                    ->collapsible()
+                    ->collapsed()
                     ->description('Изображение каждой карточки определяется её фиксированным кодом. Внешние ссылки не используются.')
                     ->schema([
                         Hidden::make('category_section.id'),
@@ -226,6 +232,8 @@ class EditHomepagePage extends SiteContentEditorPage
                             ->columnSpanFull(),
                     ]),
                 Section::make('Отзывы клиентов')
+                    ->collapsible()
+                    ->collapsed()
                     ->description('Review Lab подключён системно. Код виджета и внешний скрипт не редактируются.')
                     ->schema([
                         Hidden::make('reviews_section.id'),
@@ -233,6 +241,8 @@ class EditHomepagePage extends SiteContentEditorPage
                         Toggle::make('reviews_section.is_active')->label('Показывать секцию'),
                     ])->columns(2),
                 Section::make('О компании')
+                    ->collapsible()
+                    ->collapsed()
                     ->schema([
                         Hidden::make('about_section.id'),
                         TextInput::make('about_section.title')->label('Название секции')->maxLength(255),

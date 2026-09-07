@@ -45,7 +45,7 @@ final class StorefrontDestinationResolver
             return new StorefrontLinkData(
                 title: $title,
                 url: route($routeName),
-                openInNewTab: false,
+                openInNewTab: $openInNewTab,
             );
         }
 
