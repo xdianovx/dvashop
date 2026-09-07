@@ -510,8 +510,12 @@ const updatePromoPanels = (cart) => {
         const applied = panel.querySelector('[data-promo-applied]');
         const feedback = panel.querySelector('[data-promo-feedback]');
         const input = panel.querySelector('input[name="promo_code"]');
+        const toggle = panel.querySelector('[data-promo-toggle]');
 
-        if (applyForm) applyForm.hidden = Boolean(cart.promo_applied);
+        // In the cart aside the field stays behind the «У меня есть промокод»
+        // link until it is opened, so removing a code collapses it back.
+        if (applyForm) applyForm.hidden = Boolean(cart.promo_applied) || Boolean(toggle);
+        if (toggle) toggle.hidden = Boolean(cart.promo_applied);
         if (applied) applied.hidden = !cart.promo_applied;
         const code = panel.querySelector('[data-promo-code]');
         const name = panel.querySelector('[data-promo-name]');
@@ -737,6 +741,13 @@ function initCartAjax() {
         const applied = panel.querySelector('[data-promo-applied]');
         const feedback = panel.querySelector('[data-promo-feedback]');
         const input = panel.querySelector('input[name="promo_code"]');
+        const toggle = panel.querySelector('[data-promo-toggle]');
+
+        toggle?.addEventListener('click', () => {
+            toggle.hidden = true;
+            if (applyForm) applyForm.hidden = false;
+            input?.focus();
+        });
 
         [applyForm, removeForm].forEach((form) => {
             form?.addEventListener('submit', async (event) => {

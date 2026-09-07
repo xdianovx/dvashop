@@ -405,6 +405,34 @@
     color: var(--color-primary);
 }
 
+// The aside keeps the field behind this link until the buyer opens it.
+.promo-code__toggle {
+    display: block;
+    width: 100%;
+    padding: 4px 0;
+    border: 0;
+    background: transparent;
+    font-family: var(--font-body);
+    font-weight: var(--fw-semibold);
+    font-size: 18px;
+    line-height: var(--lh-tight);
+    text-align: center;
+    color: var(--color-primary);
+    cursor: pointer;
+}
+
+.promo-code__toggle[hidden] {
+    display: none;
+}
+
+.promo-code__toggle-accent {
+    text-decoration: underline;
+}
+
+.promo-code__toggle:hover .promo-code__toggle-accent {
+    text-decoration: none;
+}
+
 // Compact variant used inside the cart aside: a single pill with a round
 // submit button, per the Figma order block.
 .promo-code--compact {

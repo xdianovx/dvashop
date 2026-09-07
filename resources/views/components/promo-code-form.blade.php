@@ -1,9 +1,20 @@
 @props(['totals', 'class' => '', 'compact' => false])
 
+@php
+    $promoHasError = $errors->has('promo_code');
+    $promoCollapsed = $compact && ! $totals['promo_applied'] && ! $promoHasError;
+@endphp
+
 <section {{ $attributes->class(['promo-code', 'promo-code--compact' => $compact, $class]) }} data-promo-panel aria-labelledby="promo-code-title">
     <h3 class="promo-code__title @if ($compact) visually-hidden @endif" id="promo-code-title">Промокод</h3>
 
-    <form action="{{ route('cart.promo-code.store') }}" method="post" data-promo-apply @if ($totals['promo_applied']) hidden @endif>
+    @if ($compact)
+        <button type="button" class="promo-code__toggle" data-promo-toggle @unless ($promoCollapsed) hidden @endunless>
+            У меня есть <span class="promo-code__toggle-accent">промокод</span>
+        </button>
+    @endif
+
+    <form action="{{ route('cart.promo-code.store') }}" method="post" data-promo-apply @if ($totals['promo_applied'] || $promoCollapsed) hidden @endif>
         @csrf
         <label class="promo-code__label @if ($compact) visually-hidden @endif" for="promo-code-input">Введите промокод</label>
         <div class="promo-code__controls">
