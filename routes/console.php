@@ -1,9 +1,14 @@
 <?php
 
+use App\Services\Feeds\YandexFeedInvalidator;
 use App\Services\Import\ImportFileInspector;
 use App\Support\ProjectCleanTreeInspector;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 use Symfony\Component\Process\Process;
+
+Schedule::call(fn () => app(YandexFeedInvalidator::class)->dispatchIfNeeded())
+    ->name('yandex-feed-refresh')->everyTenMinutes()->withoutOverlapping();
 
 Artisan::command('import:inspect-file {path : Путь к csv/xlsx файлу}', function (ImportFileInspector $inspector): int {
     $path = (string) $this->argument('path');

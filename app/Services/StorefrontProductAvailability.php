@@ -18,7 +18,7 @@ class StorefrontProductAvailability
             ->active()
             ->where(fn (Builder $categoryQuery): Builder => $categoryQuery
                 ->whereNull('product_category_id')
-                ->orWhereHas('category', fn (Builder $relationQuery): Builder => $relationQuery->where('is_active', true)))
+                ->orWhereIn('product_category_id', app(PublicProductCategoryVisibility::class)->idsQuery()))
             ->where(fn (Builder $partTypeQuery): Builder => $partTypeQuery
                 ->whereNull('part_type_id')
                 ->orWhereHas('partType', fn (Builder $relationQuery): Builder => $relationQuery->where('is_active', true)));
@@ -79,7 +79,7 @@ class StorefrontProductAvailability
         }
 
         if ($product->product_category_id !== null
-            && (! $product->category || ! $product->category->is_active)) {
+            && ! app(PublicProductCategoryVisibility::class)->allows($product->category)) {
             return false;
         }
 

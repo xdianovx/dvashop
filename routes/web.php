@@ -16,11 +16,20 @@ use App\Http\Controllers\Storefront\PartnersController;
 use App\Http\Controllers\Storefront\PaymentController;
 use App\Http\Controllers\Storefront\StorefrontInquiryController;
 use App\Http\Controllers\Storefront\VehicleMakeModelsController;
+use App\Http\Controllers\YandexFeedController;
+use App\Http\Middleware\ShareGlobalStorefrontData;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 Route::get('/', HomeController::class)->name('home');
 Route::get('/robots.txt', [SeoController::class, 'robots'])->name('robots');
 Route::get('/sitemap.xml', [SeoController::class, 'sitemap'])->name('sitemap');
+Route::get('/feeds/yandex.yml', YandexFeedController::class)->name('feeds.yandex')
+    ->withoutMiddleware([StartSession::class, ShareErrorsFromSession::class, PreventRequestForgery::class, ShareGlobalStorefrontData::class]);
+Route::get('/feeds/yandex.yml.gz', [YandexFeedController::class, 'gzip'])->name('feeds.yandex.gzip')
+    ->withoutMiddleware([StartSession::class, ShareErrorsFromSession::class, PreventRequestForgery::class, ShareGlobalStorefrontData::class]);
 Route::get('/storefront/vehicle-makes/{makeSlug}/models', VehicleMakeModelsController::class)
     ->name('storefront.vehicle-makes.models');
 Route::get('/catalog', [CatalogController::class, 'index'])->name('catalog.index');
