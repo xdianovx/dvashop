@@ -603,39 +603,53 @@
     }
 }
 
-// Mobile order block (Figma 3059:963): narrower card, smaller type and the
-// promo field shown straight away instead of the «У меня есть промокод» link.
+// Mobile cart (Figma 3059:854 / 3059:963): narrower cards and smaller type.
 @media (max-width: 768px) {
+    .cart-list {
+        gap: 4px;
+    }
+
+    .cart-layout {
+        gap: 10px;
+    }
+
     .cart-summary {
-        padding: 17px 19px 24px;
+        padding: 17px 19px 12px;
         border: 0.7px solid var(--color-primary-dark);
         border-radius: var(--radius-md);
     }
 
     .cart-summary__title {
-        margin-bottom: 12px;
+        margin-bottom: 10px;
         font-size: 22px;
+        line-height: 37.8px;
         color: var(--color-ink);
     }
 
     .cart-summary__row {
-        padding-bottom: 12px;
+        align-items: center;
+        padding-bottom: 10px;
         font-size: 12px;
+        line-height: 20px;
     }
 
     .cart-summary__value {
         font-size: var(--fs-base);
+        line-height: 20px;
         color: var(--color-muted);
     }
 
     .cart-summary__row--total {
-        padding-top: 14px;
+        padding-top: 37px;
+        padding-bottom: 0;
         font-size: var(--fs-base);
+        line-height: 20px;
         color: var(--color-ink);
     }
 
     .cart-summary__row--total .cart-summary__value {
         font-size: var(--fs-lg);
+        line-height: 20px;
         letter-spacing: -0.6px;
         color: var(--color-ink);
     }
@@ -645,15 +659,13 @@
     }
 
     .promo-code--compact {
-        margin: 16px 0;
+        margin: 19px 0 12px;
     }
 
     .promo-code__toggle {
-        display: none;
-    }
-
-    .promo-code--compact:not(:has([data-promo-applied]:not([hidden]))) [data-promo-apply][hidden] {
-        display: block;
+        padding: 0;
+        font-size: 12px;
+        line-height: 19px;
     }
 
     .promo-code--compact .promo-code__controls {
@@ -682,6 +694,10 @@
 
     .promo-code--compact .promo-code__applied-title {
         font-size: var(--fs-sm);
+    }
+
+    .cart-summary__actions {
+        gap: 4px;
     }
 
     .cart-summary__checkout,
@@ -772,17 +788,13 @@
         height: 48px;
     }
 
-    .cart-list {
-        gap: 12px;
-    }
-
     .cart-item {
         position: relative;
         grid-template-columns: 67px minmax(0, 1fr);
         align-items: start;
         column-gap: 12px;
         row-gap: 0;
-        padding: 25px 14px 18.5px 18px;
+        padding: 25px 14px 17px 18px;
         border: 1px solid var(--color-border);
         border-radius: var(--radius-md);
     }
@@ -826,7 +838,7 @@
         justify-self: start;
         justify-content: space-between;
         gap: 0;
-        margin-top: 26px;
+        margin-top: 36px;
         width: 84px;
         height: 28px;
         padding: 0 6px 0 5px;
@@ -852,32 +864,32 @@
         grid-column: 1 / -1;
         grid-row: 3;
         align-items: flex-start;
-        gap: 3.5px;
-        margin-top: 10px;
+        gap: 0;
+        margin-top: 4px;
         margin-left: 6px;
     }
 
     .cart-item__sum {
         font-size: 20px;
         font-weight: var(--fw-bold);
-        line-height: 1;
+        line-height: 27px;
     }
 
     .cart-item__unit {
         grid-column: 1 / -1;
         grid-row: 4;
-        margin-top: 3.5px;
+        margin-top: 0;
         margin-left: 6px;
         font-size: 10px;
-        line-height: 1;
+        line-height: 15px;
     }
 
     .cart-item__remove {
         position: absolute;
         right: 14px;
-        bottom: 18.5px;
+        bottom: 17px;
         font-size: 10px;
-        line-height: 1;
+        line-height: 15px;
         text-decoration: underline;
     }
 }
