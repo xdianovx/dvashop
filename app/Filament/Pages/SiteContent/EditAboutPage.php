@@ -39,6 +39,8 @@ class EditAboutPage extends SiteContentEditorPage
             ->disabled(fn (): bool => ! $this->canUpdate())
             ->components([
                 Section::make('Первый экран')
+                    ->collapsible()
+                    ->collapsed()
                     ->schema([
                         Hidden::make('hero.id'),
                         TextInput::make('hero.label')->label('Надзаголовок')->maxLength(255),
@@ -46,6 +48,8 @@ class EditAboutPage extends SiteContentEditorPage
                         Textarea::make('hero.body')->label('Описание')->rows(5)->maxLength(10000)->columnSpanFull(),
                     ])->columns(2),
                 Section::make('Показатели')
+                    ->collapsible()
+                    ->collapsed()
                     ->description('Два показателя и их порядок фиксированы макетом.')
                     ->schema([
                         Repeater::make('metrics')
@@ -65,6 +69,8 @@ class EditAboutPage extends SiteContentEditorPage
                             ->columnSpanFull(),
                     ]),
                 Section::make('Технологии точности')
+                    ->collapsible()
+                    ->collapsed()
                     ->schema([
                         Hidden::make('technologies.id'),
                         TextInput::make('technologies.title')->label('Заголовок')->maxLength(255),
@@ -84,6 +90,8 @@ class EditAboutPage extends SiteContentEditorPage
                             ->columnSpanFull(),
                     ])->columns(2),
                 Section::make('Наша цель')
+                    ->collapsible()
+                    ->collapsed()
                     ->schema([
                         Hidden::make('goal.id'),
                         TextInput::make('goal.label')->label('Заголовок блока')->maxLength(255),

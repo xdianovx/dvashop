@@ -39,6 +39,8 @@ class EditHowPage extends SiteContentEditorPage
             ->disabled(fn (): bool => ! $this->canUpdate())
             ->components([
                 Section::make('Шесть шагов')
+                    ->collapsible()
+                    ->collapsed()
                     ->description('Номера, порядок и иконки шагов зафиксированы в макете.')
                     ->schema([
                         Repeater::make('steps')

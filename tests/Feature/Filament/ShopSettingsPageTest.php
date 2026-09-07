@@ -22,7 +22,9 @@ test('shop settings page is a registered singleton page backed by its policy', f
 
     expect(Filament::getPanel('admin')->getPages())->toContain(ShopSettingsPage::class)
         ->and(ShopSettingsPage::getNavigationGroup())->toBe('Настройки')
-        ->and(ShopSettingsPage::getNavigationLabel())->toBe('Настройки магазина')
+        ->and(ShopSettingsPage::getNavigationLabel())->toBe('Контактные данные')
+        ->and((new ShopSettingsPage)->getTitle())->toBe('Контактные данные')
+        ->and(parse_url(ShopSettingsPage::getUrl(), PHP_URL_PATH))->toBe('/admin/settings/shop')
         ->and(app('Illuminate\Contracts\Auth\Access\Gate')->getPolicyFor(ShopSetting::class))
         ->toBeInstanceOf(ShopSettingPolicy::class);
 
@@ -33,6 +35,8 @@ test('shop settings page is a registered singleton page backed by its policy', f
         ->assertFormFieldExists('inquiry_notification_email')
         ->assertFormFieldExists('inn')
         ->assertFormFieldExists('vk_url')
+        ->assertFormFieldExists('telegram_url')
+        ->assertFormFieldExists('max_url')
         ->assertFormFieldExists('footer_copyright');
 
     expect(ShopSetting::query()->count())->toBe(1);
@@ -55,15 +59,17 @@ test('admin and super admin save singleton settings idempotently with a russian 
             'ogrn' => '1234567890123',
             'vk_url' => 'https://vk.com/magazporogi',
             'telegram_url' => 'https://t.me/magazporogi',
+            'max_url' => 'https://max.example.test/shop',
         ])
         ->call('save')
         ->assertHasNoFormErrors()
-        ->assertNotified('Настройки магазина сохранены');
+        ->assertNotified('Контактные данные сохранены');
 
     $component->call('save')->assertHasNoFormErrors();
 
     $setting = ShopSetting::query()->sole();
     expect($setting->store_name)->toBe('МагазПороги')
+        ->and($setting->max_url)->toBe('https://max.example.test/shop')
         ->and($setting->phone_href)->toBe('+79991112233')
         ->and($setting->public_email)->toBe('sales@example.ru')
         ->and($setting->inquiry_notification_email)->toBe('inquiries@example.ru')
@@ -117,5 +123,7 @@ test('forged shop settings livewire state returns field validation without chang
     'invalid ogrn' => ['ogrn', '123'],
     'unsafe vk' => ['vk_url', 'data:text/plain,test'],
     'unsafe telegram' => ['telegram_url', '//t.me/test'],
+    'unsafe max' => ['max_url', 'javascript:alert(1)'],
+    'max ftp' => ['max_url', 'ftp://example.test/shop'],
     'html footer' => ['footer_copyright', '<b>unsafe</b>'],
 ]);

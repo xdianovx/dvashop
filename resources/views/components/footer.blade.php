@@ -6,7 +6,8 @@
         ...($storefront?->navigationFor(\App\Enums\NavigationZone::FooterDocuments) ?? []),
     ];
     $legalDocuments = $storefront?->legalDocuments ?? [];
-    $socials = $storefront?->socials ?? [];
+    $socialIcons = ['vk' => '/img/icons/vk.svg', 'telegram' => '/img/icons/tg.svg', 'max' => '/img/icons/max.svg'];
+    $socials = array_filter($storefront?->socials ?? [], fn (array $social): bool => isset($socialIcons[$social['code']]));
     $hasRequisites = $storefront && collect([
         $storefront->footerCopyright,
         $storefront->legalName,
@@ -71,7 +72,7 @@
                                 @foreach ($socials as $social)
                                     <a href="{{ $social['url'] }}" class="footer__social" aria-label="{{ $social['label'] }}"
                                         target="_blank" rel="noopener noreferrer">
-                                        <img src="{{ $social['code'] === 'vk' ? '/img/icons/vk.svg' : '/img/icons/tg.svg' }}"
+                                        <img src="{{ $socialIcons[$social['code']] }}"
                                             alt="" aria-hidden="true">
                                     </a>
                                 @endforeach
@@ -130,7 +131,7 @@
                     @foreach ($socials as $social)
                         <a href="{{ $social['url'] }}" class="footer__social" aria-label="{{ $social['label'] }}"
                             target="_blank" rel="noopener noreferrer">
-                            <img src="{{ $social['code'] === 'vk' ? '/img/icons/vk.svg' : '/img/icons/tg.svg' }}"
+                            <img src="{{ $socialIcons[$social['code']] }}"
                                 alt="" aria-hidden="true">
                         </a>
                     @endforeach

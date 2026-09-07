@@ -19,6 +19,7 @@ use Database\Seeders\HomepageContentSeeder;
 use Database\Seeders\StaticPageContentSeeder;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Repeater;
+use Filament\Schemas\Components\Section;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -379,3 +380,24 @@ test('faq repeater requires confirmation before removing categories and question
         ->and($source)->toContain('Удалить категорию из формы?')
         ->and($source)->toContain('Удалить вопрос из формы?');
 });
+
+test('all site page top level sections are collapsible and initially collapsed in their existing order', function (string $page, array $headings): void {
+    $this->actingAs(User::factory()->admin()->create());
+    $component = Livewire::test($page);
+    $sections = $component->instance()->form->getComponents();
+
+    expect(count($sections))->toBe(count($headings));
+    foreach (array_values($sections) as $index => $section) {
+        expect($section)->toBeInstanceOf(Section::class)
+            ->and($section->getHeading())->toBe($headings[$index])
+            ->and($section->isCollapsible())->toBeTrue()
+            ->and($section->isCollapsed())->toBeTrue();
+    }
+})->with([
+    'homepage' => [EditHomepagePage::class, ['Сторис', 'Быстрый поиск запчастей', 'Витринные категории', 'Отзывы клиентов', 'О компании']],
+    'about' => [EditAboutPage::class, ['Первый экран', 'Показатели', 'Технологии точности', 'Наша цель']],
+    'how' => [EditHowPage::class, ['Шесть шагов']],
+    'payment' => [EditPaymentPage::class, ['Способы оплаты', 'Способы доставки']],
+    'faq' => [EditFaqPage::class, ['FAQ']],
+    'partners' => [EditPartnersPage::class, ['Первый экран', 'Четыре преимущества', 'Четыре формата сотрудничества', 'Пять фактов о компании']],
+]);

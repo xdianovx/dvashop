@@ -24,7 +24,7 @@ class CheckoutController extends Controller
     public function show(Request $request, CartManager $cartManager): View
     {
         $cart = $cartManager->current($request);
-        $items = $cart->items()->orderBy('id')->get();
+        $items = $cart->items()->with('product')->orderBy('id')->get();
 
         return view('checkout', [
             'cart' => $cart,

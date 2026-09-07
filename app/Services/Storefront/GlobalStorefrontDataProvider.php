@@ -34,6 +34,7 @@ final readonly class GlobalStorefrontDataProvider
                 'legal_address',
                 'vk_url',
                 'telegram_url',
+                'max_url',
                 'footer_copyright',
                 'footer_disclaimer',
             ]);
@@ -113,6 +114,7 @@ final readonly class GlobalStorefrontDataProvider
         foreach ([
             ['code' => 'vk', 'label' => 'ВКонтакте', 'url' => $settings?->vk_url],
             ['code' => 'telegram', 'label' => 'Telegram', 'url' => $settings?->telegram_url],
+            ['code' => 'max', 'label' => 'MAX', 'url' => $settings?->max_url],
         ] as $social) {
             $url = $this->destinations->safeExternalUrl($social['url']);
 

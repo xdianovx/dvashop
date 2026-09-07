@@ -28,6 +28,7 @@ class ShopSettingsService
         'legal_address',
         'vk_url',
         'telegram_url',
+        'max_url',
         'footer_copyright',
         'footer_disclaimer',
     ];
@@ -51,6 +52,7 @@ class ShopSettingsService
             'legal_address' => '192082, Россия, г. Санкт-Петербург, ул. Туристская, д. 23 к. 2',
             'vk_url' => null,
             'telegram_url' => null,
+            'max_url' => null,
             'footer_copyright' => '© 2026 ООО «АРТ ГРУПП»',
             'footer_disclaimer' => 'Сайт не является офертой',
         ];
@@ -182,6 +184,7 @@ class ShopSettingsService
             'legal_address' => ['nullable', 'string', 'max:2000', $plainText],
             'vk_url' => ['nullable', 'string', 'max:255', $httpUrl],
             'telegram_url' => ['nullable', 'string', 'max:255', $httpUrl],
+            'max_url' => ['nullable', 'string', 'max:255', $httpUrl],
             'footer_copyright' => ['nullable', 'string', 'max:2000', $plainText],
             'footer_disclaimer' => ['nullable', 'string', 'max:500', $plainText],
         ], [
@@ -207,6 +210,7 @@ class ShopSettingsService
             'legal_address' => 'юридический адрес',
             'vk_url' => 'ссылка ВКонтакте',
             'telegram_url' => 'ссылка Telegram',
+            'max_url' => 'ссылка MAX',
             'footer_copyright' => 'copyright',
             'footer_disclaimer' => 'дисклеймер',
         ])->validate();

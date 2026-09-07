@@ -18,6 +18,7 @@ test('shop settings are the single seeded contact source without placeholder con
         ->and($setting->work_hours)->toBeNull()
         ->and($setting->vk_url)->toBeNull()
         ->and($setting->telegram_url)->toBeNull()
+        ->and($setting->max_url)->toBeNull()
         ->and($setting->legal_name)->toBe('ООО «АРТ ГРУПП»')
         ->and($setting->inn)->toBe('7814593546')
         ->and($setting->ogrn)->toBe('1137847459936')

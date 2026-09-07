@@ -52,6 +52,7 @@ test('shop settings update trims normalizes and persists only allowed fields tra
         'legal_address' => '  Москва  ',
         'vk_url' => ' https://vk.com/magazporogi ',
         'telegram_url' => ' https://t.me/magazporogi ',
+        'max_url' => ' https://max.example.test/shop ',
         'footer_copyright' => '  © МагазПороги  ',
         'footer_disclaimer' => '  Информация не является офертой.  ',
     ]);
@@ -62,6 +63,7 @@ test('shop settings update trims normalizes and persists only allowed fields tra
         ->and($setting->order_notification_email)->toBe('orders@example.ru')
         ->and($setting->inquiry_notification_email)->toBe('inquiries@example.ru')
         ->and($setting->legal_address)->toBe('Москва')
+        ->and($setting->max_url)->toBe('https://max.example.test/shop')
         ->and(ShopSetting::query()->count())->toBe(1);
 
     expect(fn () => $service->update($admin, [
@@ -93,6 +95,13 @@ test('shop settings reject unsafe and malformed values without partial updates',
     'ogrn length' => ['ogrn', '12345678901234'],
     'vk javascript' => ['vk_url', 'javascript:alert(1)'],
     'telegram data' => ['telegram_url', 'data:text/plain,test'],
+    'max javascript' => ['max_url', 'javascript:alert(1)'],
+    'max data' => ['max_url', 'data:text/plain,test'],
+    'max relative' => ['max_url', '//example.test/shop'],
+    'max file' => ['max_url', 'file:///tmp/test'],
+    'max ftp' => ['max_url', 'ftp://example.test/shop'],
+    'max array' => ['max_url', []],
+    'max length' => ['max_url', 'https://example.test/'.str_repeat('a', 256)],
     'protocol relative' => ['vk_url', '//vk.com/test'],
     'file scheme' => ['telegram_url', 'file:///tmp/test'],
     'html store name' => ['store_name', '<b>Магазин</b>'],
@@ -131,4 +140,21 @@ test('shop settings role matrix allows admin updates and manager view only', fun
 
     expect(fn () => $service->update($invalidRole->refresh(), ['store_name' => 'Запрещено']))
         ->toThrow(AuthorizationException::class);
+});
+
+test('MAX can be cleared without changing VK or Telegram', function (): void {
+    $service = app(ShopSettingsService::class);
+    $admin = User::factory()->admin()->create();
+    $service->update($admin, [
+        'vk_url' => 'https://vk.example.test/shop',
+        'telegram_url' => 'https://telegram.example.test/shop',
+        'max_url' => 'https://max.example.test/shop',
+    ]);
+
+    foreach (['   ', null] as $empty) {
+        $setting = $service->update($admin, ['max_url' => $empty]);
+        expect($setting->max_url)->toBeNull()
+            ->and($setting->vk_url)->toBe('https://vk.example.test/shop')
+            ->and($setting->telegram_url)->toBe('https://telegram.example.test/shop');
+    }
 });

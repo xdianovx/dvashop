@@ -57,6 +57,40 @@ class CartItem extends Model
             ->implode('; ');
     }
 
+    public function storefrontTitle(): string
+    {
+        $title = (string) $this->title_snapshot;
+        $summary = $this->optionSummary();
+        $suffix = ' — '.$summary;
+
+        // Only remove an exact saved option summary, never arbitrary title text.
+        if ($summary !== '' && str_ends_with($title, $suffix)) {
+            $baseTitle = substr($title, 0, -strlen($suffix));
+
+            if (filled($baseTitle)) {
+                return $baseTitle;
+            }
+        }
+
+        // A matching live title may identify the original prefix, but must never
+        // replace a renamed snapshot. Compare only its saved option suffix.
+        $productTitle = $this->product?->title;
+        $prefix = $productTitle.' — ';
+
+        if ($summary !== '' && filled($productTitle) && str_starts_with($title, $prefix)) {
+            $savedOptions = explode('; ', $summary);
+            $titleOptions = explode('; ', substr($title, strlen($prefix)));
+            sort($savedOptions, SORT_STRING);
+            sort($titleOptions, SORT_STRING);
+
+            if ($titleOptions === $savedOptions) {
+                return substr($title, 0, strlen($productTitle));
+            }
+        }
+
+        return $title;
+    }
+
     public function lineTotal(): float
     {
         return round((float) $this->price_snapshot * max(1, (int) $this->quantity), 2);

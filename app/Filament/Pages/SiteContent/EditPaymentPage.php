@@ -42,6 +42,8 @@ class EditPaymentPage extends SiteContentEditorPage
             ->disabled(fn (): bool => ! $this->canUpdate())
             ->components([
                 Section::make('Способы оплаты')
+                    ->collapsible()
+                    ->collapsed()
                     ->schema([
                         Repeater::make('payment_methods')
                             ->label('Оплата')
@@ -77,6 +79,8 @@ class EditPaymentPage extends SiteContentEditorPage
                             ->columnSpanFull(),
                     ]),
                 Section::make('Способы доставки')
+                    ->collapsible()
+                    ->collapsed()
                     ->schema([
                         Repeater::make('delivery_methods')
                             ->label('Доставка')

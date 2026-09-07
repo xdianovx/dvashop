@@ -41,6 +41,8 @@ class EditFaqPage extends SiteContentEditorPage
             ->disabled(fn (): bool => ! $this->canUpdate())
             ->components([
                 Section::make('FAQ')
+                    ->collapsible()
+                    ->collapsed()
                     ->description('Категории и вопросы редактируются вместе. Удаление из списка выполняется как soft delete после сохранения формы.')
                     ->schema([
                         Repeater::make('categories')
