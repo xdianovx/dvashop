@@ -80,6 +80,14 @@
                         @endif
                     </div>
                 @endif
+
+                <div class="footer__col footer__col--subscribe">
+                    <h3 class="footer__heading">Подписывайтесь на новости</h3>
+                    <p class="footer__subscribe-text">
+                        Будьте в курсе последних событий, акций и выгодных предложений
+                    </p>
+                    <a href="#" class="btn btn--primary footer__subscribe-btn">Подписаться</a>
+                </div>
             </div>
 
             @if ($hasRequisites)
