@@ -14,7 +14,6 @@
         @elseif ($deliveryMethods->isEmpty() || $paymentMethods->isEmpty())
             <p role="alert">Оформление заказа временно недоступно. Свяжитесь с нами для уточнения условий.</p>
         @else
-            <x-promo-code-form :totals="$totals" class="checkout-promo" />
             <form class="checkout-layout" action="{{ route('checkout.store') }}" method="post">
                 @csrf
                 <div class="checkout-main">
