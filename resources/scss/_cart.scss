@@ -6,7 +6,7 @@
     align-items: baseline;
 }
 
-.cart-page > .breadcrumbs,
+.cart-page>.breadcrumbs,
 .cart-page__error,
 .cart-content {
     grid-column: 1 / -1;
@@ -260,6 +260,7 @@
 // ── Summary ─────────────────────────────────────────────
 .cart-summary {
     align-self: start;
+    width: 100%;
     display: flex;
     flex-direction: column;
     padding: 24px;
@@ -296,6 +297,20 @@
     font-family: var(--font-display);
     font-weight: var(--fw-bold);
     color: var(--color-ink);
+}
+
+.cart-summary__label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cart-summary__discount-note {
+    font-family: var(--font-body);
+    font-weight: var(--fw-regular);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-snug);
+    color: var(--color-muted);
 }
 
 .cart-summary__row--discount {
@@ -339,6 +354,11 @@
     font: inherit;
     text-transform: uppercase;
 
+    &::placeholder {
+        color: var(--color-muted);
+        text-transform: none;
+    }
+
     &:focus-visible {
         outline: 3px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
         outline-offset: 2px;
@@ -349,6 +369,18 @@
 .promo-code__button {
     min-height: 44px;
     padding-inline: 16px;
+    background-color: var(--color-primary);
+    color: var(--color-on-primary);
+}
+
+.promo-code__button:hover {
+    background-color: var(--color-primary-dark);
+}
+
+.promo-code__button-icon {
+    display: none;
+    width: 18px;
+    height: 18px;
 }
 
 .promo-code__applied {
@@ -357,10 +389,100 @@
     justify-content: space-between;
     gap: 12px;
 
+    &[hidden] {
+        display: none;
+    }
+
     p {
         margin: 0;
         color: var(--color-ink);
     }
+}
+
+.promo-code__applied .promo-code__applied-title {
+    font-family: var(--font-display);
+    font-weight: var(--fw-bold);
+    color: var(--color-primary);
+}
+
+// Compact variant used inside the cart aside: a single pill with a round
+// submit button, per the Figma order block.
+.promo-code--compact {
+    margin: 0 0 16px;
+    padding-top: 0;
+    border-top: 0;
+}
+
+.promo-code--compact .promo-code__controls {
+    position: relative;
+    display: block;
+}
+
+.promo-code--compact .promo-code__input {
+    width: 100%;
+    height: 44px;
+    padding: 0 52px 0 20px;
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-sm);
+}
+
+.promo-code--compact .promo-code__button {
+    position: absolute;
+    top: 50%;
+    right: 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    min-height: 0;
+    padding: 0;
+    transform: translateY(-50%);
+    border-radius: var(--radius-pill);
+    background-color: var(--color-primary);
+    color: var(--color-on-primary);
+}
+
+.promo-code--compact .promo-code__button:hover {
+    background-color: var(--color-primary-dark);
+}
+
+.promo-code--compact .promo-code__button-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.promo-code--compact .promo-code__button-icon {
+    display: block;
+}
+
+.promo-code--compact .promo-code__applied {
+    flex-direction: column;
+    gap: 4px;
+    text-align: center;
+}
+
+.promo-code--compact .promo-code__applied-code {
+    display: none;
+}
+
+.promo-code--compact .promo-code__feedback {
+    text-align: center;
+}
+
+// The blue «Промокод применён!» line already reports success, so in the aside
+// only errors need the feedback row.
+.promo-code--compact .promo-code__feedback:not(.promo-code__feedback--error) {
+    display: none;
+}
+
+.promo-code--compact .promo-code__remove {
+    font-size: var(--fs-sm);
+    color: var(--color-muted);
 }
 
 .promo-code__badge {
@@ -441,7 +563,7 @@
         flex-direction: column;
     }
 
-    .cart-page > .breadcrumbs {
+    .cart-page>.breadcrumbs {
         order: 1;
     }
 

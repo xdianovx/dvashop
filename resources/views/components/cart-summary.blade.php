@@ -6,9 +6,16 @@
         <div class="cart-summary__row cart-summary__row--total"><span>Стоимость</span><span class="cart-summary__value">Требуется уточнение</span></div>
     @else
         <div class="cart-summary__row"><span><span data-cart-items-count>{{ $totals['items_count'] }}</span> товар(ов) на сумму</span><span class="cart-summary__value" data-cart-subtotal>{{ number_format((float) $totals['subtotal'], 0, ',', ' ') }} ₽</span></div>
-        <div class="cart-summary__row cart-summary__row--discount" data-cart-discount-row @if ($totals['discount_total'] <= 0) hidden @endif><span>Скидка</span><span class="cart-summary__value" data-cart-discount>−{{ number_format((float) $totals['discount_total'], 0, ',', ' ') }} ₽</span></div>
-        <div class="cart-summary__row cart-summary__row--total"><span>Итого</span><span class="cart-summary__value" data-cart-total>{{ number_format((float) $totals['total'], 0, ',', ' ') }} ₽</span></div>
-        <x-promo-code-form :totals="$totals" />
+        <div class="cart-summary__row cart-summary__row--total">
+            <span class="cart-summary__label">
+                Итого
+                <span class="cart-summary__discount-note" data-cart-discount-note @if ($totals['discount_total'] <= 0) hidden @endif>
+                    <span data-cart-discount-label>{{ $totals['promo_discount_label'] ?? 'Скидка' }}</span><br>по промокоду
+                </span>
+            </span>
+            <span class="cart-summary__value" data-cart-total>{{ number_format((float) $totals['total'], 0, ',', ' ') }} ₽</span>
+        </div>
+        <x-promo-code-form :totals="$totals" compact />
     @endif
     <div class="cart-summary__actions">
         @unless ($hasUnavailablePrices)

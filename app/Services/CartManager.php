@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\CartStatus;
+use App\Enums\PromoDiscountType;
 use App\Enums\StockStatus;
 use App\Models\Cart;
 use App\Models\CartItem;
@@ -287,7 +288,22 @@ class CartManager
             'promo_code' => $promo?->code,
             'promo_name' => $promo?->name,
             'promo_message' => $promoMessage,
+            'promo_discount_label' => $this->discountLabel($promo, $discount),
         ];
+    }
+
+    /** Short caption shown next to the order total, e.g. «Скидка 12%». */
+    private function discountLabel(?PromoCode $promo, float $discount): ?string
+    {
+        if (! $promo instanceof PromoCode || $discount <= 0) {
+            return null;
+        }
+
+        if ($promo->discount_type === PromoDiscountType::Percentage) {
+            return 'Скидка '.rtrim(rtrim(number_format((float) $promo->discount_value, 2, ',', ' '), '0'), ',').'%';
+        }
+
+        return 'Скидка '.number_format($discount, 0, ',', ' ').' ₽';
     }
 
     private function detachPromo(Cart $cart): void

@@ -544,6 +544,12 @@ const updateCartTotals = (cart, pulse = false) => {
     document.querySelectorAll('[data-cart-discount-row]').forEach((element) => {
         element.hidden = Number(cart.discount_total) <= 0;
     });
+    document.querySelectorAll('[data-cart-discount-note]').forEach((element) => {
+        element.hidden = Number(cart.discount_total) <= 0;
+    });
+    document.querySelectorAll('[data-cart-discount-label]').forEach((element) => {
+        element.textContent = cart.promo_discount_label || 'Скидка';
+    });
     document.querySelectorAll('[data-checkout-total]').forEach((element) => {
         element.dataset.checkoutSubtotal = String(cart.total);
         element.closest('.checkout-layout')?.dispatchEvent(new CustomEvent('cart:totals-updated'));
