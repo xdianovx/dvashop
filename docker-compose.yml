@@ -75,6 +75,26 @@ services:
     networks:
       - dvashop
 
+  yandex-queue:
+    image: dvashop-php:local
+    container_name: dvashop_yandex_queue
+    restart: unless-stopped
+    working_dir: /var/www/html
+    env_file:
+      - .env
+    command: sh -c "until [ -f vendor/autoload.php ]; do echo 'Waiting for Composer dependencies...'; sleep 5; done; php artisan queue:work yandex-feed --queue=yandex-feed --sleep=3 --tries=3 --timeout=600"
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      app:
+        condition: service_started
+    networks:
+      - dvashop
+
   scheduler:
     image: dvashop-php:local
     container_name: dvashop_scheduler
