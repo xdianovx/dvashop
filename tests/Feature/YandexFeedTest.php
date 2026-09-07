@@ -29,8 +29,11 @@ use App\Services\Feeds\YandexFeedValidator;
 use App\Services\ImportStatusService;
 use App\Services\StorefrontProductAvailability;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Queue\Job;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Worker;
+use Illuminate\Queue\WorkerOptions;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -823,10 +826,13 @@ test('overlong deep-link URL is skipped rather than emitted outside Yandex limit
 });
 
 test('feed queue timeout and retry relation cover measured catalog growth safely', function (): void {
+    $worker = app('queue.worker');
+    expect($worker)->toBeInstanceOf(Worker::class);
+
     $job = new RebuildYandexFeedJob('test-token');
-    $queuedJob = Mockery::mock(Illuminate\Contracts\Queue\Job::class);
+    $queuedJob = Mockery::mock(Job::class);
     $queuedJob->shouldReceive('timeout')->twice()->andReturn($job->timeout);
-    $timeoutForJob = new ReflectionMethod(Illuminate\Queue\Worker::class, 'timeoutForJob');
+    $timeoutForJob = new ReflectionMethod(Worker::class, 'timeoutForJob');
     $timeoutForJob->setAccessible(true);
 
     expect($job->timeout)->toBe(1200)
@@ -836,9 +842,9 @@ test('feed queue timeout and retry relation cover measured catalog growth safely
         ->and(config('queue.connections.yandex-feed.retry_after'))->toBe(1500)
         ->and(config('queue.connections.yandex-feed.retry_after'))->toBeGreaterThan($job->timeout)
         ->and($timeoutForJob->invoke(
-            app(Illuminate\Queue\Worker::class),
+            $worker,
             $queuedJob,
-            new Illuminate\Queue\WorkerOptions(timeout: 600),
+            new WorkerOptions(timeout: 600),
         ))->toBe(1200);
 });
 
