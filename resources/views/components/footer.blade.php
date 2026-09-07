@@ -8,6 +8,9 @@
     $legalDocuments = $storefront?->legalDocuments ?? [];
     $socialIcons = ['vk' => '/img/icons/vk.svg', 'telegram' => '/img/icons/tg.svg', 'max' => '/img/icons/max.svg'];
     $socials = array_filter($storefront?->socials ?? [], fn (array $social): bool => isset($socialIcons[$social['code']]));
+    $subscribeUrl = collect($socials)
+        ->sortBy(fn (array $social): int => array_search($social['code'], ['telegram', 'vk', 'max'], true))
+        ->first()['url'] ?? null;
     $hasRequisites = $storefront && collect([
         $storefront->footerCopyright,
         $storefront->legalName,
@@ -81,13 +84,16 @@
                     </div>
                 @endif
 
-                <div class="footer__col footer__col--subscribe">
-                    <h3 class="footer__heading">Подписывайтесь на новости</h3>
-                    <p class="footer__subscribe-text">
-                        Будьте в курсе последних событий, акций и выгодных предложений
-                    </p>
-                    <a href="#" class="btn btn--primary footer__subscribe-btn">Подписаться</a>
-                </div>
+                @if ($subscribeUrl)
+                    <div class="footer__col footer__col--subscribe">
+                        <h3 class="footer__heading">Подписывайтесь на новости</h3>
+                        <p class="footer__subscribe-text">
+                            Будьте в курсе последних событий, акций и выгодных предложений
+                        </p>
+                        <a href="{{ $subscribeUrl }}" class="btn btn--primary footer__subscribe-btn"
+                            target="_blank" rel="noopener noreferrer">Подписаться</a>
+                    </div>
+                @endif
             </div>
 
             @if ($hasRequisites)
