@@ -5,11 +5,24 @@
 .categories__grid {
     display: grid;
     grid-template-columns: 721fr 354fr 353fr;
-    grid-template-areas:
-        'sills commercial repair'
-        'front rear rear';
     grid-auto-rows: 438px;
     gap: 10px;
+}
+
+.categories__grid > .categories__card:nth-child(5):last-child {
+    grid-column: span 2;
+}
+
+.categories__grid > .categories__card:nth-child(4):last-child {
+    grid-column: 1 / -1;
+}
+
+.categories__grid > .categories__card:nth-child(2):last-child {
+    grid-column: span 2;
+}
+
+.categories__grid > .categories__card:first-child:last-child {
+    grid-column: 1 / -1;
 }
 
 .categories__card {
@@ -20,25 +33,11 @@
     background-color: var(--color-primary);
 }
 
-.categories__card--sills {
-    grid-area: sills;
-}
-
 .categories__card--commercial {
-    grid-area: commercial;
     background-color: var(--color-primary-dark);
 }
 
-.categories__card--repair {
-    grid-area: repair;
-}
-
-.categories__card--front {
-    grid-area: front;
-}
-
 .categories__card--rear {
-    grid-area: rear;
     background-color: var(--color-primary-dark);
 }
 
