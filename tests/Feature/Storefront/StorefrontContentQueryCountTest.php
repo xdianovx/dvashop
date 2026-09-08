@@ -89,5 +89,6 @@ test('global storefront data uses no more than three queries even when resolved 
     $second = app(GlobalStorefrontData::class);
 
     expect($first)->toBe($second)
-        ->and(count(DB::getQueryLog()))->toBeLessThanOrEqual(3);
+        // Settings, navigation, legal documents, and shared homepage sections.
+        ->and(count(DB::getQueryLog()))->toBe(4);
 });

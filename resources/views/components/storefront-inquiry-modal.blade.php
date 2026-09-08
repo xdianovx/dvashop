@@ -14,9 +14,7 @@
             'product_context' => (int) $productId,
         ])
         : route('storefront.inquiries.store');
-    $privacyPolicyUrl = collect(($storefront ?? null)?->legalDocuments ?? [])
-        ->first(fn ($document) => $document->url === route('legal.privacy-policy'))
-        ?->url;
+    $privacyPolicyUrl = ($storefront ?? null)?->legalDocumentUrls['privacy_policy'] ?? null;
 @endphp
 
 <div

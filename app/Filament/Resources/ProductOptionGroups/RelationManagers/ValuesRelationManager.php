@@ -10,7 +10,6 @@ use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
-use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -35,8 +34,14 @@ class ValuesRelationManager extends RelationManager
                 ->label('Slug')
                 ->required()
                 ->maxLength(255)
-                ->helperText('После использования значения slug и code изменить нельзя.'),
-            TextInput::make('code')->label('Code')->maxLength(255)->nullable(),
+                ->readOnly(fn (?ProductOptionValue $record): bool => $record !== null && app(ProductOptionAdminService::class)->valueIsUsed($record))
+                ->helperText('Slug нельзя изменить после использования в шаблонах или вариантах.'),
+            TextInput::make('code')
+                ->label('Code')
+                ->readOnly(fn (?ProductOptionValue $record): bool => $record !== null && app(ProductOptionAdminService::class)->valueIsUsed($record))
+                ->helperText('Code нельзя изменить после использования в шаблонах или вариантах.')
+                ->maxLength(255)
+                ->nullable(),
             TextInput::make('position')
                 ->label('Позиция')
                 ->numeric()
@@ -46,7 +51,6 @@ class ValuesRelationManager extends RelationManager
                 ->required(),
             Toggle::make('is_default')->label('По умолчанию')->default(false),
             Toggle::make('is_active')->label('Активно')->default(true),
-            Textarea::make('description')->label('Описание')->rows(3)->columnSpanFull(),
         ])->columns(2);
     }
 

@@ -81,7 +81,7 @@
                     <button type="submit" class="btn checkout-order__submit">Оформить заказ</button>
                     <label class="checkout-order__agree">
                         <input type="checkbox" name="agree_terms" value="1" @checked(old('agree_terms')) required><span class="checkout-order__agree-box"></span>
-                        <span class="checkout-order__agree-text">Я согласен на обработку персональных данных и принимаю <a href="{{ route('legal.privacy-policy') }}">политику конфиденциальности</a>.</span>
+                        <span class="checkout-order__agree-text">Я согласен на обработку персональных данных и принимаю <a href="{{ $storefront->legalDocumentUrls['privacy_policy'] ?? route('legal.privacy-policy') }}">политику конфиденциальности</a>.</span>
                     </label>
                 </aside>
             </form>

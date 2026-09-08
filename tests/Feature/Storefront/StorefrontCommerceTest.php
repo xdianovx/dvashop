@@ -272,7 +272,11 @@ test('product gallery falls back to real part type and generic category default 
 });
 
 test('cart HTTP flow uses snapshots ownership forms and stock status', function (): void {
-    $variant = ProductVariant::factory()->default()->create(['stock_status' => StockStatus::InStock, 'stock_quantity' => 2]);
+    $variant = ProductVariant::factory()->default()->create([
+        'title' => 'Усиленная версия',
+        'stock_status' => StockStatus::InStock,
+        'stock_quantity' => 2,
+    ]);
     $cart = Cart::factory()->create();
 
     $this->withCookie(CartManager::COOKIE_NAME, $cart->token)
@@ -282,7 +286,8 @@ test('cart HTTP flow uses snapshots ownership forms and stock status', function 
     $item = $cart->items()->firstOrFail();
     $this->withCookie(CartManager::COOKIE_NAME, $cart->token)->get(route('cart.show'))
         ->assertOk()
-        ->assertSee($item->title_snapshot)
+        ->assertSee('class="cart-item__name">'.$variant->product->title.'<', false)
+        ->assertDontSee($item->title_snapshot)
         ->assertSee(route('cart.items.update', $item), false)
         ->assertSee(route('cart.items.destroy', $item), false);
 

@@ -59,6 +59,10 @@ class CartItem extends Model
 
     public function storefrontTitle(): string
     {
+        if ($this->product instanceof Product) {
+            return (string) $this->product->title;
+        }
+
         $title = (string) $this->title_snapshot;
         $summary = $this->optionSummary();
         $suffix = ' — '.$summary;
@@ -69,22 +73,6 @@ class CartItem extends Model
 
             if (filled($baseTitle)) {
                 return $baseTitle;
-            }
-        }
-
-        // A matching live title may identify the original prefix, but must never
-        // replace a renamed snapshot. Compare only its saved option suffix.
-        $productTitle = $this->product?->title;
-        $prefix = $productTitle.' — ';
-
-        if ($summary !== '' && filled($productTitle) && str_starts_with($title, $prefix)) {
-            $savedOptions = explode('; ', $summary);
-            $titleOptions = explode('; ', substr($title, strlen($prefix)));
-            sort($savedOptions, SORT_STRING);
-            sort($titleOptions, SORT_STRING);
-
-            if ($titleOptions === $savedOptions) {
-                return substr($title, 0, strlen($productTitle));
             }
         }
 

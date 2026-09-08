@@ -3,7 +3,6 @@
 @php
     $aboutLinks = [
         ...($storefront?->navigationFor(\App\Enums\NavigationZone::FooterAbout) ?? []),
-        ...($storefront?->navigationFor(\App\Enums\NavigationZone::FooterDocuments) ?? []),
     ];
     $legalDocuments = $storefront?->legalDocuments ?? [];
     $socialIcons = ['vk' => '/img/icons/vk.svg', 'telegram' => '/img/icons/tg.svg', 'max' => '/img/icons/max.svg'];
@@ -53,7 +52,7 @@
                 @endif
 
                 @if ($storefront?->phoneUrl || $storefront?->emailUrl || $socials !== [] || $storefront?->workHours)
-                    <div class="footer__col">
+                    <div class="footer__col" id="footer-contacts">
                         <h3 class="footer__heading">Контакты</h3>
                         @if ($storefront?->phoneUrl && $storefront?->phoneDisplay)
                             <a href="{{ $storefront->phoneUrl }}" class="footer__contact">

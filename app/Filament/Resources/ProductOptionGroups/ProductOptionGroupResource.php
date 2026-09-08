@@ -16,7 +16,6 @@ use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
@@ -70,9 +69,12 @@ class ProductOptionGroupResource extends Resource
                 ->required()
                 ->maxLength(255)
                 ->unique(ignoreRecord: true)
-                ->helperText('После использования группы slug и code изменить нельзя.'),
+                ->readOnly(fn (?ProductOptionGroup $record): bool => $record !== null && app(ProductOptionAdminService::class)->groupIsUsed($record))
+                ->helperText('Slug нельзя изменить после использования в шаблонах или вариантах.'),
             TextInput::make('code')
                 ->label('Code')
+                ->readOnly(fn (?ProductOptionGroup $record): bool => $record !== null && app(ProductOptionAdminService::class)->groupIsUsed($record))
+                ->helperText('Code нельзя изменить после использования в шаблонах или вариантах.')
                 ->maxLength(255)
                 ->unique(ignoreRecord: true)
                 ->nullable(),
@@ -99,10 +101,6 @@ class ProductOptionGroupResource extends Resource
             Toggle::make('is_active')
                 ->label('Активна')
                 ->default(true),
-            Textarea::make('description')
-                ->label('Описание')
-                ->rows(4)
-                ->columnSpanFull(),
         ])->columns(2);
     }
 

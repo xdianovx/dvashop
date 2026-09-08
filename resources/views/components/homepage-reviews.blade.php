@@ -1,6 +1,6 @@
 @props(['title' => 'Отзывы клиентов'])
 
-<section class="homepage-reviews section" aria-labelledby="homepage-reviews-title">
+<section id="homepage-reviews" class="homepage-reviews section" aria-labelledby="homepage-reviews-title">
     <div class="container">
         <x-section-heading id="homepage-reviews-title" :title="$title ?: 'Отзывы клиентов'" />
         <review-lab data-widgetid="69984c4658896b169079008c"></review-lab>

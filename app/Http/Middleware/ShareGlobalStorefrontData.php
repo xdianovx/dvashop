@@ -39,6 +39,9 @@ final class ShareGlobalStorefrontData
         if ($request->isMethodSafe()
             && is_string($routeName)
             && $this->usesStorefrontLayout($routeName)) {
+            // Keep the shared snapshot within this HTTP request, including
+            // applications that serve several requests in the same container.
+            app()->forgetInstance(GlobalStorefrontData::class);
             $favorites = $this->favoritesManager->summaryForRequest($request);
 
             View::share('storefront', app(GlobalStorefrontData::class));

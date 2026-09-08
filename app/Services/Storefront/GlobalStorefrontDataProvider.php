@@ -4,6 +4,7 @@ namespace App\Services\Storefront;
 
 use App\Enums\LegalDocumentCode;
 use App\Enums\NavigationZone;
+use App\Models\HomepageSection;
 use App\Models\LegalDocument;
 use App\Models\ShopSetting;
 use App\Models\SiteNavigationItem;
@@ -14,7 +15,6 @@ final readonly class GlobalStorefrontDataProvider
 {
     public function __construct(
         private StorefrontDestinationResolver $destinations,
-        private LegalDocumentRouteMap $legalRoutes,
     ) {}
 
     public function load(): GlobalStorefrontData
@@ -45,6 +45,7 @@ final readonly class GlobalStorefrontDataProvider
 
         $items = SiteNavigationItem::query()
             ->where('is_active', true)
+            ->where('zone', '!=', NavigationZone::FooterDocuments->value)
             ->ordered()
             ->get([
                 'zone',
@@ -71,39 +72,18 @@ final readonly class GlobalStorefrontDataProvider
             $navigation[$item->zone->value][] = $link;
         }
 
-        if ($navigation[NavigationZone::Mobile->value] === []) {
-            $fallbackMobileLinks = [
-                ...$navigation[NavigationZone::HeaderMain->value],
-                ...$navigation[NavigationZone::HeaderTop->value],
-                ...$navigation[NavigationZone::FooterAbout->value],
-                ...$navigation[NavigationZone::FooterDocuments->value],
-            ];
-            $seenUrls = [];
-
-            foreach ($fallbackMobileLinks as $link) {
-                if (isset($seenUrls[$link->url])) {
-                    continue;
-                }
-
-                $seenUrls[$link->url] = true;
-                $navigation[NavigationZone::Mobile->value][] = $link;
-            }
-        }
-
         $legalDocuments = LegalDocument::query()
             ->whereIn('code', array_map(fn ($code): string => $code->value, LegalDocumentCode::cases()))
-            ->where('is_active', true)
-            ->whereNotNull('body')
-            ->where('body', '!=', '')
+            ->published()
             ->orderBy('id')
-            ->get(['code', 'title'])
-            ->map(function (LegalDocument $document): StorefrontLinkData {
-                return new StorefrontLinkData(
+            ->get(['code', 'title', 'body', 'is_active', 'content_type', 'pdf_path'])
+            ->filter(fn (LegalDocument $document): bool => $document->publicDestination() !== null)
+            ->mapWithKeys(function (LegalDocument $document): array {
+                return [$document->code->value => new StorefrontLinkData(
                     title: $document->title,
-                    url: $this->legalRoutes->url($document->code),
-                );
+                    url: $document->publicDestination(),
+                )];
             })
-            ->values()
             ->all();
 
         $phoneDisplay = $this->nullable($settings?->phone_display);
@@ -155,9 +135,14 @@ final readonly class GlobalStorefrontDataProvider
             footerCopyright: $this->nullable($settings?->footer_copyright),
             footerDisclaimer: $this->nullable($settings?->footer_disclaimer),
             navigation: $navigation,
-            legalDocuments: $legalDocuments,
+            legalDocuments: array_values($legalDocuments),
+            legalDocumentUrls: array_map(fn (StorefrontLinkData $link): string => $link->url, $legalDocuments),
             socials: $socials,
             requisites: $requisites,
+            homepageSections: HomepageSection::query()->active()->ordered()->get(['code', 'title'])
+                ->mapWithKeys(fn (HomepageSection $section): array => [
+                    $section->code->value => ['title' => app(StorefrontTextPresenter::class)->plain($section->title)],
+                ])->all(),
         );
     }
 

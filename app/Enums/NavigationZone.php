@@ -25,6 +25,7 @@ enum NavigationZone: string
     public static function options(): array
     {
         return collect(self::cases())
+            ->reject(fn (self $zone): bool => $zone === self::FooterDocuments)
             ->mapWithKeys(fn (self $zone): array => [$zone->value => $zone->label()])
             ->all();
     }

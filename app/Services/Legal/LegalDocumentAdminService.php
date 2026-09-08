@@ -4,6 +4,7 @@ namespace App\Services\Legal;
 
 use App\Enums\AdminPermission;
 use App\Enums\LegalDocumentCode;
+use App\Enums\LegalDocumentContentType;
 use App\Models\LegalDocument;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -54,10 +55,29 @@ class LegalDocumentAdminService
                     '_label' => $code->label(),
                     'title' => $document->title,
                     'body' => $document->body,
+                    'content_type' => $document->content_type->value,
+                    'pdf_path' => $document->pdf_path,
                     'is_active' => $document->is_active,
                 ];
             }, LegalDocumentCode::cases()),
         ];
+    }
+
+    /** @param array<string, mixed> $data */
+    public function validateFormPayload(array $data): void
+    {
+        $this->rejectUnexpected($data, ['documents'], 'data');
+        $rows = $data['documents'] ?? null;
+        if (! is_array($rows) || count($rows) !== count(LegalDocumentCode::cases())) {
+            throw ValidationException::withMessages(['documents' => 'Форма должна содержать ровно четыре системных документа.']);
+        }
+
+        foreach ($rows as $key => $row) {
+            if (! is_array($row)) {
+                throw ValidationException::withMessages(["documents.{$key}" => 'Данные документа должны быть массивом.']);
+            }
+            $this->rejectUnexpected($row, ['id', '_label', 'title', 'body', 'is_active', 'content_type', 'pdf_path'], "documents.{$key}");
+        }
     }
 
     /** @param array<string, mixed> $data */
@@ -90,7 +110,7 @@ class LegalDocumentAdminService
                     throw ValidationException::withMessages(["documents.{$index}" => 'Данные документа должны быть массивом.']);
                 }
 
-                $this->rejectUnexpected($row, ['id', 'title', 'body', 'is_active'], "documents.{$index}");
+                $this->rejectUnexpected($row, ['id', 'title', 'body', 'is_active', 'content_type', 'pdf_path'], "documents.{$index}");
                 $id = filter_var($row['id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
 
                 if ($id === false || isset($seen[$id]) || ! $byId->has($id)) {
@@ -100,6 +120,21 @@ class LegalDocumentAdminService
 
                 /** @var LegalDocument $document */
                 $document = $byId->get($id);
+                $contentType = $row['content_type'] ?? $document->content_type->value;
+                $pdfPath = $document->pdf_path;
+                if ($contentType === LegalDocumentContentType::Pdf->value) {
+                    try {
+                        $pdfPath = app(LegalDocumentPdfStorage::class)->store(
+                            $row['pdf_path'] ?? null, $document, (bool) ($row['is_active'] ?? false),
+                        );
+                    } catch (ValidationException $exception) {
+                        throw ValidationException::withMessages([
+                            "documents.{$index}.pdf_path" => collect($exception->errors())->flatten()->all(),
+                        ]);
+                    }
+                    // Preserve the page body for a later switch back to Page.
+                    $row['body'] = $document->body;
+                }
                 try {
                     $body = is_string($row['body'] ?? null)
                         ? $this->sanitizer->sanitize($row['body'])
@@ -112,6 +147,7 @@ class LegalDocumentAdminService
 
                 $candidate = [
                     'code' => $document->code->value,
+                    'content_type' => $contentType,
                     'title' => is_string($row['title'] ?? null) ? trim($row['title']) : $row['title'] ?? null,
                     'body' => $body,
                     'is_active' => $row['is_active'] ?? null,
@@ -124,19 +160,26 @@ class LegalDocumentAdminService
                     }
                 };
 
-                $validated = Validator::make($candidate, [
-                    'code' => ['required', Rule::enum(LegalDocumentCode::class)],
-                    'title' => ['required', 'string', 'max:255', $plainText],
-                    'body' => ['nullable', 'string', 'max:60000'],
-                    'is_active' => ['required', 'boolean'],
-                ], [
-                    'required' => 'Поле «:attribute» обязательно.',
-                    'string' => 'Поле «:attribute» должно быть строкой.',
-                    'max' => 'Поле «:attribute» слишком длинное.',
-                    'boolean' => 'Поле «:attribute» должно быть логическим значением.',
-                ])->validate();
+                try {
+                    $validated = Validator::make($candidate, [
+                        'code' => ['required', Rule::enum(LegalDocumentCode::class)],
+                        'content_type' => ['required', Rule::enum(LegalDocumentContentType::class)],
+                        'title' => ['required', 'string', 'max:255', $plainText],
+                        'body' => ['nullable', 'string', 'max:60000'],
+                        'is_active' => ['required', 'boolean'],
+                    ], [
+                        'required' => 'Поле «:attribute» обязательно.',
+                        'string' => 'Поле «:attribute» должно быть строкой.',
+                        'max' => 'Поле «:attribute» слишком длинное.',
+                        'boolean' => 'Поле «:attribute» должно быть логическим значением.',
+                    ])->validate();
+                } catch (ValidationException $exception) {
+                    throw ValidationException::withMessages(collect($exception->errors())
+                        ->mapWithKeys(fn (array $messages, string $field): array => ["documents.{$index}.{$field}" => $messages])->all());
+                }
+                $validated['pdf_path'] = $contentType === LegalDocumentContentType::Pdf->value ? $pdfPath : null;
 
-                if ($validated['body'] === null) {
+                if ($contentType === LegalDocumentContentType::Page->value && $validated['body'] === null) {
                     $validated['is_active'] = false;
                 }
 
