@@ -79,7 +79,6 @@
                         <span class="checkout-order__total-value" data-checkout-total data-checkout-subtotal="{{ number_format((float) $totals['total'], 2, '.', '') }}">{{ number_format($totals['total'], 0, ',', ' ') }} ₽</span>
                     </div>
                     <button type="submit" class="btn checkout-order__submit">Оформить заказ</button>
-                    <a href="#storefront-inquiry" class="btn checkout-order__one-click" data-inquiry-open>Заказать в 1 клик</a>
                     <label class="checkout-order__agree">
                         <input type="checkbox" name="agree_terms" value="1" @checked(old('agree_terms')) required><span class="checkout-order__agree-box"></span>
                         <span class="checkout-order__agree-text">Я согласен на обработку персональных данных и принимаю <a href="{{ route('legal.privacy-policy') }}">политику конфиденциальности</a>.</span>
