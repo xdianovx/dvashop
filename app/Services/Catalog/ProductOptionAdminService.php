@@ -418,12 +418,12 @@ final class ProductOptionAdminService
             || (string) ($record->code ?? '') !== (string) ($data['code'] ?? '');
     }
 
-    private function groupIsUsed(ProductOptionGroup $group): bool
+    public function groupIsUsed(ProductOptionGroup $group): bool
     {
         return $group->templateItems()->exists() || $group->variantOptionValues()->exists();
     }
 
-    private function valueIsUsed(ProductOptionValue $value): bool
+    public function valueIsUsed(ProductOptionValue $value): bool
     {
         return $value->templateItems()->exists() || $value->variantOptionValues()->exists();
     }

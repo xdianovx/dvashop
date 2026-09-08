@@ -154,27 +154,41 @@ test('checkout title loading does not add a product query for each cart item', f
     expect($countQueries())->toBeLessThanOrEqual($one + 2);
 });
 
-test('renaming a product preserves the original cart and checkout base title and options', function (): void {
+test('renaming a product updates cart and checkout headings while preserving snapshots', function (): void {
     [$cart, $item, $product, , , $summary] = titlePresentationFixture('Старое название');
     $before = $item->getAttributes();
     $product->update(['title' => 'Новое название']);
 
     foreach (['cart.show' => 'cart-item', 'checkout.show' => 'checkout-order'] as $route => $class) {
         $this->withCookie(CartManager::COOKIE_NAME, $cart->token)->get(route($route))->assertOk()
-            ->assertSee('class="'.$class.'__name">Старое название<', false)
+            ->assertSee('class="'.$class.'__name">Новое название<', false)
             ->assertSee('class="'.$class.'__opts">'.$summary.'</p>', false)
-            ->assertDontSee('Новое название');
+            ->assertDontSee('Старое название');
     }
     expect($item->refresh()->getAttributes())->toBe($before);
 });
 
-test('live product is only a prefix hint and cannot replace unverified snapshot text', function (): void {
+test('live product title is authoritative regardless of snapshot text', function (): void {
     $item = new CartItem([
         'title_snapshot' => 'Порог — Комплект левый/правый',
         'options_snapshot' => ['Материал' => 'Сталь'],
     ]);
     $item->setRelation('product', new Product(['title' => 'Порог']));
-    expect($item->storefrontTitle())->toBe('Порог — Комплект левый/правый');
+    expect($item->storefrontTitle())->toBe('Порог');
     $item->setRelation('product', new Product(['title' => 'Новое название']));
-    expect($item->storefrontTitle())->toBe('Порог — Комплект левый/правый');
+    expect($item->storefrontTitle())->toBe('Новое название');
+});
+
+test('stale variant title never appears in cart or checkout heading after option rename', function (): void {
+    [$cart, $item, $product, $variant] = titlePresentationFixture('Порог для Acura');
+    $variant->update(['title' => 'Профиль: Полный']);
+    $item->update(['title_snapshot' => 'Порог для Acura — Профиль: Полный', 'options_snapshot' => ['Профиль' => 'Увеличенный']]);
+    $before = $item->getAttributes();
+    foreach (['cart.show' => 'cart-item', 'checkout.show' => 'checkout-order'] as $route => $class) {
+        $this->withCookie(CartManager::COOKIE_NAME, $cart->token)->get(route($route))->assertOk()
+            ->assertSee('class="'.$class.'__name">Порог для Acura<', false)
+            ->assertSee('class="'.$class.'__opts">Профиль: Увеличенный</p>', false)
+            ->assertDontSee('Профиль: Полный');
+    }
+    expect($item->refresh()->getAttributes())->toBe($before);
 });

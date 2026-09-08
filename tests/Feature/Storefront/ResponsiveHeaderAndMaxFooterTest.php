@@ -43,12 +43,24 @@ function assertResponsiveHeaderContract(GlobalStorefrontData $data): array
         'rel' => $link->openInNewTab ? 'noopener noreferrer' : '',
     ], [...$data->navigationFor(NavigationZone::HeaderTop), ...$data->navigationFor(NavigationZone::HeaderMain)]);
 
-    expect($desktop)->toBe($expected)->and($mobile)->toBe($expected);
+    $configuredDesktopCount = count($expected);
+    if (isset($data->homepageSections['reviews'])) {
+        $expected[] = ['title' => 'Отзывы', 'url' => route('home').'#homepage-reviews', 'target' => '', 'rel' => ''];
+    }
+    if ($data->phoneUrl || $data->emailUrl || $data->socials !== [] || $data->workHours) {
+        $expected[] = ['title' => 'Контакты', 'url' => route('home').'#footer-contacts', 'target' => '', 'rel' => ''];
+    }
+    $expectedMobile = array_map(fn ($link): array => [
+        'title' => $link->title, 'url' => $link->url,
+        'target' => $link->openInNewTab ? '_blank' : '',
+        'rel' => $link->openInNewTab ? 'noopener noreferrer' : '',
+    ], $data->navigationFor(NavigationZone::Mobile));
+    expect($desktop)->toBe($expected)->and($mobile)->toBe($expectedMobile);
 
-    return $mobile;
+    return array_slice($desktop, 0, $configuredDesktopCount);
 }
 
-test('responsive header follows admin header edits and ignores separate mobile and footer records', function (): void {
+test('desktop follows header edits while burger follows its independent mobile zone', function (): void {
     $admin = User::factory()->admin()->create();
     $service = app(SiteNavigationAdminService::class);
     $top = $service->create($admin, [
@@ -110,7 +122,7 @@ test('header and both footers share global data without extra breakpoint queries
     try {
         $data = app(GlobalStorefrontData::class);
         $queries = DB::getQueryLog();
-        expect(count($queries))->toBe(3);
+        expect(count($queries))->toBe(4);
         assertResponsiveHeaderContract($data);
         Blade::render('<x-footer :storefront="$data" />', ['data' => $data]);
         expect(DB::getQueryLog())->toBe($queries)
@@ -157,9 +169,9 @@ test('empty or unsafe stored MAX never appears in the footer', function (?string
     expect($html)->not->toContain('aria-label="MAX"', '/img/icons/max.svg');
 })->with([null, '', 'javascript:alert(1)', '//example.test/shop']);
 
-test('burger template has no separate mobile zone or hardcoded information destinations', function (): void {
+test('burger template uses mobile zone and has no hardcoded information destinations', function (): void {
     $source = file_get_contents(resource_path('views/components/mobile-menu.blade.php'));
-    expect($source)->not->toContain('NavigationZone::Mobile');
+    expect($source)->toContain('NavigationZone::Mobile')->not->toContain('NavigationZone::HeaderTop', 'NavigationZone::HeaderMain');
     foreach (['about', 'how', 'partners', 'payment', 'faq'] as $page) {
         expect($source)->not->toContain("route('{$page}')", 'href="/'.$page.'"');
     }

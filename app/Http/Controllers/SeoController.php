@@ -8,7 +8,6 @@ use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Models\VehicleModel;
 use App\Services\PublicVehicleCatalogVisibility;
-use App\Services\Storefront\LegalDocumentRouteMap;
 use App\Services\StorefrontProductAvailability;
 use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
@@ -19,7 +18,6 @@ class SeoController extends Controller
     public function __construct(
         private readonly StorefrontProductAvailability $availability,
         private readonly PublicVehicleCatalogVisibility $vehicleVisibility,
-        private readonly LegalDocumentRouteMap $legalRoutes,
     ) {}
 
     public function robots(): Response
@@ -136,13 +134,12 @@ class SeoController extends Controller
     private function legalDocumentUrls(): Collection
     {
         return LegalDocument::query()
-            ->where('is_active', true)
-            ->whereNotNull('body')
-            ->where('body', '!=', '')
+            ->published()
             ->orderBy('id')
-            ->get(['code', 'updated_at'])
+            ->get(['code', 'updated_at', 'body', 'content_type', 'pdf_path', 'is_active'])
+            ->filter(fn (LegalDocument $document): bool => $document->publicDestination() !== null)
             ->map(fn (LegalDocument $document): array => $this->url(
-                $this->legalRoutes->url($document->code),
+                $document->publicDestination(),
                 $document->updated_at,
                 'monthly',
                 '0.5',

@@ -3,6 +3,13 @@
 @php
     $topLinks = $storefront?->navigationFor(\App\Enums\NavigationZone::HeaderTop) ?? [];
     $mainLinks = $storefront?->navigationFor(\App\Enums\NavigationZone::HeaderMain) ?? [];
+    $homeAnchor = request()->routeIs('home') ? '' : route('home');
+    if (isset($storefront?->homepageSections['reviews'])) {
+        $mainLinks[] = new \App\ViewData\Storefront\StorefrontLinkData('Отзывы', $homeAnchor.'#homepage-reviews');
+    }
+    if ($storefront?->phoneUrl || $storefront?->emailUrl || ($storefront?->socials ?? []) !== [] || $storefront?->workHours) {
+        $mainLinks[] = new \App\ViewData\Storefront\StorefrontLinkData('Контакты', $homeAnchor.'#footer-contacts');
+    }
 @endphp
 
 <header class="header">

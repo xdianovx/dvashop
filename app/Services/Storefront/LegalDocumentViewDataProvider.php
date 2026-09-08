@@ -18,9 +18,9 @@ final readonly class LegalDocumentViewDataProvider
         private LegalRichContentSanitizer $richContent,
     ) {}
 
-    public function load(LegalDocumentCode $code): LegalDocumentViewData
+    public function load(LegalDocumentCode $code, ?LegalDocument $document = null): LegalDocumentViewData
     {
-        $document = LegalDocument::query()
+        $document ??= LegalDocument::query()
             ->where('code', $code->value)
             ->where('is_active', true)
             ->whereNotNull('body')

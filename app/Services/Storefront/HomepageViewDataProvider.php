@@ -7,7 +7,6 @@ use App\Enums\HomepageMetricCode;
 use App\Enums\HomepageStoryMediaType;
 use App\Enums\NavigationLinkType;
 use App\Models\HomepageMetric;
-use App\Models\HomepageSection;
 use App\Models\HomepageStoryGroup;
 use App\Models\HomepageStoryItem;
 use App\Models\VehicleMake;
@@ -29,14 +28,7 @@ final readonly class HomepageViewDataProvider
 
     public function load(): HomepageViewData
     {
-        $sections = HomepageSection::query()
-            ->active()
-            ->ordered()
-            ->get(['code', 'title'])
-            ->mapWithKeys(fn (HomepageSection $section): array => [
-                $section->code->value => ['title' => $this->text->plain($section->title)],
-            ])
-            ->all();
+        $sections = $this->global->homepageSections;
 
         $stories = HomepageStoryGroup::query()
             ->active()

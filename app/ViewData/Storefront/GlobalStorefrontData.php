@@ -11,6 +11,8 @@ final readonly class GlobalStorefrontData
      * @param  list<StorefrontLinkData>  $legalDocuments
      * @param  list<array{code:string,label:string,url:string}>  $socials
      * @param  list<array{label:string,value:string}>  $requisites
+     * @param  array<string, array{title:?string}>  $homepageSections
+     * @param  array<string, string>  $legalDocumentUrls
      */
     public function __construct(
         public string $storeName,
@@ -30,6 +32,8 @@ final readonly class GlobalStorefrontData
         public array $legalDocuments,
         public array $socials,
         public array $requisites,
+        public array $homepageSections = [],
+        public array $legalDocumentUrls = [],
     ) {}
 
     /** @return list<StorefrontLinkData> */

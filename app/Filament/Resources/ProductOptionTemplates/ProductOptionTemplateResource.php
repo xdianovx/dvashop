@@ -112,6 +112,8 @@ class ProductOptionTemplateResource extends Resource
                 ->schema([
                     Repeater::make('template_items')
                         ->label('Группы и значения')
+                        ->required(fn (Get $get): bool => (bool) $get('is_active'))
+                        ->minItems(fn (Get $get): int => $get('is_active') ? 1 : 0)
                         ->schema([
                             Select::make('product_option_group_id')
                                 ->label('Группа')
@@ -134,7 +136,9 @@ class ProductOptionTemplateResource extends Resource
                                 ->preload()
                                 ->live()
                                 ->required()
-                                ->disabled(fn (Get $get): bool => blank($get('product_option_group_id'))),
+                                ->disabled(fn (Get $get): bool => blank($get('product_option_group_id')))
+                                ->dehydrated()
+                                ->validatedWhenNotDehydrated(),
                             TextInput::make('position')
                                 ->label('Позиция')
                                 ->numeric()

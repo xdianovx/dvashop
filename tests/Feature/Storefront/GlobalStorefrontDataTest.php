@@ -33,7 +33,7 @@ test('global storefront data is safe immutable and loaded once per request scope
     $queries = DB::getQueryLog();
 
     expect($first)->toBe($second)
-        ->and(count($queries))->toBeLessThanOrEqual(3)
+        ->and(count($queries))->toBe(4)
         ->and($first->phoneDisplay)->toBe('8 800 100 56 25')
         ->and($first->phoneUrl)->toBe('tel:+78001005625')
         ->and($first->publicEmail)->toBeNull()
