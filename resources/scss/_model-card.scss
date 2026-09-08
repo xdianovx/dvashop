@@ -20,6 +20,11 @@
 .model-card__thumb img {
     width: 100%;
     height: 100%;
+    object-fit: cover;
+}
+
+// The shared placeholder is a small square icon — it must not be blown up.
+.model-card__thumb img[src$="/img/placeholders/image.svg"] {
     object-fit: contain;
 }
 
