@@ -7,10 +7,13 @@
             <h1 class="brand-page__title">{{ $seoH1 ?? 'Модели автомобилей '.$make->title }}</h1>
             <h2 class="brand-page__subtitle">Выберите модель</h2>
             <form class="brand-page__search" action="{{ route('catalog.index') }}" method="get">
-                <input type="search" class="brand-page__search-input" placeholder="Поиск по каталогу" name="q">
+                <input type="search" class="brand-page__search-input" placeholder="Введите марку, модель, товар или артикул" name="q">
                 <button type="submit" class="btn btn--primary brand-page__search-submit">Показать</button>
                 <button type="submit" class="brand-page__search-icon" aria-label="Найти">
-                    <img src="/img/brand-page/search.svg" alt="" aria-hidden="true">
+                    <svg viewBox="0 0 42 42" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="18" cy="18" r="14" />
+                        <path d="M38 38 L28 28" />
+                    </svg>
                 </button>
             </form>
             <ul class="model-grid brand-page__grid">
