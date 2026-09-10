@@ -16,9 +16,7 @@
         padding: 0 40px;
         padding-bottom: env(safe-area-inset-bottom);
         box-sizing: content-box;
-        background-color: rgba(255, 255, 255, 0.91);
-        backdrop-filter: blur(17.25px);
-        -webkit-backdrop-filter: blur(17.25px);
+        background-color: var(--color-primary);
         box-shadow: 0 0 3.4px 0 rgba(0, 0, 0, 0.25);
     }
 
@@ -38,17 +36,16 @@
     width: 22px;
     height: 22px;
     object-fit: contain;
+    // Icons ship as dark SVG files — repaint them white for the blue bar.
+    filter: brightness(0) invert(1);
 }
 
-.mobile-nav__label {
+.mobile-nav__label,
+.mobile-nav__label--ink {
     font-family: 'Gilroy', system-ui, sans-serif;
     font-weight: var(--fw-semibold);
     font-size: 12px;
     line-height: 10px;
     text-align: center;
-    color: var(--color-primary-dark);
-}
-
-.mobile-nav__label--ink {
-    color: var(--color-ink);
+    color: var(--color-on-dark);
 }
