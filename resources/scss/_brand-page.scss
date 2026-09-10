@@ -98,9 +98,7 @@
 }
 
 @media (max-width: 768px) {
-    .brand-page {
-        margin-top: 12px;
-    }
+    .brand-page {}
 
     .brand-page__title {
         display: none;
@@ -141,19 +139,20 @@
         box-shadow: -1px 0 2.7px rgba(23, 80, 183, 0.66);
     }
 
+    // Same pill as the catalog search on mobile (.catalog-search__form).
     .brand-page__search {
         order: 3;
-        height: 39px;
+        height: 46px;
         margin-top: 10px;
-        border-radius: 47px;
-        box-shadow: 0 2px 1.75px rgba(0, 0, 0, 0.11);
+        padding: 4px 4px 4px 20px;
+        box-shadow: none;
     }
 
     .brand-page__search-input {
-        padding: 0 44px 0 14px;
-        font-family: 'Golos Text', system-ui, sans-serif;
-        font-size: 8px;
-        color: #a1a1a1;
+        padding: 0;
+        font-family: var(--font-body);
+        font-size: var(--fs-base);
+        color: var(--color-ink);
     }
 
     .brand-page__search-submit {
@@ -163,15 +162,17 @@
     .brand-page__search-icon {
         display: flex;
         align-items: center;
-        position: absolute;
-        right: 14px;
-        top: 50%;
-        transform: translateY(-50%);
+        justify-content: center;
+        position: static;
+        transform: none;
+        padding: 8px;
+        background-color: transparent;
+        color: var(--color-primary-dark);
     }
 
     .brand-page__search-icon img {
-        width: 17px;
-        height: 17px;
+        width: 24px;
+        height: 24px;
     }
 
     .brand-page__grid {
