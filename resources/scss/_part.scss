@@ -70,11 +70,18 @@
 }
 
 .part-gallery__fav.favorite-toggle--active {
-    background-color: rgba(31, 79, 191, 0.16);
+    background-color: transparent;
 }
 
+// Active state is the red heart alone — no plate behind it. The source SVG
+// draws itself at 50% opacity, so stacked zero-offset shadows bring the red
+// back to full strength without a second icon file.
 .part-gallery__fav.favorite-toggle--active img {
-    filter: brightness(0) saturate(100%) invert(29%) sepia(95%) saturate(1254%) hue-rotate(197deg) brightness(86%) contrast(94%);
+    filter:
+        brightness(0) saturate(100%) invert(15%) sepia(88%) saturate(6449%) hue-rotate(2deg) brightness(105%) contrast(115%)
+        drop-shadow(0 0 0 var(--color-danger))
+        drop-shadow(0 0 0 var(--color-danger))
+        drop-shadow(0 0 0 var(--color-danger));
 }
 
 .part-gallery__fav[aria-busy='true'] {
