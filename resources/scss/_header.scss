@@ -9,7 +9,7 @@
 
 .header__top-inner {
     display: flex;
-    justify-content: flex-start;
+    justify-content: center;
 }
 
 .header__utils {
@@ -89,6 +89,7 @@
 
     font-size: var(--fs-lg);
     color: var(--color-ink);
+    font-weight: 500;
 }
 
 .header__nav-link:hover {
@@ -207,12 +208,21 @@
 }
 
 @keyframes header-cart-badge-pulse {
-    0% { transform: scale(1); }
-    45% { transform: scale(1.35); }
-    100% { transform: scale(1); }
+    0% {
+        transform: scale(1);
+    }
+
+    45% {
+        transform: scale(1.35);
+    }
+
+    100% {
+        transform: scale(1);
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .header__favorites-badge--pulse,
     .header__cart-badge--pulse {
         animation: none;
