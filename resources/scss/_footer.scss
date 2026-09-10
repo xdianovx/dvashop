@@ -238,6 +238,11 @@
     justify-content: center;
     gap: 5px;
     margin-top: 0;
+
+    @media screen and (max-width: 768px) {
+        gap: 12px;
+        margin-top: 8px;
+    }
 }
 
 .footer__socials--center .footer__social {
@@ -262,7 +267,7 @@
     }
 
     .footer__link {
-        font-size: 10px;
+        font-size: 12px;
         line-height: 1.2;
     }
 
