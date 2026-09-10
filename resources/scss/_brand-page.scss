@@ -8,10 +8,15 @@
 }
 
 // The shared breadcrumbs component adds its own vertical margins; the design
-// measures 52px from the crumbs straight to the heading, so drop them here.
+// measures 52px from the crumbs straight to the heading, so only the top gap
+// below the header is kept here.
 .brand-page__crumbs .breadcrumbs {
-    margin-top: 0;
+    margin-top: 24px;
     margin-bottom: 0;
+
+    @media (max-width: 768px) {
+        margin-top: 16px;
+    }
 }
 
 .brand-page__title {
