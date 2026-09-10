@@ -1,11 +1,11 @@
 .footer {
     margin-top: var(--space-16);
     padding-block: 78px 80px;
+    background-color: var(--color-ink);
     color: var(--color-on-dark);
 
     @media (max-width: 900px) {
         padding: 16px 0 0 0;
-        background: #022253;
     }
 }
 
