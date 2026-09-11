@@ -62,7 +62,8 @@ test('commerce pages preserve approved classes assets and real form actions', fu
     foreach (['brand-page', 'brand-page__search-submit', 'brand-page__search-icon'] as $class) {
         $brand->assertSee($class, false);
     }
-    $brand->assertSee('/img/brand-page/search.svg', false)
+    $brand->assertSee('aria-label="Найти"', false)
+        ->assertSee('<svg viewBox="0 0 42 42"', false)
         ->assertSee('action="'.route('catalog.index').'"', false)
         ->assertDontSee('brand-page__filters', false);
 
