@@ -59,6 +59,7 @@ function createFieldChoices(select, searchPlaceholder) {
     try {
         return new Choices(select, {
             searchEnabled: true,
+            searchFields: ['label', 'customProperties.searchText'],
             searchPlaceholderValue: searchPlaceholder,
             searchResultLimit: 20,
             shouldSort: false,
@@ -160,7 +161,11 @@ document.querySelectorAll('[data-vehicle-search]').forEach((form) => {
     const fillModels = (models) => {
         if (modelChoices) {
             modelChoices.setChoices(
-                models.map((item) => ({ value: item.slug, label: item.title })),
+                models.map((item) => ({
+                    value: item.slug,
+                    label: item.title,
+                    customProperties: { searchText: (item.search_aliases || []).join(' ') },
+                })),
                 'value',
                 'label',
                 false,

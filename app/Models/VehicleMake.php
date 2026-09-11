@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\CatalogSearchable;
+use App\Models\Concerns\HasSearchAliases;
 use App\Services\Catalog\CatalogStructureAdminService;
 use App\Services\Media\ImageProcessingService;
 use App\Services\Media\MediaFileCleanupService;
@@ -20,6 +22,7 @@ use Throwable;
 
 #[Fillable([
     'title',
+    'search_aliases',
     'slug',
     'norm_key',
     'image',
@@ -39,8 +42,12 @@ use Throwable;
 ])]
 class VehicleMake extends Model
 {
+    use CatalogSearchable;
+
     /** @use HasFactory<VehicleMakeFactory> */
     use HasFactory, SoftDeletes;
+
+    use HasSearchAliases;
 
     public function save(array $options = []): bool
     {
@@ -140,6 +147,7 @@ class VehicleMake extends Model
     protected function casts(): array
     {
         return [
+            'search_aliases' => 'array',
             'is_active' => 'boolean',
             'position' => 'integer',
             'image_conversions' => 'array',

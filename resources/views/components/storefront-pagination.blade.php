@@ -1,6 +1,20 @@
 @props(['paginator'])
 
-@if ($paginator->hasPages())
+@if ($paginator instanceof \Illuminate\Contracts\Pagination\CursorPaginator)
+    @if ($paginator->hasPages())
+        <nav class="storefront-pagination" aria-label="Навигация по результатам поиска">
+            @if ($paginator->previousPageUrl())
+                <a class="storefront-pagination__control" href="{{ $paginator->previousPageUrl() }}" rel="prev">Назад</a>
+            @endif
+            @if ($paginator->scanLimited)
+                <span>Можно продолжить поиск или уточнить запрос.</span>
+            @endif
+            @if ($paginator->nextPageUrl())
+                <a class="storefront-pagination__control" href="{{ $paginator->nextPageUrl() }}" rel="next">{{ $paginator->scanLimited ? 'Искать дальше' : 'Вперёд' }}</a>
+            @endif
+        </nav>
+    @endif
+@elseif ($paginator->hasPages())
     @php
         $currentPage = $paginator->currentPage();
         $lastPage = $paginator->lastPage();

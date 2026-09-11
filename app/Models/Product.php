@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\ProductStatus;
 use App\Enums\ProductType;
 use App\Enums\StockStatus;
+use App\Models\Concerns\CatalogSearchable;
 use App\Services\Catalog\ProductAdminService;
 use App\Services\Media\MediaUrlService;
 use App\Support\CatalogText;
@@ -53,6 +54,8 @@ use Illuminate\Validation\ValidationException;
 ])]
 class Product extends Model
 {
+    use CatalogSearchable;
+
     /** @use HasFactory<ProductFactory> */
     use HasFactory, SoftDeletes;
 

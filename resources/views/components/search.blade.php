@@ -23,7 +23,7 @@
                 <select class="search__field-value" name="make" required aria-labelledby="search-make-label" data-vehicle-make>
                     <option value="">Выберите марку автомобиля</option>
                     @foreach ($makes as $make)
-                        <option value="{{ $make['slug'] }}">{{ $make['title'] }}</option>
+                        <option value="{{ $make['slug'] }}" data-custom-properties="{{ json_encode(['searchText' => implode(' ', $make['search_aliases'] ?? [])], JSON_UNESCAPED_UNICODE) }}">{{ $make['title'] }}</option>
                     @endforeach
                 </select>
             </div>

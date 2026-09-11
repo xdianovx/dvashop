@@ -72,5 +72,11 @@
         <server name="PULSE_ENABLED" value="false"/>
         <server name="TELESCOPE_ENABLED" value="false"/>
         <server name="NIGHTWATCH_ENABLED" value="false"/>
+        <env force="true" name="SCOUT_DRIVER" value="null"/>
+        <env force="true" name="SCOUT_QUEUE" value="false"/>
+        <env force="true" name="CATALOG_SEARCH_DRIVER" value="database"/>
+        <server name="SCOUT_DRIVER" value="null"/>
+        <server name="SCOUT_QUEUE" value="false"/>
+        <server name="CATALOG_SEARCH_DRIVER" value="database"/>
     </php>
 </phpunit>

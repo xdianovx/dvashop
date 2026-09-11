@@ -19,6 +19,7 @@ use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\RestoreBulkAction;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
@@ -64,6 +65,11 @@ class VehicleMakeResource extends Resource
                 ->label('Название')
                 ->required()
                 ->maxLength(255),
+            TagsInput::make('search_aliases')
+                ->label('Поисковые названия')
+                ->helperText('Дополнительные названия для поиска, например на русском. Название и адрес страницы не изменяются.')
+                ->rules(['nullable', 'array', 'max:20'])
+                ->nestedRecursiveRules(['string', 'max:100', 'not_regex:/[<>]/u']),
             TextInput::make('slug')
                 ->label('Slug')
                 ->maxLength(255)
