@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\CatalogSearchable;
 use App\Services\Catalog\CatalogStructureAdminService;
 use App\Services\Media\ImageProcessingService;
 use App\Services\Media\MediaFileCleanupService;
@@ -45,6 +46,8 @@ use Throwable;
 ])]
 class VehicleGeneration extends Model
 {
+    use CatalogSearchable;
+
     /** @use HasFactory<VehicleGenerationFactory> */
     use HasFactory, SoftDeletes;
 

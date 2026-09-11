@@ -95,10 +95,12 @@
                             <li class="products__item"><x-product-card :product="$product" /></li>
                         @endforeach
                     </ul>
-                    @if ($products instanceof \Illuminate\Contracts\Pagination\Paginator)
+                    @if ($products instanceof \Illuminate\Contracts\Pagination\Paginator || $products instanceof \Illuminate\Contracts\Pagination\CursorPaginator)
                         <x-storefront-pagination :paginator="$products" />
                     @endif
                 </section>
+            @elseif ($products instanceof \App\Services\Search\CatalogSearchPaginator && $products->scanLimited)
+                <x-storefront-pagination :paginator="$products" />
             @elseif ($searchQuery !== '' && $vehicleMakes->isEmpty() && $vehicleModels->isEmpty() && $vehicleGenerations->isEmpty())
                 <p class="catalog-results__empty">По вашему запросу ничего не найдено.</p>
             @elseif (request()->hasAny(['category', 'part_type']))

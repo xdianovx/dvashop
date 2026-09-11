@@ -331,7 +331,7 @@ test('checkout without address uses active settings delivery price and protects 
 test('homepage vehicle search loads only active models for the selected active make', function (): void {
     $this->seed([ShopSettingsSeeder::class, StaticPageContentSeeder::class, CheckoutMethodSettingsSeeder::class, HomepageContentSeeder::class]);
     $make = VehicleMake::factory()->create(['title' => 'Active Make', 'slug' => 'active-make']);
-    $activeModel = VehicleModel::factory()->forMake($make)->create(['title' => 'Active Model', 'slug' => 'active-model']);
+    $activeModel = VehicleModel::factory()->forMake($make)->create(['title' => 'Active Model', 'slug' => 'active-model', 'search_aliases' => []]);
     $activeGeneration = VehicleGeneration::factory()->forVehicleModel($activeModel)->create(['title' => 'Active Generation']);
     $activeProduct = Product::factory()->withDefaultVariant()->create(['title' => 'Active vehicle product']);
     ProductFitment::factory()->forProduct($activeProduct)->forVehicleGeneration($activeGeneration)->create();
@@ -360,7 +360,7 @@ test('homepage vehicle search loads only active models for the selected active m
     $this->getJson(route('storefront.vehicle-makes.models', $make->slug))
         ->assertOk()
         ->assertExactJson([
-            ['title' => 'Active Model', 'slug' => 'active-model'],
+            ['title' => 'Active Model', 'slug' => 'active-model', 'search_aliases' => []],
         ])
         ->assertJsonMissing(['id' => 1])
         ->assertJsonMissing(['title' => 'Inactive Model']);

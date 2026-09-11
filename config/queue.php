@@ -73,6 +73,15 @@ return [
             'after_commit' => false,
         ],
 
+        'catalog-search' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => 'catalog-search',
+            'retry_after' => 660,
+            'block_for' => 2,
+            'after_commit' => true,
+        ],
+
         'redis' => [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),

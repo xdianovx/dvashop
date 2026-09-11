@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\CatalogSearchable;
+use App\Models\Concerns\HasSearchAliases;
 use App\Services\Catalog\CatalogStructureAdminService;
 use App\Support\CatalogText;
 use Database\Factories\VehicleModelFactory;
@@ -17,6 +19,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 #[Fillable([
     'vehicle_make_id',
     'title',
+    'search_aliases',
     'slug',
     'norm_key',
     'position',
@@ -33,8 +36,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 ])]
 class VehicleModel extends Model
 {
+    use CatalogSearchable;
+
     /** @use HasFactory<VehicleModelFactory> */
     use HasFactory, SoftDeletes;
+
+    use HasSearchAliases;
 
     public function save(array $options = []): bool
     {
@@ -81,6 +88,7 @@ class VehicleModel extends Model
     protected function casts(): array
     {
         return [
+            'search_aliases' => 'array',
             'is_active' => 'boolean',
             'position' => 'integer',
             'noindex' => 'boolean',

@@ -170,6 +170,7 @@ final readonly class HomepageViewDataProvider
             ->map(fn (VehicleMake $make): array => [
                 'title' => (string) $make->title,
                 'slug' => (string) $make->slug,
+                'search_aliases' => $make->search_aliases ?? [],
             ])
             ->values()
             ->all();

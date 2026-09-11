@@ -2,6 +2,16 @@
 
 namespace App\Providers;
 
+use App\Models\ImportRun;
+use App\Models\ProductFitment;
+use App\Models\ProductOptionGroup;
+use App\Models\ProductOptionValue;
+use App\Models\ProductVariant;
+use App\Models\VehicleGeneration;
+use App\Models\VehicleMake;
+use App\Models\VehicleModel;
+use App\Observers\CatalogSearchDependencyObserver;
+use App\Observers\CatalogSearchImportObserver;
 use App\Services\Feeds\YandexFeedInvalidator;
 use App\Services\Storefront\AboutPageViewDataProvider;
 use App\Services\Storefront\FaqPageViewDataProvider;
@@ -58,6 +68,10 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        foreach ([VehicleMake::class, VehicleModel::class, VehicleGeneration::class, ProductVariant::class, ProductFitment::class, ProductOptionValue::class, ProductOptionGroup::class] as $model) {
+            $model::observe(CatalogSearchDependencyObserver::class);
+        }
+        ImportRun::observe(CatalogSearchImportObserver::class);
         DB::listen(function (QueryExecuted $event): void {
             app(YandexFeedInvalidator::class)->queryExecuted($event);
         });

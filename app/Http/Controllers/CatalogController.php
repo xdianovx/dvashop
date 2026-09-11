@@ -7,9 +7,10 @@ use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
-use App\Models\VehicleModel;
 use App\Services\PublicCatalogCache;
 use App\Services\PublicVehicleCatalogVisibility;
+use App\Services\Search\CatalogSearchService;
+use App\Services\Search\DatabaseCatalogSearchProvider;
 use App\Services\Seo\SeoMetadataService;
 use App\Services\Seo\SeoMetaService;
 use App\Services\Storefront\VehicleModelCardImageResolver;
@@ -19,7 +20,6 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 
 class CatalogController extends Controller
@@ -31,6 +31,8 @@ class CatalogController extends Controller
         private readonly StorefrontProductAvailability $availability,
         private readonly PublicVehicleCatalogVisibility $vehicleVisibility,
         private readonly VehicleModelCardImageResolver $modelCardImages,
+        private readonly CatalogSearchService $search,
+        private readonly DatabaseCatalogSearchProvider $databaseSearch,
     ) {}
 
     public function index(Request $request): View|RedirectResponse
@@ -78,7 +80,7 @@ class CatalogController extends Controller
                 default => $this->genericSeo->search($query ?: $heading),
             };
             $seoViewData = $seo->toViewData();
-            $vehicleResults = $query === '' ? $this->emptyVehicleSearchResults() : $this->searchVehicleItems($query);
+            $vehicleResults = $this->search->search($query, $category, $partType);
 
             return view('catalog', array_merge($seoViewData, [
                 'headingTitle' => $seoViewData['seoH1'] ?? $heading,
@@ -87,7 +89,7 @@ class CatalogController extends Controller
                 'vehicleMakes' => $vehicleResults['makes'],
                 'vehicleModels' => $vehicleResults['models'],
                 'vehicleGenerations' => $vehicleResults['generations'],
-                'products' => $this->filteredProducts($query, $category, $partType),
+                'products' => $vehicleResults['products'],
             ]));
         }
 
@@ -201,17 +203,17 @@ class CatalogController extends Controller
         $selectedCategory = $categorySlug === '' ? null : ProductCategory::query()->active()->where('full_slug', $categorySlug)->firstOrFail();
         $selectedPartType = $partTypeSlug === '' ? null : PartType::query()->where('is_active', true)->where('full_slug', $partTypeSlug)->firstOrFail();
 
-        $productsQuery = $this->activeProductCardQuery()
+        $productsQuery = $this->databaseSearch->activeProductCardQuery()
             ->whereHas('fitments', fn ($query) => $query->where('vehicle_generation_id', $generation->getKey()));
 
         if ($search !== '') {
-            $this->applyProductSearch($productsQuery, $search);
+            $this->databaseSearch->applyProductSearch($productsQuery, $search);
         }
         if ($selectedCategory instanceof ProductCategory) {
-            $productsQuery->whereIn('product_category_id', $this->categoryIds($selectedCategory));
+            $productsQuery->whereIn('product_category_id', $this->databaseSearch->categoryIds($selectedCategory));
         }
         if ($selectedPartType instanceof PartType) {
-            $productsQuery->whereIn('part_type_id', $this->partTypeIds($selectedPartType));
+            $productsQuery->whereIn('part_type_id', $this->databaseSearch->partTypeIds($selectedPartType));
         }
 
         $products = $productsQuery->orderBy('position')->orderBy('title')->paginate(12)->withQueryString();
@@ -245,22 +247,6 @@ class CatalogController extends Controller
         ]));
     }
 
-    private function activeProductCardQuery(): Builder
-    {
-        return $this->availability->products(Product::query())
-            ->whereHas('variants', fn (Builder $query): Builder => $this->availability->variants($query))
-            ->with([
-                'variants' => fn ($query) => $this->availability->variants($query)
-                    ->orderByDesc('is_default')
-                    ->orderBy('id'),
-                'variants.optionValues.group',
-                'mainImage',
-                'visibleImages',
-                'category',
-                'partType',
-            ]);
-    }
-
     /** @return array<int, array{label:string,url?:string}> */
     private function breadcrumbs(array $tail = []): array
     {
@@ -268,140 +254,5 @@ class CatalogController extends Controller
             ['label' => 'Главная', 'url' => route('home')],
             ['label' => 'Каталог', 'url' => route('catalog.index')],
         ], $tail);
-    }
-
-    /** @return array<int, int> */
-    private function categoryIds(ProductCategory $category): array
-    {
-        return ProductCategory::query()
-            ->active()
-            ->where(fn (Builder $query): Builder => $query
-                ->where('full_slug', $category->full_slug)
-                ->orWhere('full_slug', 'like', $category->full_slug.'/%'))
-            ->pluck('id')
-            ->map(fn (mixed $id): int => (int) $id)
-            ->all();
-    }
-
-    /** @return array<int, int> */
-    private function partTypeIds(PartType $partType): array
-    {
-        return PartType::query()
-            ->where('is_active', true)
-            ->where(fn (Builder $query) => $query
-                ->whereKey($partType->getKey())
-                ->orWhere('full_slug', 'like', $partType->full_slug.'/%'))
-            ->pluck('id')
-            ->map(fn (mixed $id): int => (int) $id)
-            ->all();
-    }
-
-    /**
-     * @return array{
-     *     makes: Collection<int, array{title:string,url:string,image:string}>,
-     *     models: Collection<int, array{make_title:string,model_title:string,url:string,generation_count:int,image:?string}>,
-     *     generations: Collection<int, array{make_title:string,model_title:string,title:string,body:string,years_label:string,image:string,url:string}>
-     * }
-     */
-    private function searchVehicleItems(string $query): array
-    {
-        $makes = $this->vehicleVisibility->makes(VehicleMake::query())->where('title', 'like', '%'.$query.'%')
-            ->orderBy('position')->orderBy('title')->limit(10)->get()
-            ->toBase()
-            ->map(fn (VehicleMake $make): array => ['title' => $make->title, 'url' => route('catalog.make', $make->slug), 'image' => $make->image_url]);
-        $modelRecords = $this->vehicleVisibility->models(VehicleModel::query())
-            ->where(fn (Builder $builder): Builder => $builder
-                ->where('title', 'like', '%'.$query.'%')
-                ->orWhereHas('make', fn (Builder $makeQuery): Builder => $makeQuery->active()->where('title', 'like', '%'.$query.'%')))
-            ->with('make')
-            ->withCount(['generations' => fn (Builder $generationQuery) => $this->vehicleVisibility->generations($generationQuery)])
-            ->orderBy('position')->orderBy('title')->limit(10)->get();
-        $modelImages = $this->modelCardImages->resolve($modelRecords);
-        $models = $modelRecords
-            ->toBase()
-            ->map(fn (VehicleModel $model): array => [
-                'make_title' => $model->make->title,
-                'model_title' => $model->title,
-                'url' => route('catalog.model', [$model->make->slug, $model->slug]),
-                'generation_count' => (int) $model->generations_count,
-                'image' => $modelImages->get((int) $model->getKey()),
-            ]);
-        $generations = $this->vehicleVisibility->generations(VehicleGeneration::query())
-            ->where(fn (Builder $builder): Builder => $builder
-                ->where('title', 'like', '%'.$query.'%')
-                ->orWhere('years_label', 'like', '%'.$query.'%')
-                ->orWhere('body', 'like', '%'.$query.'%')
-                ->orWhereHas('model', fn (Builder $modelQuery): Builder => $modelQuery
-                    ->where('title', 'like', '%'.$query.'%')
-                    ->orWhereHas('make', fn (Builder $makeQuery): Builder => $makeQuery->where('title', 'like', '%'.$query.'%'))))
-            ->with('model.make')->orderBy('position')->orderBy('title')->limit(10)->get()
-            ->toBase()
-            ->map(fn (VehicleGeneration $generation): array => [
-                'make_title' => $generation->model->make->title,
-                'model_title' => $generation->model->title,
-                'title' => $generation->title,
-                'body' => (string) $generation->body,
-                'years_label' => (string) $generation->years_label,
-                'image' => $generation->image_url,
-                'url' => route('catalog.generation', [$generation->model->make->slug, $generation->model->slug, $generation->slug]),
-            ]);
-
-        return [
-            'makes' => $makes,
-            'models' => $models,
-            'generations' => $generations,
-        ];
-    }
-
-    /**
-     * @return array{
-     *     makes: Collection<int, array{title:string,url:string,image:string}>,
-     *     models: Collection<int, array{make_title:string,model_title:string,url:string,generation_count:int,image:?string}>,
-     *     generations: Collection<int, array{make_title:string,model_title:string,title:string,body:string,years_label:string,image:string,url:string}>
-     * }
-     */
-    private function emptyVehicleSearchResults(): array
-    {
-        return [
-            'makes' => collect(),
-            'models' => collect(),
-            'generations' => collect(),
-        ];
-    }
-
-    private function filteredProducts(string $query, ?ProductCategory $category, ?PartType $partType): LengthAwarePaginator
-    {
-        $products = $this->activeProductCardQuery();
-        if ($query !== '') {
-            $this->applyProductSearch($products, $query);
-        }
-        if ($category instanceof ProductCategory) {
-            $products->whereIn('product_category_id', $this->categoryIds($category));
-        }
-        if ($partType instanceof PartType) {
-            $products->whereIn('part_type_id', $this->partTypeIds($partType));
-        }
-
-        return $products->orderBy('position')->orderBy('title')->paginate(12)->withQueryString()
-            ->through(fn (Product $product): ProductCardViewModel => ProductCardViewModel::fromProduct($product));
-    }
-
-    private function applyProductSearch(Builder $products, string $query): void
-    {
-        $pattern = '%'.$query.'%';
-        $candidateIds = Product::query()
-            ->where(fn (Builder $productQuery): Builder => $productQuery
-                ->where('title', 'like', $pattern)
-                ->orWhere(fn (Builder $skuQuery): Builder => $skuQuery
-                    ->whereNotNull('sku')
-                    ->where('sku', '<>', '')
-                    ->where('sku', 'like', $pattern))
-                ->orWhereHas('variants', fn (Builder $variantQuery): Builder => $this->availability->variants($variantQuery)
-                    ->whereNotNull('sku')
-                    ->where('sku', '<>', '')
-                    ->where('sku', 'like', $pattern)))
-            ->pluck('products.id');
-
-        $products->whereKey($candidateIds);
     }
 }

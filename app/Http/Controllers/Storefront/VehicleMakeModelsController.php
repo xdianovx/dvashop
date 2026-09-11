@@ -23,10 +23,11 @@ final class VehicleMakeModelsController extends Controller
             ->orderBy('position')
             ->orderBy('title')
             ->orderBy('id')
-            ->get(['title', 'slug'])
+            ->get(['title', 'slug', 'search_aliases'])
             ->map(fn ($model): array => [
                 'title' => (string) $model->title,
                 'slug' => (string) $model->slug,
+                'search_aliases' => $model->search_aliases ?? [],
             ])
             ->values();
 

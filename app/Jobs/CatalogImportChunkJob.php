@@ -8,6 +8,7 @@ use App\Services\Import\ImportRowProcessor;
 use App\Services\ImportLogger;
 use App\Services\ImportStatusService;
 use App\Services\PublicCatalogCache;
+use App\Services\Search\CatalogSearchSync;
 use App\Services\SpreadsheetReader;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -44,6 +45,16 @@ class CatalogImportChunkJob implements ShouldQueue
     }
 
     public function handle(
+        SpreadsheetReader $reader,
+        ImportStatusService $statusService,
+        ImportLogger $logger,
+        ImportRowProcessor $rowProcessor,
+        ImportProductFactory $products,
+    ): void {
+        CatalogSearchSync::withoutSyncing(fn () => $this->processChunk($reader, $statusService, $logger, $rowProcessor, $products));
+    }
+
+    private function processChunk(
         SpreadsheetReader $reader,
         ImportStatusService $statusService,
         ImportLogger $logger,
