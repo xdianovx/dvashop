@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\Media\MediaUrlService;
+use App\Support\SnapshotTitle;
 use Database\Factories\CartItemFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -63,20 +64,7 @@ class CartItem extends Model
             return (string) $this->product->title;
         }
 
-        $title = (string) $this->title_snapshot;
-        $summary = $this->optionSummary();
-        $suffix = ' — '.$summary;
-
-        // Only remove an exact saved option summary, never arbitrary title text.
-        if ($summary !== '' && str_ends_with($title, $suffix)) {
-            $baseTitle = substr($title, 0, -strlen($suffix));
-
-            if (filled($baseTitle)) {
-                return $baseTitle;
-            }
-        }
-
-        return $title;
+        return SnapshotTitle::withoutOptionSummary((string) $this->title_snapshot, $this->optionSummary());
     }
 
     public function lineTotal(): float

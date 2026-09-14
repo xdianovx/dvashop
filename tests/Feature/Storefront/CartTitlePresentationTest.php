@@ -101,7 +101,7 @@ test('fallback never truncates arbitrary dashes or a nonmatching option suffix',
     [' — Материал: Сталь', ['Материал' => 'Сталь'], ' — Материал: Сталь'],
 ]);
 
-test('storefront title leaves order thanks email and Bitrix snapshots intact', function (): void {
+test('storefront titles keep stored order and Bitrix snapshots intact', function (): void {
     Http::preventStrayRequests();
     Event::fake([OrderCreated::class]);
     [$cart, $item, $product, , $title, $summary] = titlePresentationFixture();
@@ -121,9 +121,9 @@ test('storefront title leaves order thanks email and Bitrix snapshots intact', f
         ->and($orderItem->quantity)->toBe(2);
     $before = $orderItem->getAttributes();
     $product->update(['title' => 'Изменённый каталог']);
-    $this->get($response->headers->get('Location'))->assertOk()->assertSee($snapshotTitle)->assertSee($summary);
+    $this->get($response->headers->get('Location'))->assertOk()->assertSee($title)->assertSee($summary)->assertDontSee($snapshotTitle);
     foreach ([CustomerOrderCreatedMail::class, ManagerOrderCreatedMail::class] as $mail) {
-        expect((new $mail($order, 'Тестовый магазин'))->render())->toContain($snapshotTitle, $summary);
+        expect((new $mail($order, 'Тестовый магазин'))->render())->toContain($title, $summary)->not->toContain($snapshotTitle);
     }
     config(['shop.orders.bitrix_enabled' => true, 'shop.bitrix.webhook_url' => 'https://example.test/rest/1/test/']);
     Http::fake(['example.test/*' => Http::response(['result' => 123])]);

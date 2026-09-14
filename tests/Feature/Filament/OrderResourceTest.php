@@ -225,3 +225,27 @@ test('forged disabled OrderResource state does not change checkout data or item 
         ->toEqual(collect($orderBefore)->except(['manager_comment', 'updated_at'])->all())
         ->and($item->fresh()->getAttributes())->toEqual($itemBefore);
 });
+
+test('order admin displays clean snapshot titles without writing presentation state back', function (string $page): void {
+    $order = Order::factory()->create();
+    $title = 'Исторический <b>товар</b>';
+    $summary = 'Профиль: Полный; Материал: Оцинковка';
+    $item = OrderItem::factory()->for($order)->create([
+        'title_snapshot' => $title.' — Материал: Оцинковка; Профиль: Полный',
+        'options_snapshot' => ['Профиль' => 'Полный', 'Материал' => 'Оцинковка'],
+    ]);
+    $before = $item->refresh()->getAttributes();
+    $component = Livewire::test($page, ['record' => $order->getKey()])
+        ->assertSet('data.items', function (array $items) use ($title, $summary): bool {
+            $state = reset($items);
+
+            return $state['title_snapshot'] === $title && $state['options_snapshot'] === $summary;
+        })
+        ->assertDontSeeHtml('<b>товар</b>');
+    if ($page === EditOrder::class) {
+        $component->fillForm(['manager_comment' => 'Presentation save check'])
+            ->call('save')->assertHasNoFormErrors();
+    }
+
+    expect($item->refresh()->getAttributes())->toBe($before);
+})->with(['edit' => [EditOrder::class], 'view' => [ViewOrder::class]]);

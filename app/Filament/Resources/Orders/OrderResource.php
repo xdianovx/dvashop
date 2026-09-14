@@ -10,6 +10,7 @@ use App\Filament\Resources\Orders\Pages\EditOrder;
 use App\Filament\Resources\Orders\Pages\ListOrders;
 use App\Filament\Resources\Orders\Pages\ViewOrder;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\User;
 use BackedEnum;
 use Filament\Actions\EditAction;
@@ -161,6 +162,7 @@ class OrderResource extends Resource
                         ->schema([
                             TextInput::make('title_snapshot')
                                 ->label('Товар')
+                                ->formatStateUsing(fn (mixed $state, ?OrderItem $record): string => $record?->storefrontTitle() ?? (string) $state)
                                 ->disabled()
                                 ->columnSpanFull(),
                             TextInput::make('sku_snapshot')
