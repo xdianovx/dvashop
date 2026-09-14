@@ -35,7 +35,7 @@
                     @foreach ($order->items as $item)
                         <tr style="border-bottom:1px solid #e2e5e8;">
                             <td>
-                                <strong>{{ $item->title_snapshot }}</strong>
+                                <strong>{{ $item->storefrontTitle() }}</strong>
                                 @if ($item->optionSummary() !== '')
                                     <div style="margin-top:4px;color:#68717b;">{{ $item->optionSummary() }}</div>
                                 @endif

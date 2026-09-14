@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\SnapshotTitle;
 use Database\Factories\OrderItemFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -63,6 +64,11 @@ class OrderItem extends Model
             })
             ->filter()
             ->implode('; ');
+    }
+
+    public function storefrontTitle(): string
+    {
+        return SnapshotTitle::withoutOptionSummary((string) $this->title_snapshot, $this->optionSummary());
     }
 
     public function lineTotal(): float
