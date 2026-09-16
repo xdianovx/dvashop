@@ -252,23 +252,6 @@
     font-weight: var(--fw-bold);
 }
 
-.about-page__cta {
-    display: flex;
-    width: 352px;
-    max-width: 100%;
-    height: 68px;
-    margin: 53px auto 0;
-    border-radius: 53px;
-    font-family: 'Gilroy', system-ui, sans-serif;
-    font-size: var(--fs-lg);
-    color: var(--color-on-dark);
-    background-image: linear-gradient(-83deg, #1750b7 15%, #022253 143%);
-}
-
-.about-page__cta:hover {
-    opacity: 0.92;
-}
-
 @media (max-width: 1200px) {
     .about-tech__head {
         flex-direction: column;
@@ -431,10 +414,6 @@
     }
 
     .about-goal__dash {
-        display: none;
-    }
-
-    .about-page__cta {
         display: none;
     }
 }

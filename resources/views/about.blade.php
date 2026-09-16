@@ -92,8 +92,6 @@
                     </p>
                 </div>
             @endif
-
-            <a href="{{ route('home') }}" class="btn about-page__cta">Вернуться на главную</a>
         </div>
     </section>
 

@@ -31,8 +31,6 @@
                     @endforeach
                 </ul>
             @endif
-
-            <a href="{{ route('home') }}" class="btn payment-page__cta">Вернуться на главную</a>
         </div>
     </section>
 @endsection
