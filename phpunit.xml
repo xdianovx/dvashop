@@ -74,9 +74,11 @@
         <server name="NIGHTWATCH_ENABLED" value="false"/>
         <env force="true" name="SCOUT_DRIVER" value="null"/>
         <env force="true" name="SCOUT_QUEUE" value="false"/>
+        <env force="true" name="SCOUT_PREFIX" value="dvashop_testing_"/>
         <env force="true" name="CATALOG_SEARCH_DRIVER" value="database"/>
         <server name="SCOUT_DRIVER" value="null"/>
         <server name="SCOUT_QUEUE" value="false"/>
+        <server name="SCOUT_PREFIX" value="dvashop_testing_"/>
         <server name="CATALOG_SEARCH_DRIVER" value="database"/>
     </php>
 </phpunit>

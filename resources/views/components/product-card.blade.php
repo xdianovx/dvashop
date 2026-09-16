@@ -19,15 +19,4 @@
         </span>
     </div>
     <a href="{{ $product->url }}" class="btn btn--outline product-card__more">Подробнее</a>
-    @if ($product->variantId)
-        <form action="{{ route('cart.items.store') }}" method="post" data-cart-add>
-            @csrf
-            <input type="hidden" name="product_variant_id" value="{{ $product->variantId }}">
-            <input type="hidden" name="quantity" value="1">
-            <button type="submit" class="btn product-card__buy">
-                <span class="product-card__buy-full" data-cart-button-label>Добавить в корзину</span>
-                <span class="product-card__buy-short" data-cart-button-label>В корзину</span>
-            </button>
-        </form>
-    @endif
 </article>
