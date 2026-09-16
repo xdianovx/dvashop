@@ -1,19 +1,12 @@
 @props([
     'type',
     'sourceCode',
-    'productId' => null,
-    'productVariantId' => null,
     'title' => 'Оставить заявку',
 ])
 
 @php
     $inquiryErrors = $errors->getBag('inquiry');
     $inquirySucceeded = filled(session('inquiry_success'));
-    $formAction = $type === \App\Enums\StorefrontInquiryType::ProductConsultation->value && $productId !== null
-        ? \Illuminate\Support\Facades\URL::signedRoute('storefront.inquiries.store', [
-            'product_context' => (int) $productId,
-        ])
-        : route('storefront.inquiries.store');
     $privacyPolicyUrl = ($storefront ?? null)?->legalDocumentUrls['privacy_policy'] ?? null;
 @endphp
 
@@ -39,13 +32,10 @@
             @endif
         </div>
 
-        <form method="POST" action="{{ $formAction }}" class="inquiry-modal__form" data-inquiry-form>
+        <form method="POST" action="{{ route('storefront.inquiries.store') }}" class="inquiry-modal__form" data-inquiry-form>
             @csrf
             <input type="hidden" name="type" value="{{ $type }}">
             <input type="hidden" name="source_code" value="{{ $sourceCode }}">
-            @if ($productVariantId !== null)
-                <input type="hidden" name="product_variant_id" value="{{ old('product_variant_id', $productVariantId) }}" data-inquiry-product-variant>
-            @endif
 
             <div class="inquiry-modal__honeypot" aria-hidden="true">
                 <label for="company-website">Сайт компании</label>

@@ -115,12 +115,15 @@ class CartController extends Controller
         return $cartManager->totals($cart);
     }
 
-    /** @return array{id: int, quantity: int, line_total: float} */
+    /** @return array{id:int, product_variant_id:int, quantity:int, line_total:float, update_url:string, remove_url:string} */
     private function itemPayload(CartItem $item): array
     {
         return [
             'id' => (int) $item->getKey(),
+            'product_variant_id' => (int) $item->product_variant_id,
             'quantity' => (int) $item->quantity,
+            'update_url' => route('cart.items.update', $item),
+            'remove_url' => route('cart.items.destroy', $item),
             'line_total' => $item->lineTotal(),
         ];
     }

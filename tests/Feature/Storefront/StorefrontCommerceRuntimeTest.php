@@ -162,7 +162,7 @@ test('zero price product stays public but uses request price presentation and ca
     $productResponse = $this->get(route('products.show', $product->slug))
         ->assertOk()
         ->assertSee('Цена по запросу')
-        ->assertSee('Получить консультацию')
+        ->assertDontSee('Получить консультацию')
         ->assertSee('data-add-to-cart disabled', false);
     $productResponse->assertViewHas('variantMatrix', fn (array $matrix): bool => $matrix[0]['price_available'] === false
         && $matrix[0]['purchasable'] === false

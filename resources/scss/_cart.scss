@@ -583,8 +583,7 @@
     gap: 8px;
 }
 
-.cart-summary__checkout,
-.cart-summary__oneclick {
+.cart-summary__checkout {
     width: 100%;
     max-width: 347px;
     height: 68px;
@@ -597,8 +596,7 @@
     background-image: var(--gradient-checkout);
 }
 
-.cart-summary__checkout:hover,
-.cart-summary__oneclick:hover {
+.cart-summary__checkout:hover {
     background-color: transparent;
     opacity: 0.92;
 }
@@ -706,8 +704,7 @@
         gap: 4px;
     }
 
-    .cart-summary__checkout,
-    .cart-summary__oneclick {
+    .cart-summary__checkout {
         max-width: 206px;
         height: 37px;
         border-radius: 38px;

@@ -4,8 +4,9 @@
     $selectedOptionValueIds = $variant->optionValues->pluck('id')->map(fn ($id) => (int) $id);
     $variantPresentationById = collect($variantMatrix)->keyBy('variant_id');
     $selectedMaxQuantity = $variant->stock_status === \App\Enums\StockStatus::InStock && $variant->stock_quantity !== null
-        ? max(1, $variant->stock_quantity)
+        ? min(999, max(0, $variant->stock_quantity))
         : 999;
+    $selectedCartState = $variantCartStates[$variant->getKey()] ?? null;
     $selectedStockModifier = match ($variant->stock_status) {
         \App\Enums\StockStatus::InStock => 'in-stock',
         \App\Enums\StockStatus::OutOfStock => 'out-of-stock',
@@ -64,7 +65,7 @@
                 </p>
                 <p class="part-buy__price" data-selected-price>{{ $selectedPriceLabel }}</p>
 
-                <form action="{{ route('cart.items.store') }}" method="post" data-cart-add @if ($optionGroups->isNotEmpty() || $variants->count() > 1) data-product-options @endif>
+                <form action="{{ route('cart.items.store') }}" method="post" data-cart-add data-product-cart @if ($optionGroups->isNotEmpty() || $variants->count() > 1) data-product-options @endif>
                     @csrf
                     @if ($optionGroups->isNotEmpty())
                         <input type="hidden" name="product_variant_id" value="{{ $variant->getKey() }}" data-selected-variant required>
@@ -125,31 +126,19 @@
                     @else
                         <input type="hidden" name="product_variant_id" value="{{ $variant->getKey() }}">
                     @endif
-                    @if ($optionGroups->isNotEmpty() || $variants->count() > 1)
-                        <script type="application/json" data-variant-matrix>@json($variantMatrix)</script>
-                    @endif
-                    <label class="part-option-group__label" for="product-quantity">Количество:</label>
-                    <div class="part-qty" data-product-qty>
-                        <button type="button" class="part-qty__btn" data-product-qty-step="-1" aria-label="Убавить количество">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M5 12h14" />
-                            </svg>
-                        </button>
-                        <input id="product-quantity" class="part-qty__value" type="number" name="quantity" value="1" min="1" max="{{ $selectedMaxQuantity }}" data-product-quantity required>
-                        <button type="button" class="part-qty__btn" data-product-qty-step="1" aria-label="Добавить количество">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M12 5v14" />
-                                <path d="M5 12h14" />
-                            </svg>
-                        </button>
-                    </div>
+                    <script type="application/json" data-variant-matrix>@json($variantMatrix)</script>
+                    <script type="application/json" data-product-cart-state>@json((object) $variantCartStates)</script>
+                    <input type="hidden" name="quantity" value="1">
                     <div class="part-buy__actions">
-                        <button type="submit" class="btn part-buy__cart" data-add-to-cart @disabled(! $selectedCanBePurchased)>
+                        <button type="submit" class="btn part-buy__cart" data-add-to-cart @disabled(! $selectedCanBePurchased) @if ($selectedCartState) hidden @endif>
                             <span data-cart-button-label>Добавить в корзину</span>
                         </button>
-                        <a href="#storefront-inquiry" class="btn part-buy__consult" data-inquiry-open>Получить консультацию</a>
+                        <a href="{{ route('cart.show') }}" class="btn part-buy__cart" data-product-cart-link @if (! $selectedCartState) hidden @endif>В корзине</a>
+                        <div class="part-qty" data-product-cart-counter @if (! $selectedCartState) hidden @endif role="group" aria-label="Количество выбранного варианта в корзине">
+                            <button type="button" class="part-qty__btn" data-product-cart-step="-1" aria-label="Уменьшить количество или удалить товар"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14" /></svg></button>
+                            <span class="part-qty__value" data-product-cart-quantity aria-live="polite" aria-atomic="true">{{ $selectedCartState['quantity'] ?? 0 }}</span>
+                            <button type="button" class="part-qty__btn" data-product-cart-step="1" aria-label="Увеличить количество" @disabled(! $selectedCanBePurchased || ($selectedCartState['quantity'] ?? 0) >= $selectedMaxQuantity)><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg></button>
+                        </div>
                     </div>
                 </form>
 
@@ -260,11 +249,4 @@
         <x-storefront-seo-text :text="$seoText ?? null" />
     </div>
 
-    <x-storefront-inquiry-modal
-        :type="\App\Enums\StorefrontInquiryType::ProductConsultation->value"
-        source-code="product"
-        :product-id="$product->getKey()"
-        :product-variant-id="$variant->getKey()"
-        title="Консультация по товару"
-    />
 @endsection

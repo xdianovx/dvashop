@@ -268,11 +268,10 @@ function initProductOptions() {
         const price = productBuy?.querySelector('[data-selected-price]');
         const stock = productBuy?.querySelector('[data-selected-stock]');
         const stockLabel = stock?.querySelector('[data-selected-stock-label]');
-        const quantity = form.querySelector('[data-product-quantity]');
         const submit = form.querySelector('[data-add-to-cart]');
         const controls = [...form.querySelectorAll('[data-product-option]')];
 
-        if (!matrixNode || !variantInput || !price || !stock || !stockLabel || !quantity || !submit) return;
+        if (!matrixNode || !variantInput || !price || !stock || !stockLabel || !submit) return;
 
         const hideSku = () => {
             if (sku) sku.textContent = '';
@@ -284,7 +283,7 @@ function initProductOptions() {
             if (skuRow) skuRow.hidden = displaySku === '';
         };
         const dispatchVariant = (variantId) => {
-            document.dispatchEvent(new CustomEvent('storefront:variant-selected', {
+            form.dispatchEvent(new CustomEvent('storefront:variant-selected', {
                 detail: { variantId },
             }));
         };
@@ -297,9 +296,7 @@ function initProductOptions() {
             console.error('[storefront:product-options] Unable to parse variant matrix.', error);
             variantInput.value = '';
             hideSku();
-            quantity.value = '1';
-            quantity.max = '1';
-            quantity.disabled = true;
+
             submit.disabled = true;
             dispatchVariant('');
             return;
@@ -339,15 +336,12 @@ function initProductOptions() {
                 stockLabel.textContent = stock.dataset.unavailableLabel;
                 stock.classList.remove(...stockModifiers);
                 stock.classList.add('part-buy__stock--unavailable');
-                quantity.max = '1';
+
                 submit.disabled = true;
                 return;
             }
 
-            const isInStock = selectedVariant.stock_status === 'in_stock';
-
             variantInput.value = selectedVariant.variant_id;
-            dispatchVariant(String(selectedVariant.variant_id));
             renderSku(selectedVariant.sku);
             price.textContent = selectedVariant.price_label;
             stockLabel.textContent = stock.dataset[{
@@ -361,16 +355,14 @@ function initProductOptions() {
                 out_of_stock: 'out-of-stock',
                 pre_order: 'pre-order',
             }[selectedVariant.stock_status] || 'unavailable'}`);
-            quantity.max = isInStock && selectedVariant.stock_quantity !== null
-                ? String(Math.max(1, selectedVariant.stock_quantity))
-                : '999';
-            if (Number(quantity.value) > Number(quantity.max)) quantity.value = quantity.max;
             submit.disabled = !selectedVariant.purchasable;
+            dispatchVariant(String(selectedVariant.variant_id));
         };
 
         controls.forEach((control) => {
             const eventName = control.matches('button') ? 'click' : 'change';
             control.addEventListener(eventName, () => {
+                if (form.dataset.cartPending === 'true') return;
                 const groupId = Number(control.dataset.optionGroup);
                 selections.set(groupId, Number(control.matches('select') ? control.value : control.dataset.optionValue));
                 if (control.matches('button')) {
@@ -385,69 +377,12 @@ function initProductOptions() {
         });
 
         fallbackSelect?.addEventListener('change', render);
-        form.addEventListener('cart:request-finished', render);
 
         render();
     });
 }
 
 initStorefrontFeature('product-options', initProductOptions);
-
-// Quantity stepper. The number input stays the single source of truth so the
-// variant logic keeps driving min/max/disabled as before.
-function initQuantitySteppers() {
-    document.querySelectorAll('[data-product-qty]').forEach((stepper) => {
-        const input = stepper.querySelector('[data-product-quantity]');
-        const buttons = [...stepper.querySelectorAll('[data-product-qty-step]')];
-
-        if (!input || buttons.length === 0) return;
-
-        const bounds = () => ({
-            min: Number(input.min || 1),
-            max: Number(input.max || 999),
-        });
-
-        const syncButtons = () => {
-            const { min, max } = bounds();
-            const value = Number(input.value) || min;
-
-            buttons.forEach((button) => {
-                const step = Number(button.dataset.productQtyStep);
-                button.disabled = input.disabled || (step < 0 ? value <= min : value >= max);
-            });
-        };
-
-        buttons.forEach((button) => {
-            button.addEventListener('click', () => {
-                const { min, max } = bounds();
-                const step = Number(button.dataset.productQtyStep);
-                const next = Math.min(max, Math.max(min, (Number(input.value) || min) + step));
-
-                if (next === Number(input.value)) return;
-
-                input.value = String(next);
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-                syncButtons();
-            });
-        });
-
-        input.addEventListener('change', () => {
-            const { min, max } = bounds();
-            input.value = String(Math.min(max, Math.max(min, Number(input.value) || min)));
-            syncButtons();
-        });
-
-        // The variant renderer rewrites max/disabled without firing an event.
-        new MutationObserver(syncButtons).observe(input, {
-            attributes: true,
-            attributeFilter: ['max', 'min', 'disabled'],
-        });
-
-        syncButtons();
-    });
-}
-
-initStorefrontFeature('quantity-stepper', initQuantitySteppers);
 
 // Cart forms keep their ordinary POST fallback. Fetch only enhances the same
 // server-authoritative endpoints with in-place feedback and totals.
@@ -606,13 +541,112 @@ const setCartAddPending = (form, button, pending) => {
     button.removeAttribute('data-cart-loading');
     button.disabled = button.dataset.cartInitiallyDisabled === 'true';
     delete button.dataset.cartInitiallyDisabled;
-    form.dispatchEvent(new CustomEvent('cart:request-finished'));
 };
+
+// Product pages mutate the selected variant's saved cart item; catalog cards retain quick add.
+function initProductCart() {
+    if (typeof window.fetch !== 'function') return;
+    document.querySelectorAll('[data-product-cart]').forEach((form) => {
+        const input = form.querySelector('[name="product_variant_id"]');
+        const add = form.querySelector('[data-add-to-cart]');
+        const link = form.querySelector('[data-product-cart-link]');
+        const counter = form.querySelector('[data-product-cart-counter]');
+        const quantity = form.querySelector('[data-product-cart-quantity]');
+        const minus = form.querySelector('[data-product-cart-step="-1"]');
+        const plus = form.querySelector('[data-product-cart-step="1"]');
+        const options = [...form.querySelectorAll('[data-product-option], [data-product-variant-fallback]')];
+        let states;
+        let matrix;
+        try {
+            states = JSON.parse(form.querySelector('[data-product-cart-state]').textContent);
+            matrix = JSON.parse(form.querySelector('[data-variant-matrix]').textContent);
+        } catch (error) {
+            console.error('[storefront:product-cart] Invalid server state.', error);
+            return; // Ordinary POST remains available.
+        }
+        let pending = false;
+        let optionDisabled = [];
+        const render = () => {
+            const variant = matrix.find((row) => row.variant_id === Number(input.value));
+            const item = states[input.value];
+            const inCart = Number(item?.quantity) > 0;
+            const max = variant?.stock_status === 'in_stock' && variant.stock_quantity !== null
+                ? Math.min(999, Math.max(0, Number(variant.stock_quantity))) : 999;
+            add.hidden = inCart;
+            link.hidden = !inCart;
+            counter.hidden = !inCart;
+            quantity.textContent = String(inCart ? item.quantity : 0);
+            add.disabled = pending || !variant?.purchasable;
+            minus.disabled = pending || !inCart;
+            minus.setAttribute('aria-label', Number(item?.quantity) === 1 ? 'Удалить товар из корзины' : 'Уменьшить количество');
+            plus.disabled = pending || !inCart || !variant?.purchasable || Number(item.quantity) >= max;
+            form.setAttribute('aria-busy', String(pending));
+        };
+        const mutate = async (step = 0) => {
+            if (pending) return;
+            const variantId = input.value;
+            const item = states[variantId];
+            if (step === 0 ? add.disabled || item : (step > 0 ? plus.disabled : minus.disabled)) return;
+            const removing = step < 0 && Number(item.quantity) === 1;
+            const data = new FormData();
+            data.set('_token', form.querySelector('[name="_token"]').value);
+            let url = form.action;
+            if (step === 0) {
+                data.set('product_variant_id', variantId);
+                data.set('quantity', '1');
+            } else {
+                url = removing ? item.remove_url : item.update_url;
+                data.set('_method', removing ? 'DELETE' : 'PATCH');
+                if (!removing) data.set('quantity', String(Number(item.quantity) + step));
+            }
+            pending = true;
+            form.dataset.cartPending = 'true';
+            optionDisabled = options.map((control) => control.disabled);
+            options.forEach((control) => { control.disabled = true; });
+            render();
+            beginRequest('Обновляем корзину…');
+            let succeeded = false;
+            try {
+                const payload = await cartRequest({ action: url, method: 'POST' }, data);
+                if (removing) {
+                    delete states[variantId];
+                } else {
+                    states[String(payload.item.product_variant_id)] = {
+                        cart_item_id: payload.item.id,
+                        quantity: payload.item.quantity,
+                        update_url: payload.item.update_url,
+                        remove_url: payload.item.remove_url,
+                    };
+                }
+                updateCartTotals(payload.cart, step >= 0);
+                showStorefrontToast(payload.message);
+                succeeded = true;
+            } catch (error) {
+                showStorefrontToast(error.message || 'Не удалось изменить корзину.', true);
+            } finally {
+                pending = false;
+                delete form.dataset.cartPending;
+                options.forEach((control, index) => { control.disabled = optionDisabled[index]; });
+                render();
+                endRequest();
+                // Do not leave keyboard focus on a control that has just disappeared.
+                if (succeeded && (removing || step === 0)) (removing ? add : link).focus();
+            }
+        };
+        form.addEventListener('storefront:variant-selected', render);
+        form.addEventListener('submit', (event) => { event.preventDefault(); mutate(); });
+        minus.addEventListener('click', () => mutate(-1));
+        plus.addEventListener('click', () => mutate(1));
+        render();
+    });
+}
+
+initStorefrontFeature('product-cart', initProductCart);
 
 function initCartAjax() {
     storefrontToastClose?.addEventListener('click', hideStorefrontToast);
     if (typeof window.fetch !== 'function') return;
-    document.querySelectorAll('[data-cart-add]').forEach((form) => {
+    document.querySelectorAll('[data-cart-add]:not([data-product-cart])').forEach((form) => {
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
 
@@ -908,7 +942,6 @@ function initFavoritesAjax() {
 
 initStorefrontFeature('favorites-ajax', initFavoritesAjax);
 
-
 // Checkout totals are a visual estimate; CheckoutService remains authoritative.
 document.querySelectorAll('.checkout-layout').forEach((form) => {
     const deliveryOutput = form.querySelector('[data-checkout-delivery]');
@@ -1112,31 +1145,14 @@ function initInquiryForms() {
 
         if (!form || !result || !submit || !submitLabel || !modalController) return;
 
-        const selectedProductVariant = () => document.querySelector(
-            '[data-selected-variant], [data-product-variant-fallback], [data-product-options] input[name="product_variant_id"]',
-        )?.value;
-
-        const syncProductVariant = () => {
-            const input = form.querySelector('[data-inquiry-product-variant]');
-            const variantId = selectedProductVariant();
-            if (input) input.value = variantId || '';
-        };
-
-        document.addEventListener('storefront:variant-selected', (event) => {
-            const input = form.querySelector('[data-inquiry-product-variant]');
-            if (input) input.value = event.detail?.variantId || '';
-        });
-
         document.querySelectorAll('[data-inquiry-open]').forEach((trigger) => {
             trigger.addEventListener('click', (event) => {
                 event.preventDefault();
-                syncProductVariant();
                 modalController.open(trigger);
             });
         });
 
         form.addEventListener('submit', async (event) => {
-            syncProductVariant();
 
             if (form.dataset.ordinaryRetry === 'true') return;
 
@@ -1176,7 +1192,6 @@ function initInquiryForms() {
                 }
 
                 form.reset();
-                syncProductVariant();
                 delete form.dataset.ordinaryRetry;
                 const trigger = modalController.returnFocus();
                 modalController.close(false);
@@ -1228,7 +1243,6 @@ function initInfoModals() {
 }
 
 initStorefrontFeature('info-modal', initInfoModals);
-
 
 function initStories() {
     const modal = document.querySelector('[data-story-modal]');
