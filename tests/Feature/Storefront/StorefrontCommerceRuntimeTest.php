@@ -151,7 +151,7 @@ test('zero price product stays public but uses request price presentation and ca
         ->and($availability->isPurchasable($variant))->toBeFalse()
         ->and($card->priceAvailable)->toBeFalse()
         ->and($card->priceLabel)->toBe('Цена по запросу')
-        ->and($card->variantId)->toBeNull();
+        ->and(property_exists($card, 'variantId'))->toBeFalse();
 
     $this->get(route('catalog.index', ['q' => $product->title]))
         ->assertOk()
@@ -214,8 +214,8 @@ test('positive in stock and preorder variants remain purchasable', function (): 
 
     expect($availability->isPurchasable($inStock))->toBeTrue()
         ->and($availability->isPurchasable($preOrder))->toBeTrue()
-        ->and(ProductCardViewModel::fromProduct($inStock->product)->variantId)->toBe($inStock->getKey())
-        ->and(ProductCardViewModel::fromProduct($preOrder->product)->variantId)->toBe($preOrder->getKey());
+        ->and(property_exists(ProductCardViewModel::fromProduct($inStock->product), 'variantId'))->toBeFalse()
+        ->and(property_exists(ProductCardViewModel::fromProduct($preOrder->product), 'variantId'))->toBeFalse();
 });
 
 test('old zero snapshot blocks checkout stock and order while cart remains removable', function (): void {

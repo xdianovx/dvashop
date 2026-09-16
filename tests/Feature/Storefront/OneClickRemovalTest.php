@@ -91,7 +91,7 @@ test('product cart and checkout pages contain no one click modal or purchase CTA
     }
 });
 
-test('shared product cards remove one click while preserving details and eligible cart forms', function (string $kind): void {
+test('shared product cards expose only the details cta for every variant shape', function (string $kind): void {
     $variant = ProductVariant::factory()->default()->create([
         'price' => 1000,
         'stock_status' => $kind === 'unavailable' ? StockStatus::OutOfStock : StockStatus::InStock,
@@ -103,12 +103,9 @@ test('shared product cards remove one click while preserving details and eligibl
     $card = ProductCardViewModel::fromProduct($variant->product->fresh());
     $html = $this->blade('<x-product-card :product="$product" />', ['product' => $card]);
     $html->assertDontSee('Заказать в 1 клик')->assertSee('Подробнее')
-        ->assertSee('href="'.$card->url.'"', false);
-    if ($kind === 'single') {
-        $html->assertSee('data-cart-add', false)->assertSee('Добавить в корзину')
-            ->assertSee('name="product_variant_id" value="'.$variant->id.'"', false)
-            ->assertSee('name="quantity" value="1"', false);
-    } else {
-        $html->assertDontSee('data-cart-add', false)->assertDontSee('product-card__buy', false);
-    }
+        ->assertSee('href="'.$card->url.'"', false)
+        ->assertDontSee('data-cart-add', false)
+        ->assertDontSee('product-card__buy', false)
+        ->assertDontSee('Добавить в корзину')
+        ->assertDontSee('В корзину');
 })->with(['single', 'multiple', 'unavailable']);

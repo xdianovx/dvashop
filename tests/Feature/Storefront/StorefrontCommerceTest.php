@@ -138,7 +138,7 @@ test('public product uses an active alternative when its default variant is not 
         $card = collect($catalog->viewData('products')->items())->firstWhere('id', $product->getKey());
         expect($card)->toBeInstanceOf(ProductCardViewModel::class)
             ->and($card->sku)->toBe($expectedVariant->sku)
-            ->and($card->variantId)->toBe($expectedVariant->getKey());
+            ->and(property_exists($card, 'variantId'))->toBeFalse();
 
         $this->get(route('products.show', $product->slug))
             ->assertOk()
@@ -146,46 +146,31 @@ test('public product uses an active alternative when its default variant is not 
     }
 });
 
-test('product card quick add requires exactly one purchasable public variant', function (): void {
-    $singleInStock = ProductVariant::factory()->default()->create([
+test('shared product cards never expose a direct cart variant', function (): void {
+    $single = ProductVariant::factory()->default()->create([
         'stock_status' => StockStatus::InStock,
         'stock_quantity' => 3,
     ]);
-    $singleUnlimited = ProductVariant::factory()->default()->create([
-        'stock_status' => StockStatus::InStock,
-        'stock_quantity' => null,
-    ]);
-    $singlePreOrder = ProductVariant::factory()->default()->create([
-        'stock_status' => StockStatus::PreOrder,
-        'stock_quantity' => null,
-    ]);
-    $singleOutOfStock = ProductVariant::factory()->default()->create([
+    $unavailable = ProductVariant::factory()->default()->create([
         'stock_status' => StockStatus::OutOfStock,
         'stock_quantity' => 0,
     ]);
-    $singleEmptyStock = ProductVariant::factory()->default()->create([
-        'stock_status' => StockStatus::InStock,
-        'stock_quantity' => 0,
-    ]);
-
     $multiProduct = Product::factory()->create();
     ProductVariant::factory()->forProduct($multiProduct)->default()->create(['stock_quantity' => 5]);
     ProductVariant::factory()->forProduct($multiProduct)->create(['stock_quantity' => 5]);
 
-    $alternativeProduct = Product::factory()->create();
-    $inactiveDefault = ProductVariant::factory()->forProduct($alternativeProduct)->default()->create(['stock_quantity' => 5]);
-    $publicAlternative = ProductVariant::factory()->forProduct($alternativeProduct)->create(['stock_quantity' => 5]);
-    DB::table('product_variants')->where('id', $inactiveDefault->getKey())->update(['is_active' => false]);
+    foreach ([$single->product, $unavailable->product, $multiProduct] as $product) {
+        $card = ProductCardViewModel::fromProduct($product->fresh());
 
-    foreach ([$singleInStock, $singleUnlimited, $singlePreOrder] as $purchasable) {
-        expect(ProductCardViewModel::fromProduct($purchasable->product)->variantId)->toBe($purchasable->getKey());
-    }
-    foreach ([$singleOutOfStock, $singleEmptyStock] as $unavailable) {
-        expect(ProductCardViewModel::fromProduct($unavailable->product)->variantId)->toBeNull();
-    }
+        expect(property_exists($card, 'variantId'))->toBeFalse();
 
-    expect(ProductCardViewModel::fromProduct($multiProduct)->variantId)->toBeNull()
-        ->and(ProductCardViewModel::fromProduct($alternativeProduct)->variantId)->toBe($publicAlternative->getKey());
+        $this->blade('<x-product-card :product="$product" />', ['product' => $card])
+            ->assertSee('Подробнее')
+            ->assertDontSee('data-cart-add', false)
+            ->assertDontSee('product-card__buy', false)
+            ->assertDontSee('Добавить в корзину')
+            ->assertDontSee('В корзину');
+    }
 });
 
 test('catalog category filter includes only active descendants from the selected slug path', function (): void {

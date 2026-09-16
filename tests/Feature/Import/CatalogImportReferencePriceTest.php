@@ -297,7 +297,7 @@ test('reference priced import becomes sellable while unmapped import keeps zero 
         ->and($card->price)->toBe('1 790')
         ->and($card->priceLabel)->toBe('1 790 ₽')
         ->and($porogProduct->variants()->count())->toBe(24)
-        ->and($card->variantId)->toBeNull()
+        ->and(property_exists($card, 'variantId'))->toBeFalse()
         ->and($cartItem->price_snapshot)->toEqual('1790.00');
 
     $fallbackCategory = ProductCategory::query()
@@ -317,7 +317,7 @@ test('reference priced import becomes sellable while unmapped import keeps zero 
 
     expect($availability->hasSellablePrice($unpricedVariant))->toBeFalse()
         ->and($unpricedCard->priceLabel)->toBe('Цена по запросу')
-        ->and($unpricedCard->variantId)->toBeNull()
+        ->and(property_exists($unpricedCard, 'variantId'))->toBeFalse()
         ->and(fn () => app(CartManager::class)->addItem(referencePriceCartRequest(Cart::factory()->create()), $unpricedVariant->getKey()))
         ->toThrow(ValidationException::class, CartManager::PRICE_UNAVAILABLE_MESSAGE);
 });

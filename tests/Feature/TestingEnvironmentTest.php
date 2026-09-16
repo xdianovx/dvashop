@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use Laravel\Scout\EngineManager;
+use Laravel\Scout\Engines\CollectionEngine;
+
 test('test suite uses the isolated testing environment', function () {
     expect(app()->runningUnitTests())->toBeTrue()
         ->and(app()->environment())->toBe('testing')
@@ -10,6 +13,12 @@ test('test suite uses the isolated testing environment', function () {
         ->and(config('cache.default'))->toBe('array')
         ->and(config('queue.default'))->toBe('sync')
         ->and(config('session.driver'))->toBe('array')
+        ->and(config('scout.driver'))->toBeNull()
+        ->and(app(EngineManager::class)->getDefaultDriver())->toBe('null')
+        ->and(config('scout.queue'))->toBeFalse()
+        ->and(config('scout.prefix'))->toBe('dvashop_testing_')
+        ->and(config('scout.prefix'))->not->toBe('dvashop_local_')
+        ->and(config('catalog-search.driver'))->toBe('database')
         ->and(config('shop.orders.bitrix_enabled'))->toBeFalse()
         ->and(config('shop.inquiries.bitrix_enabled'))->toBeFalse()
         ->and(config('shop.bitrix.webhook_url'))->toBe('')
@@ -24,4 +33,15 @@ test('test suite uses the isolated testing environment', function () {
         ->and(config('shop.orders.customer_email_enabled'))->toBeFalse()
         ->and(config('shop.orders.manager_email_enabled'))->toBeFalse()
         ->and(config('shop.inquiries.email_enabled'))->toBeFalse();
+});
+
+test('ordinary tests cannot turn the meilisearch driver into an external engine', function () {
+    expect(getenv('MEILISEARCH_INTEGRATION'))->not->toBe('1');
+
+    config(['scout.driver' => 'meilisearch']);
+
+    expect(app(EngineManager::class)->engine('meilisearch'))
+        ->toBeInstanceOf(CollectionEngine::class)
+        ->and(config('scout.prefix'))->toBe('dvashop_testing_')
+        ->and(config('scout.prefix'))->not->toBe('dvashop_local_');
 });

@@ -19,7 +19,6 @@ class ProductCardViewModel
         public readonly bool $priceAvailable,
         public readonly string $priceLabel,
         public readonly ?string $oldPrice,
-        public readonly ?int $variantId,
         public readonly ?string $sku,
         public readonly bool $inStock = false,
     ) {}
@@ -44,12 +43,6 @@ class ProductCardViewModel
             ? $availability->effectivePrice($variant)
             : (float) ($product->price ?? 0);
         $priceAvailable = $variant instanceof ProductVariant && $availability->hasSellablePrice($variant);
-        /** @var ProductVariant|null $quickAddVariant */
-        $quickAddVariant = $product->variants->count() === 1
-            && $variant instanceof ProductVariant
-            && $availability->isPurchasable($variant)
-                ? $variant
-                : null;
 
         return new self(
             id: (int) $product->getKey(),
@@ -62,7 +55,6 @@ class ProductCardViewModel
             oldPrice: $priceAvailable
                 ? ($variant?->old_price !== null ? self::formatPrice($variant->old_price) : ($product->old_price !== null ? self::formatPrice($product->old_price) : null))
                 : null,
-            variantId: $quickAddVariant?->getKey(),
             sku: $variant?->sku ?: $product->sku,
             inStock: $variant instanceof ProductVariant && $variant->stock_status === StockStatus::InStock,
         );
