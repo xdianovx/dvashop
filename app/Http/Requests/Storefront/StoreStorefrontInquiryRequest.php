@@ -22,19 +22,15 @@ class StoreStorefrontInquiryRequest extends FormRequest
             $this->merge(['phone' => trim((string) $this->input('phone'))]);
         }
 
-        if ($this->query->has('product_context')) {
-            $this->merge(['product_context' => $this->query('product_context')]);
-        }
     }
 
     /** @return array<string, mixed> */
     public function rules(): array
     {
         $type = StorefrontInquiryType::tryFrom((string) $this->input('type'));
-        $productConsultation = $type === StorefrontInquiryType::ProductConsultation;
 
         return [
-            'type' => ['required', Rule::enum(StorefrontInquiryType::class)],
+            'type' => ['required', Rule::enum(StorefrontInquiryType::class)->except([StorefrontInquiryType::ProductConsultation])],
             'name' => ['required', 'string', 'max:255'],
             'phone' => [
                 'required',
@@ -61,23 +57,8 @@ class StoreStorefrontInquiryRequest extends FormRequest
             ],
             'email' => ['nullable', 'string', 'email:filter', 'max:255'],
             'message' => ['nullable', 'string', 'max:5000'],
-            'product_variant_id' => [
-                Rule::requiredIf($productConsultation),
-                Rule::prohibitedIf(! $productConsultation),
-                'integer',
-                'min:1',
-            ],
-            'product_context' => [
-                Rule::requiredIf($productConsultation),
-                Rule::prohibitedIf(! $productConsultation),
-                'integer',
-                'min:1',
-                function (string $attribute, mixed $value, Closure $fail) use ($productConsultation): void {
-                    if ($productConsultation && ! $this->hasValidSignature()) {
-                        $fail('Контекст товара для заявки недействителен. Обновите страницу и попробуйте снова.');
-                    }
-                },
-            ],
+            'product_variant_id' => ['prohibited'],
+            'product_context' => ['prohibited'],
             'source_code' => ['required', 'string', Rule::in($type?->allowedSourceCodes() ?? []), 'max:100'],
             'company_website' => ['nullable', 'prohibited'],
         ];
@@ -92,14 +73,8 @@ class StoreStorefrontInquiryRequest extends FormRequest
             'email' => 'Укажите корректный email.',
             'max' => 'Поле «:attribute» слишком длинное.',
             'type.enum' => 'Выбран неизвестный тип заявки.',
-            'product_variant_id.required' => 'Выберите вариант товара для консультации.',
             'product_variant_id.prohibited' => 'Вариант товара недопустим для этого типа заявки.',
-            'product_variant_id.integer' => 'Выбран некорректный вариант товара.',
-            'product_variant_id.min' => 'Выбран некорректный вариант товара.',
-            'product_context.required' => 'Контекст товара для заявки отсутствует. Обновите страницу и попробуйте снова.',
             'product_context.prohibited' => 'Контекст товара недопустим для этого типа заявки.',
-            'product_context.integer' => 'Контекст товара для заявки недействителен.',
-            'product_context.min' => 'Контекст товара для заявки недействителен.',
             'source_code.in' => 'Источник заявки не поддерживается.',
             'company_website.prohibited' => 'Заявка отклонена системой защиты от спама.',
         ];

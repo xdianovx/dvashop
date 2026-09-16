@@ -88,9 +88,4 @@
         @endif
     </div>
 
-    <x-storefront-inquiry-modal
-        :type="\App\Enums\StorefrontInquiryType::GeneralConsultation->value"
-        source-code="checkout"
-        title="Заказать в 1 клик"
-    />
 @endsection

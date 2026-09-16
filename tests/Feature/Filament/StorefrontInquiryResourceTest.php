@@ -1,6 +1,8 @@
 <?php
 
 use App\Enums\AdminPermission;
+use App\Enums\StorefrontInquiryType;
+use App\Filament\Resources\StorefrontInquiries\Pages\ViewStorefrontInquiry;
 use App\Filament\Resources\StorefrontInquiries\StorefrontInquiryResource;
 use App\Models\StorefrontInquiry;
 use App\Models\User;
@@ -77,4 +79,44 @@ test('inquiry detail exposes sent and failed timestamps without edit actions', f
         ->assertOk()
         ->assertSee('Ошибка Email')
         ->assertSee('Ошибка Bitrix');
+});
+
+test('historical product consultation remains readable with saved product snapshots', function (): void {
+    $inquiry = StorefrontInquiry::factory()->create([
+        'type' => 'product_consultation',
+        'product_title_snapshot' => 'Исторический порог',
+        'variant_sku_snapshot' => 'HISTORY-SKU',
+        'options_snapshot' => ['Материал' => 'Сталь'],
+    ])->fresh();
+    $before = $inquiry->getAttributes();
+    expect($inquiry->type)->toBe(StorefrontInquiryType::ProductConsultation)
+        ->and($inquiry->type->label())->toBe('Консультация по товару');
+    $this->actingAs(User::factory()->admin()->create());
+    $this->get(StorefrontInquiryResource::getUrl('index'))->assertOk()->assertSee('Консультация по товару');
+    Livewire\Livewire::test(ViewStorefrontInquiry::class, ['record' => $inquiry->getKey()])
+        ->assertSet('data.product_title_snapshot', 'Исторический порог')
+        ->assertSet('data.variant_sku_snapshot', 'HISTORY-SKU')
+        ->assertSet('data.options_snapshot', 'Материал: Сталь')
+        ->assertSet('data.type', 'Консультация по товару');
+    expect($inquiry->refresh()->getAttributes())->toBe($before);
+});
+
+test('historical checkout inquiry remains readable without changing its saved data', function (): void {
+    $inquiry = StorefrontInquiry::factory()->create([
+        'type' => StorefrontInquiryType::GeneralConsultation,
+        'source_code' => 'checkout',
+        'source_url' => route('checkout.show'),
+        'message' => 'Историческая заявка в один клик',
+        'email_sent_at' => now(),
+        'bitrix_entity_id' => 'historical-lead',
+    ])->fresh();
+    $before = $inquiry->getAttributes();
+    expect($inquiry->type)->toBe(StorefrontInquiryType::GeneralConsultation);
+    $this->actingAs(User::factory()->admin()->create());
+    $this->get(StorefrontInquiryResource::getUrl('index'))->assertOk();
+    Livewire\Livewire::test(ViewStorefrontInquiry::class, ['record' => $inquiry->getKey()])
+        ->assertSet('data.source_code', 'checkout')
+        ->assertSet('data.source_url', route('checkout.show'))
+        ->assertSet('data.message', 'Историческая заявка в один клик');
+    expect($inquiry->refresh()->getAttributes())->toBe($before);
 });

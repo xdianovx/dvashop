@@ -112,7 +112,10 @@ test('commerce pages preserve approved classes assets and real form actions', fu
     foreach (['checkout-layout', 'checkout-card', 'checkout-shipping', 'checkout-payments', 'checkout-order', 'checkout-order__total', 'checkout-order__total-value'] as $class) {
         $checkout->assertSee($class, false);
     }
-    $checkout->assertSee('/img/checkout/cdek.svg', false)
+    $checkout->assertDontSee('Заказать в 1 клик')
+        ->assertDontSee('data-inquiry-modal', false)
+        ->assertDontSee('data-inquiry-form', false)
+        ->assertSee('/img/checkout/cdek.svg', false)
         ->assertSee('/img/checkout/pickup.svg', false)
         ->assertSee('💳')
         ->assertSee('⚡')
@@ -167,7 +170,7 @@ test('product and checkout scripts keep server matrix and totals as presentation
         ->toContain('part-buy__stock--unavailable')
         ->toContain('candidate.variant_id === Number(fallbackSelect.value)')
         ->toContain('price.textContent = selectedVariant.price_label')
-        ->toContain('quantity.max = isInStock')
+        ->toContain('Number(item.quantity) >= max')
         ->toContain('submit.disabled = !selectedVariant.purchasable')
         ->not->toContain('selectedVariant.price > 0')
         ->toContain('[data-delivery-price]')
@@ -196,8 +199,9 @@ test('storefront JavaScript source contract isolates product runtime features an
         ->toContain('function initProductOptions()')
         ->toContain("initStorefrontFeature('product-options', initProductOptions)")
         ->toContain("console.error('[storefront:product-options] Unable to parse variant matrix.'")
-        ->toContain("quantity.max = '1'")
-        ->toContain('quantity.disabled = true')
+        ->toContain("variantInput.value = ''")
+        ->toContain('add.disabled = pending || !variant?.purchasable')
+        ->not->toContain('initQuantitySteppers', 'data-product-quantity')
         ->toContain('submit.disabled = true')
         ->toContain('function initCartAjax()')
         ->toContain("initStorefrontFeature('cart-ajax', initCartAjax)")

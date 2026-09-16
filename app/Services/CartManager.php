@@ -65,6 +65,30 @@ class CartManager
         return $cart ? $this->totals($cart) : $this->emptySummary();
     }
 
+    /**
+     * Read only this product's variant positions, without creating a cart or queuing a cookie.
+     *
+     * @param  iterable<int>  $variantIds
+     * @return array<int, array{cart_item_id:int,quantity:int,update_url:string,remove_url:string}>
+     */
+    public function variantItemStatesForRequest(Request $request, iterable $variantIds): array
+    {
+        $ids = collect($variantIds)->map(fn ($id): int => (int) $id)->unique()->values()->all();
+        $cart = $ids === [] ? null : $this->findActiveCart((string) $request->cookie(self::COOKIE_NAME));
+        if (! $cart) {
+            return [];
+        }
+
+        return $cart->items()->whereIn('product_variant_id', $ids)
+            ->get(['id', 'product_variant_id', 'quantity'])
+            ->mapWithKeys(fn (CartItem $item): array => [(int) $item->product_variant_id => [
+                'cart_item_id' => (int) $item->getKey(),
+                'quantity' => (int) $item->quantity,
+                'update_url' => route('cart.items.update', $item),
+                'remove_url' => route('cart.items.destroy', $item),
+            ]])->all();
+    }
+
     public function addItem(Request $request, int $productVariantId, int $quantity = 1): CartItem
     {
         $cart = $this->current($request);
@@ -96,9 +120,12 @@ class CartManager
     {
         $cart = $this->current($request);
         $this->ensureItemBelongsToCart($item, $cart);
-        $variant = $this->findAvailableVariant((int) $item->product_variant_id);
-        $this->assertSellablePrice($variant);
-        $this->assertAvailableQuantity($variant, max(1, $quantity));
+        // Removing units must remain possible even if the saved variant is no longer sellable.
+        if ($quantity >= (int) $item->quantity) {
+            $variant = $this->findAvailableVariant((int) $item->product_variant_id);
+            $this->assertSellablePrice($variant);
+            $this->assertAvailableQuantity($variant, max(1, $quantity));
+        }
 
         $item->update(['quantity' => max(1, $quantity)]);
 

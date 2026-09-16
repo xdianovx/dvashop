@@ -665,7 +665,7 @@ test('multi variant fallback exposes every public server row and selected availa
     ]);
 
     $inFirstResponse = $this->get(route('products.show', $inFirstProduct->slug))->assertOk()
-        ->assertSee('max="3"', false)
+        ->assertViewHas('variantMatrix', fn (array $matrix): bool => $matrix[0]['stock_quantity'] === 3)
         ->assertDontSee('data-add-to-cart disabled', false);
     expect(collect($inFirstResponse->viewData('variantMatrix'))->pluck('variant_id')->all())
         ->toBe([$inFirst->getKey(), $outSecond->getKey()]);
@@ -720,7 +720,7 @@ test('cart rejects forged variants whose selected option value or group is inact
     expect($cart->items()->count())->toBe(0);
 });
 
-test('preorder selected product remains purchasable and in stock quantity limits the input', function (): void {
+test('preorder selected product remains purchasable and in stock quantity remains available to the cart counter', function (): void {
     $preOrder = ProductVariant::factory()->default()->create([
         'stock_status' => StockStatus::PreOrder,
         'stock_quantity' => null,
@@ -737,7 +737,7 @@ test('preorder selected product remains purchasable and in stock quantity limits
     ]);
     $this->get(route('products.show', $inStock->product->slug))
         ->assertOk()
-        ->assertSee('max="3"', false)
+        ->assertViewHas('variantMatrix', fn (array $matrix): bool => $matrix[0]['stock_quantity'] === 3)
         ->assertDontSee('data-add-to-cart disabled', false);
 });
 

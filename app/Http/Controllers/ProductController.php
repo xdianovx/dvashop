@@ -9,6 +9,7 @@ use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionValue;
 use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
+use App\Services\CartManager;
 use App\Services\Media\MediaUrlService;
 use App\Services\Seo\SeoMetadataService;
 use App\Services\StorefrontProductAvailability;
@@ -26,7 +27,7 @@ class ProductController extends Controller
         private readonly StorefrontProductAvailability $availability,
     ) {}
 
-    public function show(Request $request, string $productSlug): View
+    public function show(Request $request, string $productSlug, CartManager $cartManager): View
     {
         $product = $this->availability->products(Product::query())
             ->where('slug', $productSlug)
@@ -111,6 +112,7 @@ class ProductController extends Controller
             'optionGroups' => $optionGroups,
             'availableValues' => $availableValues,
             'variantMatrix' => $variantMatrix,
+            'variantCartStates' => $cartManager->variantItemStatesForRequest($request, $product->variants->modelKeys()),
             'selectedCanBePurchased' => $this->availability->isPurchasable($variant),
             'selectedPriceLabel' => ProductCardViewModel::priceLabel($this->availability->effectivePrice($variant), 'руб.'),
             'deliveryMethods' => DeliveryMethodSetting::query()->active()->ordered()->get(),

@@ -5,6 +5,7 @@ namespace App\Enums;
 enum StorefrontInquiryType: string
 {
     case GeneralConsultation = 'general_consultation';
+    // Legacy value: retained for historical records and their delivery snapshots.
     case ProductConsultation = 'product_consultation';
     case Partnership = 'partnership';
     case CustomPart = 'custom_part';
@@ -23,8 +24,8 @@ enum StorefrontInquiryType: string
     public function allowedSourceCodes(): array
     {
         return match ($this) {
-            self::GeneralConsultation => ['faq', 'about', 'home', 'checkout'],
-            self::ProductConsultation => ['product'],
+            self::GeneralConsultation => ['faq', 'about', 'home'],
+            self::ProductConsultation => [],
             self::Partnership => ['partners'],
             self::CustomPart => ['home'],
         };

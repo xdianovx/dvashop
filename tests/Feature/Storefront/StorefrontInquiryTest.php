@@ -2,9 +2,13 @@
 
 use App\Enums\StorefrontInquiryType;
 use App\Events\StorefrontInquiryCreated;
+use App\Listeners\SendInquiryEmail;
+use App\Listeners\SendInquiryToBitrix;
+use App\Mail\StorefrontInquiryMail;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\StorefrontInquiry;
+use App\Services\Storefront\StorefrontInquiryService;
 use Database\Seeders\FaqSeeder;
 use Database\Seeders\HomepageContentSeeder;
 use Database\Seeders\ShopSettingsSeeder;
@@ -12,10 +16,12 @@ use Database\Seeders\StaticPageContentSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Validation\ValidationException;
 
 uses(RefreshDatabase::class);
 
@@ -183,44 +189,31 @@ test('a delivery dispatch failure never rolls back a persisted inquiry or causes
         ->once();
 });
 
-test('product inquiry snapshots only server data and strips internal metadata', function (): void {
-    $product = Product::factory()->create([
-        'title' => 'Порог серверный',
-        'sku' => 'PRODUCT-SKU',
-    ]);
-    $variant = ProductVariant::factory()->forProduct($product)->default()->create([
-        'sku' => 'VARIANT-SKU',
-        'options' => [
-            ...ProductVariant::technicalOptions(),
-            'material' => ['group' => 'Материал', 'value' => 'Оцинковка'],
-        ],
-        'stock_quantity' => null,
-    ]);
+test('retired product consultation rejects even a signed request without side effects', function (): void {
+    Mail::fake();
+    Http::preventStrayRequests();
+    config(['shop.inquiries.email_enabled' => true, 'shop.inquiries.bitrix_enabled' => true]);
+    $variant = ProductVariant::factory()->default()->create();
+    $this->postJson(signedProductInquiryRoute($variant->product), validInquiryPayload([
+        'type' => StorefrontInquiryType::ProductConsultation->value,
+        'source_code' => 'product',
+        'product_variant_id' => $variant->id,
+    ]))->assertUnprocessable()->assertJsonValidationErrors('type')->assertJsonMissingPath('uis');
 
-    $this->from(route('products.show', $product->slug))
-        ->withHeader('referer', 'https://attacker.example.test/forged')
-        ->post(signedProductInquiryRoute($product), validInquiryPayload([
-            'type' => StorefrontInquiryType::ProductConsultation->value,
-            'source_code' => 'product',
-            'product_variant_id' => (string) $variant->getKey(),
-            'product_id' => 999999,
-            'product_title_snapshot' => 'Подделка из браузера',
-            'variant_sku_snapshot' => 'FORGED-SKU',
-            'options_snapshot' => ['forged' => 'value'],
-        ]))
-        ->assertRedirect();
+    expect(StorefrontInquiry::count())->toBe(0);
+    Event::assertNotDispatched(StorefrontInquiryCreated::class);
+    Mail::assertNothingSent();
+    Mail::assertNothingQueued();
+    Http::assertNothingSent();
+});
 
-    $inquiry = StorefrontInquiry::query()->sole();
-
-    expect($inquiry->product_id)->toBe($product->getKey())
-        ->and($inquiry->product_variant_id)->toBe($variant->getKey())
-        ->and($inquiry->product_title_snapshot)->toBe('Порог серверный')
-        ->and($inquiry->variant_sku_snapshot)->toBe('VARIANT-SKU')
-        ->and($inquiry->source_url)->toBe(route('products.show', $product->slug))
-        ->and($inquiry->options_snapshot)->toBe([
-            'material' => ['group' => 'Материал', 'value' => 'Оцинковка'],
-        ])
-        ->and(json_encode($inquiry->options_snapshot))->not->toContain('__dvashop');
+test('retired consultation cannot be created through the service either', function (): void {
+    expect(fn () => app(StorefrontInquiryService::class)->create(validInquiryPayload([
+        'type' => StorefrontInquiryType::ProductConsultation->value,
+        'source_code' => 'product',
+    ])))->toThrow(ValidationException::class);
+    expect(StorefrontInquiry::count())->toBe(0);
+    Event::assertNotDispatched(StorefrontInquiryCreated::class);
 });
 
 test('forged unavailable product variants are rejected without creating an inquiry', function (mixed $variantId): void {
@@ -233,7 +226,7 @@ test('forged unavailable product variants are rejected without creating an inqui
             'product_variant_id' => $variantId,
         ]))
         ->assertUnprocessable()
-        ->assertJsonValidationErrors('product_variant_id');
+        ->assertJsonValidationErrors('type');
 
     expect(StorefrontInquiry::query()->count())->toBe(0);
 })->with([
@@ -347,23 +340,17 @@ test('storefront ctas use one progressive post form and preserve telephone links
 
     $this->get(route('products.show', $product->slug))
         ->assertOk()
-        ->assertSee('class="btn part-buy__consult"', false)
-        ->assertSee('Получить консультацию')
-        ->assertSee('data-inquiry-product-variant', false)
-        ->assertSee('value="'.$variant->getKey().'"', false)
-        ->assertSee('product_context='.$product->getKey(), false)
-        ->assertSee('signature=', false);
+        ->assertDontSee('Получить консультацию')
+        ->assertDontSee('data-inquiry-modal', false)
+        ->assertDontSee('data-inquiry-product-variant', false)
+        ->assertDontSee('product_context=', false)
+        ->assertDontSee('signature=', false);
 });
 
-test('product inquiry JavaScript keeps the hidden variant synchronized with server published option changes', function (): void {
+test('product inquiry synchronization is removed while generic modal handlers remain', function (): void {
     $script = file_get_contents(resource_path('js/app.js'));
-
-    expect($script)
-        ->toContain("new CustomEvent('storefront:variant-selected'")
-        ->toContain('dispatchVariant(String(selectedVariant.variant_id))')
-        ->toContain("document.addEventListener('storefront:variant-selected'")
-        ->toContain("input.value = event.detail?.variantId || ''")
-        ->toContain('syncProductVariant();');
+    expect($script)->not->toContain('selectedProductVariant', 'syncProductVariant', 'data-inquiry-product-variant')
+        ->and($script)->toContain('initInquiryForms', 'data-inquiry-open', 'trackUisOfflineRequest(payload.uis)');
 });
 
 test('inquiry JavaScript uses class-only runtime state and switches successful ajax to a separate dialog', function (): void {
@@ -422,3 +409,31 @@ test('every approved inquiry call to action remains connected on desktop and mob
         ->toContain(".partners-page__mob-cta {\n    display: flex;")
         ->not->toContain(".partners-page__mob-cta {\n    display: none;");
 });
+
+test('active inquiry types still create and deliver through shared channels', function (StorefrontInquiryType $type, string $source): void {
+    Mail::fake();
+    Http::fake(['bitrix.example.test/*' => Http::response(['result' => 123])]);
+    Http::preventStrayRequests();
+    config([
+        'shop.inquiries.email_enabled' => true,
+        'shop.inquiries.bitrix_enabled' => true,
+        'shop.inquiries.manager_email' => 'manager@example.test',
+        'shop.bitrix.webhook_url' => 'https://bitrix.example.test/rest/1/test/',
+        'shop.bitrix.inquiry_method' => 'crm.lead.add',
+    ]);
+    $this->postJson(route('storefront.inquiries.store'), validInquiryPayload([
+        'type' => $type->value, 'source_code' => $source,
+    ]))->assertCreated();
+    $inquiry = StorefrontInquiry::query()->sole();
+    expect($inquiry->type)->toBe($type)->and($inquiry->product_title_snapshot)->toBeNull();
+    Event::assertDispatched(StorefrontInquiryCreated::class);
+    $event = new StorefrontInquiryCreated($inquiry);
+    app(SendInquiryEmail::class)->handle($event);
+    app(SendInquiryToBitrix::class)->handle($event);
+    Mail::assertSent(StorefrontInquiryMail::class);
+    Http::assertSentCount(1);
+})->with([
+    [StorefrontInquiryType::GeneralConsultation, 'faq'],
+    [StorefrontInquiryType::Partnership, 'partners'],
+    [StorefrontInquiryType::CustomPart, 'home'],
+]);
