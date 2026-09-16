@@ -31,7 +31,7 @@
             <x-burger />
 
             <a href="{{ route('home') }}" class="header__logo" aria-label="{{ $storefront?->storeName ?? 'AVTOPOROGI.ru' }} — на главную">
-                <img src="/img/logo.svg" alt="AVTOPOROGI.ru" width="253" height="33">
+                <img src="/img/logo.svg" alt="AVTOPOROGI.ru" width="184" height="27">
             </a>
 
             @if ($mainLinks !== [])
