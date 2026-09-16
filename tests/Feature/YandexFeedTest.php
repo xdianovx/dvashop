@@ -319,9 +319,12 @@ test('YML contains stable categories variants prices canonical URLs structured f
     ProductFitment::factory()->for($product)->create(['vehicle_generation_id' => VehicleGeneration::factory()->create()->id]);
     ProductFitment::factory()->for($product)->create(['vehicle_generation_id' => VehicleGeneration::factory()->create()->id]);
     $xml = yandexBuild();
+    $state = app(YandexFeedState::class)->read();
     $offer = $xml->shop->offers->offer;
     expect($xml->getName())->toBe('yml_catalog')
-        ->and((string) $xml['date'])->toBe(now()->format(DateTimeInterface::RFC3339))
+        ->and((string) $xml['date'])->toBe(
+            Carbon::parse($state['generation_started_at'])->format(DateTimeInterface::RFC3339)
+        )
         ->and((string) $xml->shop->currencies->currency['id'])->toBe('RUR')
         ->and($xml->xpath('//offer'))->toHaveCount(1)
         ->and((string) $offer['id'])->toBe('variant-'.$variant->id)
