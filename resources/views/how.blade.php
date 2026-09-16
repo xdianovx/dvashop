@@ -33,8 +33,6 @@
                     @endforeach
                 </ol>
             @endif
-
-            <a href="{{ route('home') }}" class="btn how-page__cta">Вернуться на главную</a>
         </div>
     </section>
 @endsection

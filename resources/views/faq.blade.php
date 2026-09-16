@@ -48,7 +48,6 @@
             @if (($storefront ?? null)?->phoneUrl && $storefront?->phoneDisplay)
                 <a href="{{ $storefront->phoneUrl }}" class="faq-page__phone">Позвонить: {{ $storefront->phoneDisplay }}</a>
             @endif
-            <a href="{{ route('home') }}" class="btn faq__cta faq-page__cta-home">Вернуться на главную</a>
         </div>
     </section>
 

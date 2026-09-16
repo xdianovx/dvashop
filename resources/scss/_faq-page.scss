@@ -76,10 +76,6 @@
     display: flex;
 }
 
-.faq-page__cta-home {
-    display: none;
-}
-
 .faq-page__phone {
     display: block;
     width: fit-content;
@@ -171,15 +167,5 @@
 
     .faq-page__cta {
         display: flex;
-    }
-
-    .faq-page__cta-home {
-        display: flex;
-        width: 181px;
-        height: 42px;
-        margin-top: 24px;
-        border-radius: 30px;
-        font-family: 'Gilroy', system-ui, sans-serif;
-        font-size: 12px;
     }
 }
