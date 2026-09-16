@@ -1,5 +1,5 @@
 .categories {
-    margin-top: var(--section-gap);
+    margin-top: 60px;
 }
 
 .categories__grid {
@@ -9,19 +9,19 @@
     gap: 10px;
 }
 
-.categories__grid > .categories__card:nth-child(5):last-child {
+.categories__grid>.categories__card:nth-child(5):last-child {
     grid-column: span 2;
 }
 
-.categories__grid > .categories__card:nth-child(4):last-child {
+.categories__grid>.categories__card:nth-child(4):last-child {
     grid-column: 1 / -1;
 }
 
-.categories__grid > .categories__card:nth-child(2):last-child {
+.categories__grid>.categories__card:nth-child(2):last-child {
     grid-column: span 2;
 }
 
-.categories__grid > .categories__card:first-child:last-child {
+.categories__grid>.categories__card:first-child:last-child {
     grid-column: 1 / -1;
 }
 
