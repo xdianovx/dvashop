@@ -29,13 +29,7 @@ body {
 
 // Vertical rhythm between page sections.
 :root {
-    --section-gap: 120px;
-}
-
-@media (max-width: 1200px) {
-    :root {
-        --section-gap: 80px;
-    }
+    --section-gap: 60px;
 }
 
 main {
