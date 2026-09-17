@@ -3,7 +3,7 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 16px;
-    margin-bottom: 40px;
+    margin-bottom: 60px;
 }
 
 .catalog-search__form {
@@ -95,7 +95,7 @@
     height: 100%;
 }
 
-.catalog-results__section + .catalog-results__section {
+.catalog-results__section+.catalog-results__section {
     margin-top: 56px;
 }
 
@@ -137,7 +137,7 @@
 
 
 @media (max-width: 768px) {
-    .catalog-results__section + .catalog-results__section {
+    .catalog-results__section+.catalog-results__section {
         margin-top: 36px;
     }
 
