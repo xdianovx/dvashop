@@ -17,5 +17,30 @@
                 {{ $isVisible ? 'Показывается' : 'Скрыто' }}
             </span>
         </div>
+        <div class="flex flex-wrap gap-2">
+            <x-filament::button
+                tag="a"
+                :href="$url"
+                target="_blank"
+                rel="noopener noreferrer"
+                icon="heroicon-o-arrow-top-right-on-square"
+                size="sm"
+                color="gray"
+                title="Открыть изображение в новой вкладке"
+            >
+                Открыть
+            </x-filament::button>
+            <x-filament::button
+                tag="a"
+                :href="$url"
+                download
+                icon="heroicon-o-arrow-down-tray"
+                size="sm"
+                color="gray"
+                title="Скачать файл изображения"
+            >
+                Скачать
+            </x-filament::button>
+        </div>
     </div>
 </div>

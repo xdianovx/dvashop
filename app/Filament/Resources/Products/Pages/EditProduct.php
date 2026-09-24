@@ -8,12 +8,14 @@ use App\Filament\Resources\Products\ProductResource;
 use App\Models\Product;
 use App\Services\Catalog\ProductAdminService;
 use App\Services\Catalog\ProductVariantOptionGenerator;
+use App\Services\StorefrontProductAvailability;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\ForceDeleteAction;
 use Filament\Actions\RestoreAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
 
@@ -61,8 +63,14 @@ class EditProduct extends EditRecord
 
     protected function afterSave(): void
     {
+        $hasGalleryUploads = $this->pendingGalleryUploads !== [];
+
         $this->finishProductOptionSave();
         $this->finishProductSave();
+
+        if ($hasGalleryUploads) {
+            $this->refreshProductGallery();
+        }
     }
 
     public function refreshProductGallery(): void
@@ -74,6 +82,19 @@ class EditProduct extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('open_storefront')
+                ->label('Открыть на сайте')
+                ->icon('heroicon-o-arrow-top-right-on-square')
+                ->url(fn (): string => route('products.show', $this->record->slug))
+                ->openUrlInNewTab()
+                ->visible(function (): bool {
+                    $availability = app(StorefrontProductAvailability::class);
+
+                    return $availability->products(Product::query())
+                        ->whereKey($this->record->getKey())
+                        ->whereHas('variants', fn (Builder $query): Builder => $availability->variants($query))
+                        ->exists();
+                }),
             Action::make('generate_variants_from_template')
                 ->label('Создать варианты по шаблону')
                 ->icon('heroicon-o-squares-plus')

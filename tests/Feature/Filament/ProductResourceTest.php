@@ -21,6 +21,8 @@ use App\Models\User;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Models\VehicleModel;
+use App\Services\Catalog\ProductVariantOptionGenerator;
+use App\Services\Media\MediaUrlService;
 use Database\Seeders\ProductOptionSeeder;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Repeater;
@@ -853,7 +855,7 @@ test('compact price fields create one default variant without opening variants s
         ->and($variant->is_active)->toBeTrue();
 });
 
-test('edit product accepts a batch of new manual gallery images', function () {
+test('edit product saves uploads and refreshes the gallery immediately', function () {
     $category = productResourceCategory();
     $partType = productResourcePartType($category);
     $product = Product::factory()
@@ -862,12 +864,22 @@ test('edit product accepts a batch of new manual gallery images', function () {
         ->withDefaultVariant()
         ->create();
 
-    Livewire::test(EditProduct::class, ['record' => $product->getKey()])
+    $component = Livewire::test(EditProduct::class, ['record' => $product->getKey()])
+        ->set('data.title', 'Сохранённое название с галереей')
         ->set('data.gallery_uploads', [
             UploadedFile::fake()->image('edit-front.jpg', 800, 600),
             UploadedFile::fake()->image('edit-side.png', 600, 800),
-        ])
-        ->call('save')
+        ]);
+
+    $document = new DOMDocument;
+    @$document->loadHTML('<?xml encoding="UTF-8">'.$component->html());
+    $button = (new DOMXPath($document))->query('//button[contains(normalize-space(.), "Сохранить и добавить в галерею")]')->item(0);
+    expect($button)->not->toBeNull()
+        ->and($button->getAttribute('type'))->toBe('submit')
+        ->and($button->hasAttribute('wire:click'))->toBeFalse();
+
+    $component->call('save')->assertSet('data.gallery_uploads', [])
+        ->assertSet('data.title', 'Сохранённое название с галереей')
         ->assertHasNoFormErrors()
         ->assertNotified();
 
@@ -878,6 +890,14 @@ test('edit product accepts a batch of new manual gallery images', function () {
         ->and($images->where('is_main', true))->toHaveCount(1)
         ->and($images->where('is_visible', true))->toHaveCount(2)
         ->and($images->every(fn (ProductImage $image): bool => Storage::disk('public')->exists($image->path)))->toBeTrue();
+    foreach ($images as $image) {
+        $component->assertSet('data.images.record-'.$image->id.'.path', $image->path)
+            ->assertSet('data.images.record-'.$image->id.'.file_url', app(MediaUrlService::class)->productImageFileUrl($image));
+    }
+    expect($product->refresh()->title)->toBe('Сохранённое название с галереей');
+    $component->assertSee($product->main_image_url, false)
+        ->call('save')->assertHasNoFormErrors()->assertSet('data.gallery_uploads', []);
+    expect($product->images()->count())->toBe(2);
 });
 
 test('switching an existing product to generic removes stored fitments', function () {
@@ -974,4 +994,119 @@ test('product resource query and table keep store category and part type separat
         ->toContain("SelectFilter::make('product_type')")
         ->toContain("Filter::make('without_images')")
         ->and(ProductResource::getRelations())->toBe([]);
+});
+
+test('legacy nested variant snapshots are read only and survive repeated product saves', function (): void {
+    $category = productResourceCategory();
+    $product = Product::factory()->forCategory($category)->forPartType(productResourcePartType($category))->create();
+    $variants = collect(['Левый', 'Правый'])->map(fn (string $position, int $index): ProductVariant => ProductVariant::factory()->forProduct($product)->create([
+        'is_default' => $index === 0,
+        'options' => [
+            'profile' => ['group' => 'Профиль', 'value' => 'Полный'],
+            'position' => ['group' => 'Положение', 'value' => $position],
+        ],
+    ]));
+    $snapshots = $variants->mapWithKeys(fn (ProductVariant $variant): array => [$variant->id => $variant->options]);
+    $component = Livewire::test(EditProduct::class, ['record' => $product->id])
+        ->assertSuccessful()->assertDontSee('keyValueFormComponent', false);
+    foreach ($variants as $variant) {
+        $field = 'variants.record-'.$variant->id.'.legacy_options_preview';
+        $component->assertFormFieldExists($field, fn ($field): bool => $field->isDisabled() && ! $field->isDehydrated());
+        expect(json_decode($component->get('data.'.$field), true))->toBe($snapshots[$variant->id]);
+        // Even a forged client value cannot replace the persisted fallback snapshot.
+        $component->set('data.'.$field, 'changed preview')
+            ->set('data.variants.record-'.$variant->id.'.options', ['forged' => 'value']);
+    }
+    $component->set('data.title', 'Обновлённый товар')->call('save')->assertHasNoFormErrors()
+        ->call('save')->assertHasNoFormErrors();
+    foreach ($variants as $variant) {
+        expect($variant->refresh()->options)->toBe($snapshots[$variant->id])
+            ->and($variant->publicOptionsSnapshot())->toBe($snapshots[$variant->id])
+            ->and($variant->variantOptionValues()->count())->toBe(0);
+    }
+    expect($product->refresh()->title)->toBe('Обновлённый товар');
+});
+
+test('dozens of generated variants preserve normalized selections and snapshots on repeated edit saves', function (): void {
+    $category = productResourceCategory();
+    $partType = productResourcePartType($category);
+    $this->seed(ProductOptionSeeder::class);
+    $template = ProductOptionTemplate::where('slug', 'default_auto_part')->firstOrFail();
+    $product = Product::factory()->forCategory($category)->forPartType($partType)->withDefaultVariant()->create(['product_option_template_id' => $template->id]);
+    app(ProductVariantOptionGenerator::class)->createMissingVariants($product);
+    $snapshot = fn (): array => $product->variants()->orderBy('id')->get()->map(fn (ProductVariant $variant): array => [
+        'id' => $variant->id,
+        'options' => $variant->options,
+        'selections' => $variant->variantOptionValues()->orderBy('id')->get()->map->only(['id', 'product_option_group_id', 'product_option_value_id'])->all(),
+    ])->all();
+    $before = $snapshot();
+    expect($before)->toHaveCount(24);
+    Livewire::test(EditProduct::class, ['record' => $product->id])
+        ->assertSuccessful()->assertDontSee('keyValueFormComponent', false)
+        ->call('save')->assertHasNoFormErrors()
+        ->call('save')->assertHasNoFormErrors();
+    expect($snapshot())->toBe($before);
+});
+
+test('storefront header action follows the actual product page availability', function (string $case): void {
+    $category = productResourceCategory();
+    $partType = productResourcePartType($category);
+    $product = Product::factory()->forCategory($category)->forPartType($partType)->withDefaultVariant()->create();
+    match ($case) {
+        'draft' => $product->update(['status' => ProductStatus::Draft]),
+        'deleted' => $product->delete(),
+        'category' => $category->update(['is_active' => false]),
+        'parent category' => $category->parent->update(['is_active' => false]),
+        'part type' => $partType->update(['is_active' => false]),
+        'no public variants' => $product->variants()->update(['is_active' => false]),
+        'no stock' => $product->variants()->update(['stock_status' => StockStatus::OutOfStock, 'stock_quantity' => 0]),
+        default => null,
+    };
+    $component = Livewire::test(EditProduct::class, ['record' => $product->id]);
+    $public = in_array($case, ['active', 'no stock'], true);
+    if ($public) {
+        $component->assertActionVisible('open_storefront')
+            ->assertActionHasUrl('open_storefront', route('products.show', $product->slug))
+            ->assertActionShouldOpenUrlInNewTab('open_storefront');
+    } else {
+        $component->assertActionHidden('open_storefront');
+    }
+    $this->get(route('products.show', $product->slug))->assertStatus($public ? 200 : 404);
+})->with(['active', 'draft', 'deleted', 'category', 'parent category', 'part type', 'no public variants', 'no stock']);
+
+test('gallery open and download actions are labeled direct links for every image source', function (): void {
+    $product = Product::factory()->withDefaultVariant()->create();
+    $images = collect([ProductImage::SOURCE_DEFAULT, ProductImage::SOURCE_MANUAL, ProductImage::SOURCE_IMPORT])
+        ->map(function (string $source) use ($product): ProductImage {
+            $path = $source === ProductImage::SOURCE_DEFAULT
+                ? 'img/placeholders/image.svg'
+                : 'uploads/products/'.$product->id.'/'.$source.'.webp';
+            if ($source !== ProductImage::SOURCE_DEFAULT) {
+                Storage::disk('public')->put($path, test_image_binary('webp', $source === ProductImage::SOURCE_MANUAL ? 60 : 80, 40));
+            }
+
+            return ProductImage::factory()->forProduct($product)->create([
+                'source_type' => $source,
+                'is_default' => $source === ProductImage::SOURCE_DEFAULT,
+                'path' => $path,
+            ]);
+        });
+    $component = Livewire::test(EditProduct::class, ['record' => $product->id]);
+    $document = new DOMDocument;
+    @$document->loadHTML('<?xml encoding="UTF-8">'.$component->html());
+    $xpath = new DOMXPath($document);
+    foreach ($images as $image) {
+        $url = app(MediaUrlService::class)->productImageFileUrl($image);
+        foreach (['Открыть', 'Скачать'] as $label) {
+            $links = $xpath->query('//a[@href="'.$url.'"][contains(normalize-space(.), "'.$label.'")]');
+            expect($links->length)->toBeGreaterThan(0);
+            $link = $links->item(0);
+            expect($link->hasAttribute('wire:click'))->toBeFalse();
+            if ($label === 'Открыть') {
+                expect($link->getAttribute('target'))->toBe('_blank');
+            } else {
+                expect($link->hasAttribute('download'))->toBeTrue();
+            }
+        }
+    }
 });

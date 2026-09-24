@@ -6,6 +6,7 @@ use App\Enums\ProductStatus;
 use App\Enums\ProductType;
 use App\Enums\StockStatus;
 use App\Filament\Resources\Products\Actions\ProductGalleryActions;
+use App\Filament\Resources\Products\Pages\EditProduct;
 use App\Filament\Schemas\SeoSchema;
 use App\Models\PartType;
 use App\Models\Product;
@@ -27,12 +28,12 @@ use App\Services\Media\MediaUrlService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Hidden;
-use Filament\Forms\Components\KeyValue;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Schemas\Components\Actions;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Components\Tabs\Tab;
@@ -518,7 +519,7 @@ final class ProductForm
                             ->label('')
                             ->relationship()
                             ->mutateRelationshipDataBeforeFillUsing(function (array $data): array {
-                                $data['options'] = ProductVariant::optionsWithoutManagementMetadata($data['options'] ?? null);
+                                unset($data['options']);
 
                                 return $data;
                             })
@@ -597,10 +598,15 @@ final class ProductForm
                                     ->collapsible()
                                     ->collapsed()
                                     ->schema([
-                                        KeyValue::make('options')
-                                            ->label('Резервные опции JSON')
-                                            ->keyLabel('Код опции')
-                                            ->valueLabel('Значение'),
+                                        Textarea::make('legacy_options_preview')
+                                            ->label('Резервные опции JSON (только чтение)')
+                                            ->formatStateUsing(fn (?ProductVariant $record): string => json_encode(
+                                                ProductVariant::optionsWithoutManagementMetadata($record?->options) ?? [],
+                                                JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES,
+                                            ))
+                                            ->rows(6)
+                                            ->disabled()
+                                            ->dehydrated(false),
                                     ])
                                     ->columnSpanFull(),
                             ])
@@ -693,8 +699,16 @@ final class ProductForm
                     ->downloadable()
                     ->acceptedFileTypes(config('media.allowed_mimes', ['image/jpeg', 'image/png', 'image/webp']))
                     ->maxSize((int) ceil(config('media.max_source_size', 15 * 1024 * 1024) / 1024))
-                    ->helperText('Можно выбрать несколько JPG, JPEG, PNG или WebP. После сохранения каждый файл будет обработан и преобразован через общий media pipeline.')
+                    ->helperText('Перетащите или выберите JPG, JPEG, PNG или WebP. Выбранные файлы видны в предпросмотре. Чтобы добавить их в галерею, нажмите «Сохранить и добавить в галерею» или сохраните товар внизу страницы.')
                     ->columnSpanFull(),
+                Actions::make([
+                    Action::make('save_gallery_uploads')
+                        ->label('Сохранить и добавить в галерею')
+                        ->icon('heroicon-o-check')
+                        ->tooltip('Сохранить все изменения товара и добавить выбранные изображения')
+                        ->submit('save'),
+                ])
+                    ->visible(fn ($livewire): bool => $livewire instanceof EditProduct),
                 Section::make('Действия с дефолтным изображением')
                     ->description('Первая операция сохраняет остальные изображения. Сброс удаляет ручные и импортные изображения только после подтверждения.')
                     ->afterHeader([
@@ -775,18 +789,6 @@ final class ProductForm
                 ->requiresConfirmation()
                 ->modalHeading('Удалить изображение из галереи?')
                 ->modalDescription('Для ручного и импортного изображения будут удалены файл и его конверсии. Для дефолтного удалится только связь с товаром.'))
-            ->extraItemActions([
-                Action::make('open_gallery_image')
-                    ->label('Открыть')
-                    ->icon('heroicon-o-arrow-top-right-on-square')
-                    ->url(fn (array $arguments, Repeater $component): ?string => self::galleryItemUrl($arguments, $component))
-                    ->openUrlInNewTab(),
-                Action::make('download_gallery_image')
-                    ->label('Скачать')
-                    ->icon('heroicon-o-arrow-down-tray')
-                    ->url(fn (array $arguments, Repeater $component): ?string => self::galleryItemUrl($arguments, $component))
-                    ->extraAttributes(['download' => true]),
-            ])
             ->visible(fn (?Product $record): bool => $record instanceof Product && $record->exists)
             ->columnSpanFull();
     }
@@ -993,20 +995,5 @@ final class ProductForm
     private static function optionActiveLabel(string $title, bool $isActive): string
     {
         return $isActive ? $title : $title.' (Неактивно)';
-    }
-
-    /** @param array<string, mixed> $arguments */
-    private static function galleryItemUrl(array $arguments, Repeater $component): ?string
-    {
-        $item = $arguments['item'] ?? null;
-
-        if (! is_string($item)) {
-            return null;
-        }
-
-        $state = $component->getRawItemState($item);
-        $url = $state['file_url'] ?? null;
-
-        return is_string($url) && $url !== '' ? $url : null;
     }
 }
