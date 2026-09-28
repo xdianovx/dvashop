@@ -1,3 +1,6 @@
+import '@fontsource/golos-text/400.css';
+import '@fontsource/golos-text/500.css';
+import '@fontsource/golos-text/600.css';
 import Swiper from 'swiper';
 import { Thumbs, Pagination } from 'swiper/modules';
 import 'swiper/css';
