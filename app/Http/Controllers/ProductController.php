@@ -246,9 +246,6 @@ class ProductController extends Controller
         if ($make && $model && $generation) {
             $items[] = ['label' => $generation->title, 'url' => route('catalog.generation', [$make->slug, $model->slug, $generation->slug])];
         }
-        if ($product->category) {
-            $items[] = ['label' => $product->category->title, 'url' => route('catalog.index', ['category' => $product->category->full_slug])];
-        }
         $items[] = ['label' => $product->title];
 
         return $items;

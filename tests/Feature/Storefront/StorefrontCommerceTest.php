@@ -55,6 +55,37 @@ test('catalog routes enforce the active vehicle hierarchy and keep their page te
     $this->get(route('catalog.model', [$make->slug, $model->slug]))->assertNotFound();
 });
 
+test('product breadcrumbs keep the vehicle hierarchy and omit the category', function (bool $hasFitment): void {
+    $category = ProductCategory::factory()->create(['title' => 'Арки', 'slug' => 'arches']);
+    $partType = PartType::factory()->forCategory($category)->create(['title' => 'Внутренние арки']);
+    $product = Product::factory()->forCategory($category)->forPartType($partType)->withDefaultVariant()->create([
+        'title' => 'Арка внутренняя для Acura TSX',
+    ]);
+    $expected = [
+        ['label' => 'Главная', 'url' => route('home')],
+        ['label' => 'Каталог', 'url' => route('catalog.index')],
+    ];
+
+    if ($hasFitment) {
+        $make = VehicleMake::factory()->create(['title' => 'Acura', 'slug' => 'acura']);
+        $model = VehicleModel::factory()->forMake($make)->create(['title' => 'TSX', 'slug' => 'tsx']);
+        $generation = VehicleGeneration::factory()->forVehicleModel($model)->create(['title' => '1', 'slug' => 'first']);
+        ProductFitment::factory()->forProduct($product)->forVehicleGeneration($generation)->primary()->create();
+        $expected = [
+            ...$expected,
+            ['label' => 'Acura', 'url' => route('catalog.make', $make->slug)],
+            ['label' => 'TSX', 'url' => route('catalog.model', [$make->slug, $model->slug])],
+            ['label' => '1', 'url' => route('catalog.generation', [$make->slug, $model->slug, $generation->slug])],
+        ];
+    }
+
+    $expected[] = ['label' => $product->title];
+
+    $this->get(route('products.show', $product->slug))
+        ->assertOk()
+        ->assertViewHas('breadcrumbs', $expected);
+})->with(['with vehicle fitment' => true, 'without vehicle fitment' => false]);
+
 test('catalog filters active products by category and part type full slugs', function (): void {
     $category = ProductCategory::factory()->create(['title' => 'Пороги', 'slug' => 'sills']);
     $partType = PartType::factory()->forCategory($category)->create(['title' => 'Наружные пороги']);
@@ -502,7 +533,8 @@ test('product page exposes real characteristics and server variant matrix withou
     $response = $this->get(route('products.show', $product->slug))->assertOk()
         ->assertSee('MATRIX-PRODUCT-SKU')
         ->assertSee('Matrix product description')
-        ->assertSee('Matrix Category')
+        ->assertViewHas('product', fn (Product $shownProduct): bool => $shownProduct->relationLoaded('category')
+            && $shownProduct->category->is($category))
         ->assertSee('https://cdn.example.test/matrix-product.jpg', false)
         ->assertSee('Толщина')
         ->assertSee('1.5')
