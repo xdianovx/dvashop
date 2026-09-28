@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
-import { bunny } from 'laravel-vite-plugin/fonts';
 import tailwindcss from '@tailwindcss/vite';
 
 // publicDir is enabled for `vite dev` only: the SCSS references fonts by an
@@ -22,9 +21,6 @@ export default defineConfig(({ command }) => ({
                 'resources/scss/**',
                 'resources/js/**',
                 'routes/**',
-            ],
-            fonts: [
-                bunny('Golos Text', { weights: [400, 500, 600] }),
             ],
         }),
         tailwindcss(),

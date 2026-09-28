@@ -1,7 +1,7 @@
 /*
  * Self-hosted fonts live in public/fonts/ as .ttf, so they're served directly
  * from the web root (/fonts/...) — outside Vite's asset pipeline.
- * Golos Text is loaded separately via Bunny Fonts (see vite.config.js).
+ * Golos Text is bundled locally from @fontsource/golos-text in resources/js/app.js.
  */
 
 /* ── Gilroy (commercial) ──────────────────────────────────── */
