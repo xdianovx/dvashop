@@ -23,9 +23,9 @@
 .payment-page__card {
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    justify-content: flex-start;
     min-height: 472px;
-    padding: 66px 43px;
+    padding: 40px 24px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-2xl);
     background-color: var(--color-surface);
@@ -39,14 +39,14 @@
 }
 
 .payment-page__icon {
-    height: 105px;
+    height: 80px;
     width: auto;
 }
 
 .payment-page__card-title {
     font-family: var(--font-display);
     font-weight: var(--fw-semibold);
-    font-size: 28px;
+    font-size: 24px;
     line-height: var(--lh-snug);
     color: var(--color-ink);
 }
@@ -56,7 +56,7 @@
     max-width: 376px;
     font-family: var(--font-display);
     font-weight: var(--fw-regular);
-    font-size: var(--fs-lg);
+    font-size: 16px;
     line-height: 1.4;
     color: var(--color-ink);
 }
