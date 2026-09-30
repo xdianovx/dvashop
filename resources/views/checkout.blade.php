@@ -21,7 +21,7 @@
                         <header class="checkout-card__head"><h2 class="checkout-card__title">Ваши данные</h2><span class="checkout-card__step">Шаг 1</span></header>
                         <div class="checkout-form">
                             <x-form-field class="checkout-form__full" label="ФИО" name="customer_name" placeholder="Иванов Иван Иванович" :required="true" />
-                            <x-form-field label="Телефон" name="customer_phone" placeholder="+7 (___) ___-__-__" :required="true" />
+                            <x-form-field label="Телефон" name="customer_phone" type="tel" placeholder="+7(___) ___ __ __" :required="true" />
                             <x-form-field label="Email" name="customer_email" type="email" placeholder="mail@yandex.ru" />
                             <x-form-field class="checkout-form__full" label="Город" name="customer_city" placeholder="Москва" :required="true" />
                             <x-form-field class="checkout-form__full" label="Комментарий к заказу" name="customer_comment" placeholder="Текст...." :textarea="true" />

@@ -9,6 +9,7 @@ import 'swiper/css/pagination';
 import Choices from 'choices.js';
 import 'choices.js/public/assets/styles/choices.css';
 import { trackUisOfflineRequest } from './modules/uis-form-tracking.js';
+import { initPhoneMask } from './modules/phone-mask.js';
 
 const storefrontLoader = document.querySelector('[data-storefront-loader]');
 const storefrontLoaderLabel = storefrontLoader?.querySelector('[data-storefront-loader-label]');
@@ -1655,3 +1656,5 @@ document.querySelectorAll('[data-catalog-nav]').forEach((nav) => {
         });
     }
 });
+
+initPhoneMask();
