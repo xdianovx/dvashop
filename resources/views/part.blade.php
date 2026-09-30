@@ -1,11 +1,12 @@
 @extends('layouts.app')
 
 @php
-    $selectedOptionValueIds = $variant->optionValues->pluck('id')->map(fn ($id) => (int) $id);
+    $selectedOptionValueIds = $variant->optionValues->pluck('id')->map(fn($id) => (int) $id);
     $variantPresentationById = collect($variantMatrix)->keyBy('variant_id');
-    $selectedMaxQuantity = $variant->stock_status === \App\Enums\StockStatus::InStock && $variant->stock_quantity !== null
-        ? min(999, max(0, $variant->stock_quantity))
-        : 999;
+    $selectedMaxQuantity =
+        $variant->stock_status === \App\Enums\StockStatus::InStock && $variant->stock_quantity !== null
+            ? min(999, max(0, $variant->stock_quantity))
+            : 999;
     $selectedCartState = $variantCartStates[$variant->getKey()] ?? null;
     $selectedStockModifier = match ($variant->stock_status) {
         \App\Enums\StockStatus::InStock => 'in-stock',
@@ -25,38 +26,36 @@
                     <div class="swiper part-gallery__main" data-gallery-main>
                         <div class="swiper-wrapper">
                             @foreach ($gallery as $image)
-                                <div class="swiper-slide part-gallery__slide"><img src="{{ $image['url'] }}" alt="{{ $image['alt'] }}" loading="lazy"></div>
+                                <div class="swiper-slide part-gallery__slide"><img src="{{ $image['url'] }}"
+                                        alt="{{ $image['alt'] }}" loading="lazy"></div>
                             @endforeach
                         </div>
                         <div class="part-gallery__pagination"></div>
                     </div>
-                    <x-favorite-toggle
-                        :product-id="$product->getKey()"
-                        :is-favorite="in_array((int) $product->getKey(), $favoriteProductIds ?? [], true)"
-                        button-class="part-gallery__fav"
-                    />
+                    <x-favorite-toggle :product-id="$product->getKey()" :is-favorite="in_array((int) $product->getKey(), $favoriteProductIds ?? [], true)" button-class="part-gallery__fav" />
                 </div>
                 @if ($gallery->count() > 1)
-                    <div class="swiper part-gallery__thumbs" data-gallery-thumbs><div class="swiper-wrapper">
-                        @foreach ($gallery as $image)
-                            <div class="swiper-slide part-gallery__thumb"><img src="{{ $image['url'] }}" alt="" aria-hidden="true"></div>
-                        @endforeach
-                    </div></div>
+                    <div class="swiper part-gallery__thumbs" data-gallery-thumbs>
+                        <div class="swiper-wrapper">
+                            @foreach ($gallery as $image)
+                                <div class="swiper-slide part-gallery__thumb"><img src="{{ $image['url'] }}" alt=""
+                                        aria-hidden="true"></div>
+                            @endforeach
+                        </div>
+                    </div>
                 @endif
             </div>
 
             <div class="part-buy">
                 <h1 class="part-buy__title">{{ $seoH1 ?? $product->title }}</h1>
-                <p
-                    class="part-buy__stock part-buy__stock--{{ $selectedStockModifier }}"
-                    data-selected-stock
+                <p class="part-buy__stock part-buy__stock--{{ $selectedStockModifier }}" data-selected-stock
                     data-in-stock-label="{{ \App\Enums\StockStatus::InStock->label() }}"
                     data-out-of-stock-label="{{ \App\Enums\StockStatus::OutOfStock->label() }}"
                     data-pre-order-label="{{ \App\Enums\StockStatus::PreOrder->label() }}"
-                    data-unavailable-label="Такой комбинации нет"
-                >
+                    data-unavailable-label="Такой комбинации нет">
                     <span class="part-buy__stock-icon" aria-hidden="true">
-                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="10" cy="10" r="8.5" />
                             <path d="m6.5 10 2.5 2.5 4.5-5" />
                         </svg>
@@ -65,45 +64,42 @@
                 </p>
                 <p class="part-buy__price" data-selected-price>{{ $selectedPriceLabel }}</p>
 
-                <form action="{{ route('cart.items.store') }}" method="post" data-cart-add data-product-cart @if ($optionGroups->isNotEmpty() || $variants->count() > 1) data-product-options @endif>
+                <form action="{{ route('cart.items.store') }}" method="post" data-cart-add data-product-cart
+                    @if ($optionGroups->isNotEmpty() || $variants->count() > 1) data-product-options @endif>
                     @csrf
                     @if ($optionGroups->isNotEmpty())
-                        <input type="hidden" name="product_variant_id" value="{{ $variant->getKey() }}" data-selected-variant required>
+                        <input type="hidden" name="product_variant_id" value="{{ $variant->getKey() }}"
+                            data-selected-variant required>
                         @foreach ($optionGroups as $optionGroup)
                             <div class="part-option-group" data-option-group="{{ $optionGroup['id'] }}">
                                 <span class="part-option-group__label">{{ $optionGroup['title'] }}:</span>
                                 @if ($optionGroup['code'] === 'profile')
                                     <div class="part-tabs">
                                         @foreach ($optionGroup['values'] as $optionValue)
-                                            <button
-                                                type="button"
+                                            <button type="button"
                                                 class="part-tab @if ($selectedOptionValueIds->contains($optionValue['id'])) part-tab--active @endif"
-                                                data-product-option
-                                                data-option-group="{{ $optionGroup['id'] }}"
+                                                data-product-option data-option-group="{{ $optionGroup['id'] }}"
                                                 data-option-value="{{ $optionValue['id'] }}"
-                                                aria-pressed="{{ $selectedOptionValueIds->contains($optionValue['id']) ? 'true' : 'false' }}"
-                                            >{{ $optionValue['title'] }}</button>
+                                                aria-pressed="{{ $selectedOptionValueIds->contains($optionValue['id']) ? 'true' : 'false' }}">{{ $optionValue['title'] }}</button>
                                         @endforeach
                                     </div>
                                 @elseif ($optionGroup['input_type'] === 'select')
-                                    <select class="part-option-select" data-product-option data-option-group="{{ $optionGroup['id'] }}">
+                                    <select class="part-option-select" data-product-option
+                                        data-option-group="{{ $optionGroup['id'] }}">
                                         @foreach ($optionGroup['values'] as $optionValue)
-                                            <option value="{{ $optionValue['id'] }}" @selected($selectedOptionValueIds->contains($optionValue['id']))>{{ $optionValue['title'] }}</option>
+                                            <option value="{{ $optionValue['id'] }}" @selected($selectedOptionValueIds->contains($optionValue['id']))>
+                                                {{ $optionValue['title'] }}</option>
                                         @endforeach
                                     </select>
                                 @else
                                     <div class="part-radios">
                                         @foreach ($optionGroup['values'] as $optionValue)
                                             <label class="part-radio">
-                                                <input
-                                                    type="radio"
-                                                    name="option_group_{{ $optionGroup['id'] }}"
-                                                    value="{{ $optionValue['id'] }}"
-                                                    data-product-option
+                                                <input type="radio" name="option_group_{{ $optionGroup['id'] }}"
+                                                    value="{{ $optionValue['id'] }}" data-product-option
                                                     data-option-group="{{ $optionGroup['id'] }}"
                                                     data-option-value="{{ $optionValue['id'] }}"
-                                                    @checked($selectedOptionValueIds->contains($optionValue['id']))
-                                                >
+                                                    @checked($selectedOptionValueIds->contains($optionValue['id']))>
                                                 <span class="part-radio__dot" aria-hidden="true"></span>
                                                 <span class="part-radio__label">{{ $optionValue['title'] }}</span>
                                             </label>
@@ -118,7 +114,8 @@
                             <select id="product-variant" name="product_variant_id" data-product-variant-fallback required>
                                 @foreach ($variants as $availableVariant)
                                     <option value="{{ $availableVariant->getKey() }}" @selected($availableVariant->is($variant))>
-                                        {{ $availableVariant->title ?: $availableVariant->optionSummary() ?: $availableVariant->sku }} — {{ $variantPresentationById->get($availableVariant->getKey())['price_label'] }}
+                                        {{ $availableVariant->title ?: $availableVariant->optionSummary() ?: $availableVariant->sku }}
+                                        — {{ $variantPresentationById->get($availableVariant->getKey())['price_label'] }}
                                     </option>
                                 @endforeach
                             </select>
@@ -130,14 +127,26 @@
                     <script type="application/json" data-product-cart-state>@json((object) $variantCartStates)</script>
                     <input type="hidden" name="quantity" value="1">
                     <div class="part-buy__actions">
-                        <button type="submit" class="btn part-buy__cart" data-add-to-cart @disabled(! $selectedCanBePurchased) @if ($selectedCartState) hidden @endif>
+                        <button type="submit" class="btn part-buy__cart" data-add-to-cart @disabled(!$selectedCanBePurchased)
+                            @if ($selectedCartState) hidden @endif>
                             <span data-cart-button-label>Добавить в корзину</span>
                         </button>
-                        <a href="{{ route('cart.show') }}" class="btn part-buy__cart" data-product-cart-link @if (! $selectedCartState) hidden @endif>В корзине</a>
-                        <div class="part-qty" data-product-cart-counter @if (! $selectedCartState) hidden @endif role="group" aria-label="Количество выбранного варианта в корзине">
-                            <button type="button" class="part-qty__btn" data-product-cart-step="-1" aria-label="Уменьшить количество или удалить товар"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14" /></svg></button>
-                            <span class="part-qty__value" data-product-cart-quantity aria-live="polite" aria-atomic="true">{{ $selectedCartState['quantity'] ?? 0 }}</span>
-                            <button type="button" class="part-qty__btn" data-product-cart-step="1" aria-label="Увеличить количество" @disabled(! $selectedCanBePurchased || ($selectedCartState['quantity'] ?? 0) >= $selectedMaxQuantity)><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg></button>
+                        <a href="{{ route('cart.show') }}" class="btn part-buy__cart" data-product-cart-link
+                            @if (!$selectedCartState) hidden @endif>В корзину</a>
+                        <div class="part-qty" data-product-cart-counter @if (!$selectedCartState) hidden @endif
+                            role="group" aria-label="Количество выбранного варианта в корзине">
+                            <button type="button" class="part-qty__btn" data-product-cart-step="-1"
+                                aria-label="Уменьшить количество или удалить товар"><svg viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path d="M5 12h14" />
+                                </svg></button>
+                            <span class="part-qty__value" data-product-cart-quantity aria-live="polite"
+                                aria-atomic="true">{{ $selectedCartState['quantity'] ?? 0 }}</span>
+                            <button type="button" class="part-qty__btn" data-product-cart-step="1"
+                                aria-label="Увеличить количество" @disabled(!$selectedCanBePurchased || ($selectedCartState['quantity'] ?? 0) >= $selectedMaxQuantity)><svg viewBox="0 0 24 24"
+                                    fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path d="M12 5v14M5 12h14" />
+                                </svg></button>
                         </div>
                     </div>
                 </form>
@@ -145,24 +154,30 @@
                 <ul class="part-delivery">
                     <li class="part-delivery__row">
                         <span class="part-delivery__info">
-                            <span class="part-delivery__icon" aria-hidden="true"><img src="/img/part/cost.svg" alt=""></span>
+                            <span class="part-delivery__icon" aria-hidden="true"><img src="/img/part/cost.svg"
+                                    alt=""></span>
                             Стоимость доставки: от 490 руб.
                         </span>
-                        <button type="button" class="part-delivery__more" data-info-open="part-delivery-info">Подробнее ›</button>
+                        <button type="button" class="part-delivery__more" data-info-open="part-delivery-info">Подробнее
+                            ›</button>
                     </li>
                     <li class="part-delivery__row">
                         <span class="part-delivery__info">
-                            <span class="part-delivery__icon" aria-hidden="true"><img src="/img/part/deliver.svg" alt=""></span>
+                            <span class="part-delivery__icon" aria-hidden="true"><img src="/img/part/deliver.svg"
+                                    alt=""></span>
                             Расчётное время доставки: 1–3 дня
                         </span>
-                        <button type="button" class="part-delivery__more" data-info-open="part-delivery-time-info">Подробнее ›</button>
+                        <button type="button" class="part-delivery__more"
+                            data-info-open="part-delivery-time-info">Подробнее ›</button>
                     </li>
                     <li class="part-delivery__row">
                         <span class="part-delivery__info">
-                            <span class="part-delivery__icon" aria-hidden="true"><img src="/img/part/vozvrat.svg" alt=""></span>
+                            <span class="part-delivery__icon" aria-hidden="true"><img src="/img/part/vozvrat.svg"
+                                    alt=""></span>
                             Возврат товара: в течение 2 недель
                         </span>
-                        <button type="button" class="part-delivery__more" data-info-open="part-return-info">Подробнее ›</button>
+                        <button type="button" class="part-delivery__more" data-info-open="part-return-info">Подробнее
+                            ›</button>
                     </li>
                 </ul>
 
@@ -224,29 +239,45 @@
                 @if (filled($description))
                     <div class="part-info__col">
                         <h2 class="part-info__heading">Описание</h2>
-                        <div class="part-desc">@foreach ($descriptionLines as $line){{ $line }}@unless ($loop->last)<br>@endunless @endforeach</div>
+                        <div class="part-desc">
+                            @foreach ($descriptionLines as $line)
+                                {{ $line }}@unless ($loop->last)
+                                <br>
+                            @endunless
+                        @endforeach
                     </div>
-                @endif
-                @if ($product->characteristics->isNotEmpty())
-                    <div class="part-info__col">
-                        <h2 class="part-info__heading">Характеристики</h2>
-                        <dl class="part-specs">
-                            @foreach ($product->characteristics as $characteristic)
-                                <div class="part-specs__row"><dt class="part-specs__key">{{ $characteristic->name }}</dt><dd class="part-specs__val">{{ $characteristic->value }}@if ($characteristic->unit) {{ $characteristic->unit }}@endif</dd></div>
-                            @endforeach
-                        </dl>
-                    </div>
-                @endif
-            </section>
-        @endif
+                </div>
+            @endif
+            @if ($product->characteristics->isNotEmpty())
+                <div class="part-info__col">
+                    <h2 class="part-info__heading">Характеристики</h2>
+                    <dl class="part-specs">
+                        @foreach ($product->characteristics as $characteristic)
+                            <div class="part-specs__row">
+                                <dt class="part-specs__key">{{ $characteristic->name }}</dt>
+                                <dd class="part-specs__val">{{ $characteristic->value }}@if ($characteristic->unit)
+                                        {{ $characteristic->unit }}
+                                    @endif
+                                </dd>
+                            </div>
+                        @endforeach
+                    </dl>
+                </div>
+            @endif
+        </section>
+    @endif
 
-        @if ($related->isNotEmpty())
-            <section class="part-related">
-                <h2 class="part-related__title">С этим товаром покупают</h2>
-                <ul class="related-grid">@foreach ($related as $relatedProduct)<li class="related-grid__item"><x-related-card :product="$relatedProduct" /></li>@endforeach</ul>
-            </section>
-        @endif
-        <x-storefront-seo-text :text="$seoText ?? null" />
-    </div>
+    @if ($related->isNotEmpty())
+        <section class="part-related">
+            <h2 class="part-related__title">С этим товаром покупают</h2>
+            <ul class="related-grid">
+                @foreach ($related as $relatedProduct)
+                    <li class="related-grid__item"><x-related-card :product="$relatedProduct" /></li>
+                @endforeach
+            </ul>
+        </section>
+    @endif
+    <x-storefront-seo-text :text="$seoText ?? null" />
+</div>
 
 @endsection
