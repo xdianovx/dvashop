@@ -48,7 +48,7 @@
             </label>
             <label class="inquiry-modal__field">
                 <span>Телефон <strong aria-hidden="true">*</strong></span>
-                <input type="tel" name="phone" value="{{ old('phone') }}" maxlength="100" autocomplete="tel" inputmode="tel" placeholder="+7 (___) ___-__-__" required>
+                <input type="tel" name="phone" value="{{ old('phone') }}" maxlength="100" autocomplete="tel" inputmode="tel" placeholder="+7(___) ___ __ __" required>
             </label>
             <label class="inquiry-modal__field">
                 <span>Email</span>
