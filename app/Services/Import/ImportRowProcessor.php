@@ -17,6 +17,7 @@ use App\Services\ImportStatusService;
 use App\Support\CatalogText;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use InvalidArgumentException;
 
 class ImportRowProcessor
 {
@@ -38,6 +39,7 @@ class ImportRowProcessor
         private readonly ImportRunStats $stats,
         private readonly ImportStatusService $statusService,
         private readonly VehicleGenerationImageDispatchGuard $vehicleImageDispatches,
+        private readonly CatalogImportVehicleMatcher $vehicleMatcher,
     ) {}
 
     /**
@@ -89,21 +91,19 @@ class ImportRowProcessor
         $body = $this->cell($row[5] ?? null);
 
         if ($makeTitle === '' || $modelTitle === '' || $generationTitle === '') {
-            $this->logger->warning($run, 'Строка пропущена: не заполнены марка, модель или поколение', [
-                'row' => $rowNumber,
-                'make' => $makeTitle,
-                'model' => $modelTitle,
-                'generation' => $generationTitle,
-            ]);
-
-            return;
+            throw new InvalidArgumentException('Не заполнены марка, модель или поколение автомобиля.');
         }
 
-        $generation = $this->vehicleGeneration($makeTitle, $modelTitle, $generationTitle, $years, $body, $vehicleImageCell, $run, $rowNumber);
+        $generation = $this->vehicleGeneration(
+            $makeTitle, $modelTitle, $generationTitle, $years, $body, $vehicleImageCell, $run, $rowNumber,
+            modern: (bool) ($row['_catalog_v2'] ?? false),
+            platform: $row['_platform'] ?? null,
+            restyling: $row['_restyling'] ?? null,
+        );
 
         foreach ($detailColumns as $columnIndex => $detailHeader) {
-            $cellValue = $this->cell($row[$columnIndex] ?? null);
-            $availableCell = $this->availableCell($cellValue);
+            $cellValue = $this->cell(($row['_details'] ?? $row)[$columnIndex] ?? null);
+            $availableCell = $this->availableCell(($row['_details'] ?? $row)[$columnIndex] ?? null);
 
             if ($availableCell === null) {
                 continue;
@@ -115,17 +115,6 @@ class ImportRowProcessor
                 rowNumber: $rowNumber,
                 columnIndex: (int) $columnIndex,
             );
-
-            if (! $availableCell['is_standard']) {
-                $this->logger->warning($run, 'Нестандартное значение товарной ячейки принято как наличие товара', [
-                    'row' => $rowNumber,
-                    'column' => $this->columnName((int) $columnIndex),
-                    'column_index' => (int) $columnIndex,
-                    'value' => $cellValue,
-                    'part_type' => $resolution->partType->full_slug,
-                    'store_category' => $resolution->productCategory->full_slug,
-                ]);
-            }
 
             $this->products->createOrUpdateFromCell(
                 run: $run,
@@ -244,6 +233,9 @@ class ImportRowProcessor
         ?string $sourceImageUrl = null,
         ?ImportRun $run = null,
         ?int $rowNumber = null,
+        bool $modern = false,
+        ?string $platform = null,
+        ?string $restyling = null,
     ): VehicleGeneration {
         $make = $this->firstOrUpdateMake($makeTitle, $run);
         $model = $this->firstOrUpdateModel($make, $modelTitle, $run);
@@ -279,6 +271,10 @@ class ImportRowProcessor
                 ->first();
         }
 
+        if (! $generation instanceof VehicleGeneration && $modern) {
+            $generation = $this->vehicleMatcher->find($model, $generationTitlePlain, $yearsPlain, $bodyPlain);
+        }
+
         if (! $generation instanceof VehicleGeneration) {
             $generation = new VehicleGeneration([
                 'vehicle_model_id' => $model->getKey(),
@@ -296,19 +292,27 @@ class ImportRowProcessor
 
         $generationAttributes = [
             'title' => $generationTitlePlain,
-            'slug' => $generationNormKey,
-            'norm_key' => $generationNormKey,
+            'slug' => $modern && $generation->exists ? $generation->slug : $generationNormKey,
+            'norm_key' => $modern && $generation->exists ? $generation->norm_key : $generationNormKey,
             'years_label' => $yearsPlain,
             'body' => $bodyPlain,
-            'is_active' => true,
+            'is_active' => $run?->isSnapshotCatalogImport() ? ($generation->exists && $generation->is_active) : true,
         ];
+
+        if ($run !== null) {
+            $generationAttributes['import_source'] = CatalogText::normKey($run->type ?: 'catalog', 'catalog', 60);
+            $generationAttributes['last_import_run_id'] = $run->getKey();
+        }
+        if ($modern) {
+            $generationAttributes['platform'] = $platform ?: null;
+            $generationAttributes['restyling'] = $restyling ?: null;
+        }
 
         if ($imageUrl !== null) {
             if ($hasManualVehicleImage) {
                 $this->warnManualVehicleImageProtected($generation, $imageUrl, $run, $rowNumber);
                 $imageUrl = null;
             } else {
-                $generationAttributes['image_source_url'] = $imageUrl;
                 $shouldQueueImage = $this->shouldQueueVehicleImage($generation, $imageUrl, $previousImageSourceUrl, $previousImagePath);
             }
         }
@@ -390,23 +394,9 @@ class ImportRowProcessor
     }
 
     /** @return array{image_url:string|null, is_standard:bool}|null */
-    private function availableCell(string $value): ?array
+    private function availableCell(mixed $value): ?array
     {
-        $normalized = mb_strtolower(str_replace(',', '.', trim($value)));
-
-        if ($normalized === '' || $normalized === '-' || in_array($normalized, ['нет', 'no', 'false'], true) || preg_match('/^0(?:\.0+)?$/', $normalized) === 1) {
-            return null;
-        }
-
-        if ($this->isUrl($value)) {
-            return ['image_url' => trim($value), 'is_standard' => true];
-        }
-
-        if (in_array($normalized, ['да', 'yes', 'true'], true) || preg_match('/^1(?:\.0+)?$/', $normalized) === 1) {
-            return ['image_url' => null, 'is_standard' => true];
-        }
-
-        return ['image_url' => null, 'is_standard' => false];
+        return CatalogImportCell::parse($value);
     }
 
     private function isUrl(string $value): bool
@@ -429,9 +419,11 @@ class ImportRowProcessor
             return $value;
         }
 
-        $availability = $this->availableCell($value);
-
-        if ($availability !== null && $availability['is_standard'] && $availability['image_url'] === null) {
+        // Photo metadata keeps its own legacy marker rules, independent of product presence.
+        $normalized = mb_strtolower(str_replace(',', '.', $value));
+        if (in_array($normalized, ['да', 'yes', 'true'], true)
+            || preg_match('/^1(?:\.0+)?$/', $normalized)
+            || (preg_match('/^\d+(?:\.\d{1,2})?$/', $normalized) && (float) $normalized > 1 && (float) $normalized <= 99999999.99)) {
             return null;
         }
 

@@ -7,6 +7,7 @@ namespace App\Services\Feeds;
 use App\Enums\ImportRunStatus;
 use App\Jobs\RebuildYandexFeedJob;
 use App\Models\ImportRun;
+use App\Services\Catalog\CatalogPriceGuard;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -53,6 +54,10 @@ class YandexFeedInvalidator
 
     public function importInProgress(): bool
     {
+        if (app(CatalogPriceGuard::class)->busy()) {
+            return true;
+        }
+
         if (ImportRun::query()->where('type', 'catalog')->whereIn('status', [
             ImportRunStatus::Running->value, ImportRunStatus::RunningRows->value,
             ImportRunStatus::ProcessingImages->value, ImportRunStatus::Paused->value,

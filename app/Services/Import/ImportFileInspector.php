@@ -2,8 +2,8 @@
 
 namespace App\Services\Import;
 
-use App\Support\CatalogText;
 use App\Services\SpreadsheetReader;
+use App\Support\CatalogText;
 
 class ImportFileInspector
 {
@@ -13,6 +13,8 @@ class ImportFileInspector
     public function inspect(string $path): array
     {
         $headers = $this->reader->readMergedDetailHeaders($path);
+        $sourceHeaders = $this->reader->readHeaderRows($path, 2);
+        CatalogImportFormat::validateHeaders($sourceHeaders);
         $dataRows = 0;
         $makes = [];
         $models = [];
@@ -29,7 +31,8 @@ class ImportFileInspector
         do {
             $rows = $this->reader->readChunk($path, $offset, $limit, 2);
 
-            foreach ($rows as $row) {
+            foreach ($rows as $index => $raw) {
+                $row = CatalogImportFormat::normalize($raw, $sourceHeaders);
                 $dataRows++;
                 $make = $this->cell($row[1] ?? null);
                 $model = $this->cell($row[2] ?? null);
@@ -65,9 +68,9 @@ class ImportFileInspector
                 }
 
                 foreach ($headers as $columnIndex => $header) {
-                    $value = $this->cell($row[$columnIndex] ?? null);
+                    $value = $this->cell($row['_details'][$columnIndex] ?? null);
 
-                    if (! $this->isProductPresent($value)) {
+                    if (CatalogImportCell::parse($row['_details'][$columnIndex] ?? null) === null) {
                         continue;
                     }
 
@@ -78,13 +81,10 @@ class ImportFileInspector
                     }
 
                     if ($make !== '' && $model !== '' && $generation !== '') {
-                        $uniqueProducts[implode(':', [
-                            CatalogText::normKey($make, 'make'),
-                            CatalogText::normKey($model, 'model'),
+                        $uniqueProducts[CatalogImportIdentity::fromSegments('catalog',
+                            CatalogText::normKey($make, 'make'), CatalogText::normKey($model, 'model'),
                             CatalogText::normKey(trim($generation.' '.$years.' '.$body), 'generation'),
-                            CatalogText::normKey($header['group'] ?? '', 'root'),
-                            CatalogText::normKey($header['category_title'] ?? $header['title'] ?? '', 'category'),
-                        ])] = true;
+                            $header['structural_path'])] = true;
                     }
                 }
             }
@@ -94,7 +94,7 @@ class ImportFileInspector
 
         return [
             'file' => basename($path),
-            'sheet' => SpreadsheetReader::CATALOG_SHEET_NAME,
+            'sheet' => $this->reader->sheetName($path),
             'data_rows' => $dataRows,
             'makes' => count($makes),
             'models' => count($models),
@@ -107,7 +107,6 @@ class ImportFileInspector
             'product_image_urls' => $productImageUrls,
             'headers' => $headers,
             'category_tree' => $this->categoryTree($headers),
-            'penka_leak_detected' => $this->penkaLeakDetected($headers),
         ];
     }
 
@@ -126,6 +125,7 @@ class ImportFileInspector
 
             if ($group === '' || $group === $title) {
                 $tree[$title] ??= [];
+
                 continue;
             }
 
@@ -138,31 +138,6 @@ class ImportFileInspector
         }
 
         return $tree;
-    }
-
-    /** @param array<int, array{group:string|null, parent_title?:string|null, category_title:string, title:string, detail_title?:string, full_detail_title?:string}> $headers */
-    private function penkaLeakDetected(array $headers): bool
-    {
-        foreach (['Лонжерон', 'Торцевая заглушка', 'Ремкомплект пола', 'Усилитель / соединитель порогов'] as $title) {
-            foreach ($headers as $header) {
-                if (($header['category_title'] ?? null) === $title && ($header['group'] ?? null) === 'Пенка') {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private function isProductPresent(string $value): bool
-    {
-        $normalized = mb_strtolower(str_replace(',', '.', $value));
-
-        if ($normalized === '' || $normalized === '-' || in_array($normalized, ['нет', 'no', 'false'], true) || preg_match('/^0(?:\.0+)?$/', $normalized) === 1) {
-            return false;
-        }
-
-        return true;
     }
 
     private function isAvailability(string $value): bool

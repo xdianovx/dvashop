@@ -21,6 +21,7 @@ use App\Services\ImportRunReportExporter;
 use App\Services\ImportStatusService;
 use App\Services\SpreadsheetReader;
 use Database\Seeders\ProductCatalogSeeder;
+use Database\Seeders\ProductOptionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -34,7 +35,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
-    $this->seed(ProductCatalogSeeder::class);
+    $this->seed([ProductCatalogSeeder::class, ProductOptionSeeder::class]);
 });
 
 function importCsvContent(): string
@@ -433,9 +434,11 @@ test('CatalogImportPage tutorial explains default images detail titles repeated 
     $tutorial = view('filament.pages.catalog-import-help')->render();
 
     expect($tutorial)->toContain('public/img/products_default')
-        ->and($tutorial)->toContain('Арка + Внутренняя универсальная')
-        ->and($tutorial)->toContain('Повторный импорт обновляет товары')
-        ->and($tutorial)->toContain('ручные товары')
+        ->and($tutorial)->toContain('Арка + Внутренняя задняя')
+        ->and($tutorial)->toContain('первый лист книги')
+        ->and($tutorial)->toContain('число типов деталей не ограничено')
+        ->and($tutorial)->toContain('Последний успешно обработанный файл')
+        ->and($tutorial)->toContain('Ручные товары')
         ->and($tutorial)->toContain('галереей');
 });
 

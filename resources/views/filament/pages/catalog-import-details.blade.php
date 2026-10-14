@@ -27,7 +27,7 @@
         @if ($run->archive_skip_reason)
             <div class="min-w-0 rounded-xl border border-warning-200 bg-warning-50/70 p-4 dark:border-warning-500/20 dark:bg-warning-500/10">
                 <dt class="text-xs font-medium text-warning-800 dark:text-warning-300">Причина пропуска</dt>
-                <dd class="mt-1 break-words font-semibold text-warning-950 dark:text-warning-100">{{ $run->archive_skip_reason === 'row_errors' ? 'Ошибки обработки строк' : $run->archive_skip_reason }}</dd>
+                <dd class="mt-1 break-words font-semibold text-warning-950 dark:text-warning-100">{{ match ($run->archive_skip_reason) { 'row_errors' => 'Ошибки обработки строк', 'additive_catalog' => 'Режим дополнения: отсутствующие товары и автомобили сохраняются', default => $run->archive_skip_reason } }}</dd>
             </div>
         @endif
     </dl>

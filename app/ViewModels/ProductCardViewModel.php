@@ -44,6 +44,8 @@ class ProductCardViewModel
             : (float) ($product->price ?? 0);
         $priceAvailable = $variant instanceof ProductVariant && $availability->hasSellablePrice($variant);
 
+        $oldPrice = $variant instanceof ProductVariant ? $availability->effectiveOldPrice($variant) : null;
+
         return new self(
             id: (int) $product->getKey(),
             title: $product->title,
@@ -52,9 +54,7 @@ class ProductCardViewModel
             price: self::formatPrice($effectivePrice),
             priceAvailable: $priceAvailable,
             priceLabel: self::priceLabel($effectivePrice),
-            oldPrice: $priceAvailable
-                ? ($variant?->old_price !== null ? self::formatPrice($variant->old_price) : ($product->old_price !== null ? self::formatPrice($product->old_price) : null))
-                : null,
+            oldPrice: $priceAvailable && $oldPrice !== null ? self::formatPrice($oldPrice) : null,
             sku: $variant?->sku ?: $product->sku,
             inStock: $variant instanceof ProductVariant && $variant->stock_status === StockStatus::InStock,
         );

@@ -32,10 +32,11 @@ class PartTypeSeeder extends Seeder
                 );
             }
         });
+        $this->call(CatalogBasePriceSeeder::class);
     }
 
     /**
-     * @param array{full_slug: string, parent_full_slug: ?string, title: string, position: int, default_image_key: ?string} $definition
+     * @param  array{full_slug: string, parent_full_slug: ?string, title: string, position: int, default_image_key: ?string}  $definition
      */
     private function persist(
         array $definition,

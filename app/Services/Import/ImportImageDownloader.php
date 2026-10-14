@@ -47,6 +47,10 @@ class ImportImageDownloader
         if ($existing instanceof ProductImage) {
             $this->cleanup->deleteProcessedImage($processed);
 
+            if ($existing->source_type === ProductImage::SOURCE_IMPORT) {
+                $existing->forceFill(['source_url' => $url])->save();
+            }
+
             if (! $this->hasManualMainImage($product)) {
                 $existing->forceFill(['is_main' => true, 'is_visible' => true])->save();
             }
@@ -71,7 +75,6 @@ class ImportImageDownloader
         ));
     }
 
-
     private function hasManualMainImage(Product $product): bool
     {
         return $product->images()
@@ -95,6 +98,7 @@ class ImportImageDownloader
 
         if ($generation->image_checksum !== null && hash_equals((string) $generation->image_checksum, $processed->checksum)) {
             $this->cleanup->deleteProcessedImage($processed);
+            $generation->forceFill(['image_source_url' => $url])->save();
 
             return $generation->refresh();
         }

@@ -2,3 +2,5 @@
 
 @source '../../../../app/Filament/**/*';
 @source '../../../../resources/views/filament/**/*';
+
+@import './catalog-prices.css';

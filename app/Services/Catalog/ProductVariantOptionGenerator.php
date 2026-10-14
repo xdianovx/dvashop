@@ -49,6 +49,7 @@ final class ProductVariantOptionGenerator
         $limit = min(self::MAX_COMBINATIONS, max(1, $limit));
 
         return DB::transaction(function () use ($product, $limit): int {
+            app(CatalogPriceGuard::class)->assertWritable();
             $lockedProduct = Product::query()
                 ->with('optionTemplate')
                 ->whereKey($product->getKey())
@@ -74,6 +75,7 @@ final class ProductVariantOptionGenerator
                     'sku' => $lockedProduct->sku,
                     'title' => 'Основной',
                     'price' => $lockedProduct->price ?? 0,
+                    'price_mode' => $lockedProduct->price_mode === 'inherited' ? 'inherited' : 'unknown',
                     'old_price' => $lockedProduct->old_price,
                     'stock_quantity' => null,
                     'stock_status' => $lockedProduct->stock_status,
@@ -119,6 +121,7 @@ final class ProductVariantOptionGenerator
                     'sku' => null,
                     'title' => null,
                     'price' => $baseVariant->price,
+                    'price_mode' => $baseVariant->price_mode,
                     'old_price' => $baseVariant->old_price,
                     'stock_quantity' => $baseVariant->stock_quantity,
                     'stock_status' => $baseVariant->stock_status,

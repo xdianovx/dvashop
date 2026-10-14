@@ -2,11 +2,14 @@
 
 namespace App\Services;
 
+use App\Services\Import\CatalogImportCell;
+use App\Services\Import\CatalogImportFormat;
 use App\Services\Import\CatalogImportHeaderParser;
 use App\Support\CatalogText;
 use InvalidArgumentException;
 use OpenSpout\Reader\XLSX\Options as XlsxOptions;
 use OpenSpout\Reader\XLSX\Reader as XlsxReader;
+use RuntimeException;
 use SplFileObject;
 
 class SpreadsheetReader
@@ -82,10 +85,12 @@ class SpreadsheetReader
     {
         $this->ensureSupported($path);
 
+        $headerRows = $this->readHeaderRows($path, 2);
+
         return app(CatalogImportHeaderParser::class)->parse(
             path: $path,
             detailStartColumn: $detailStartColumn,
-            headerRows: $this->readHeaderRows($path, 2),
+            headerRows: $headerRows,
             extension: $this->extension($path),
         );
     }
@@ -104,6 +109,7 @@ class SpreadsheetReader
         $headerRows ??= $this->headerRows;
         $rows = [];
         $dataIndex = 0;
+        $headers = $this->readHeaderRows($path, 2);
 
         foreach ($this->iterateRows($path) as $rowIndex => $row) {
             if ($rowIndex <= $headerRows || $this->isEmptyRow($row)) {
@@ -116,6 +122,8 @@ class SpreadsheetReader
                 continue;
             }
 
+            // readChunk is also a generic spreadsheet inspection API. Queued catalog
+            // imports always use the fully validated prepareRows path below.
             $rows[] = $this->normalizeRow($row);
             $dataIndex++;
 
@@ -162,40 +170,122 @@ class SpreadsheetReader
     {
         $options = new XlsxOptions;
         $options->SHOULD_FORMAT_DATES = true;
+        $options->SHOULD_PRESERVE_EMPTY_ROWS = true;
 
         $reader = new XlsxReader($options);
         $reader->open($path);
 
         try {
-            $fallbackRows = null;
+            $sheets = iterator_to_array($reader->getSheetIterator());
+            $selected = CatalogImportFormat::sheetName(array_map(fn ($sheet) => $sheet->getName(), $sheets));
+            foreach ($sheets as $sheet) {
+                if ($sheet->getName() !== $selected) {
+                    continue;
+                }
+                foreach ($sheet->getRowIterator() as $index => $row) {
+                    yield $index => $row->toArray();
+                }
+                break;
+            }
+        } finally {
+            $reader->close();
+        }
+    }
 
+    /** @return array{path:string, offsets:array<int,int>, snapshot_version:int, sheet:string} */
+    public function prepareRows(string $path): array
+    {
+        $sheetName = $this->sheetName($path);
+        $details = $this->readMergedDetailHeaders($path);
+        $destination = $path.'.rows.jsonl';
+        $stream = fopen($destination, 'wb');
+        if ($stream === false) {
+            throw new RuntimeException('Не удалось подготовить строки импорта.');
+        }
+        $headers = [];
+        $offsets = [];
+        try {
+            foreach ($this->iterateRows($path) as $number => $row) {
+                if ($number <= 2) {
+                    $headers[$number] = $this->normalizeRow($row);
+                    if ($number === 2) {
+
+                        CatalogImportFormat::validateHeaders($headers);
+                    }
+
+                    continue;
+                }
+                if ($this->isEmptyRow($row)) {
+                    continue;
+                }
+                try {
+                    $raw = $this->normalizeRow($row);
+                    $row = CatalogImportFormat::normalize($raw, $headers);
+                    foreach ($raw as $index => $value) {
+                        if (CatalogText::plain($value) !== '' && ! isset($details[$index])
+                            && ! CatalogImportFormat::isMetadata(CatalogText::plain($headers[1][$index] ?? ''))
+                            && ! CatalogImportFormat::isMetadata(CatalogText::plain($headers[2][$index] ?? ''))) {
+                            throw new InvalidArgumentException('Заполненная колонка без заголовка: '.CatalogImportCell::column($index).$number);
+                        }
+                    }
+                } catch (InvalidArgumentException $e) {
+                    throw new InvalidArgumentException('Строка '.$number.': '.$e->getMessage(), previous: $e);
+                }
+                $row['_row_number'] = $number;
+                $offsets[] = ftell($stream);
+                $line = json_encode($row, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n";
+                if (fwrite($stream, $line) !== strlen($line)) {
+                    throw new RuntimeException('Не удалось сохранить подготовленные строки импорта.');
+                }
+            }
+        } finally {
+            fclose($stream);
+        }
+
+        return ['path' => $destination, 'offsets' => $offsets, 'snapshot_version' => 1, 'sheet' => $sheetName];
+    }
+
+    public function readPreparedChunk(array $prepared, int $offset, int $limit): array
+    {
+        if (! isset($prepared['offsets'][$offset])) {
+            return [];
+        }
+        $stream = fopen($prepared['path'], 'rb');
+        if ($stream === false) {
+            throw new RuntimeException('Подготовленный файл импорта отсутствует.');
+        }
+        try {
+            if (fseek($stream, $prepared['offsets'][$offset]) !== 0) {
+                throw new RuntimeException('Не удалось прочитать подготовленные строки импорта.');
+            }
+            $rows = [];
+            while (count($rows) < $limit && ($line = fgets($stream)) !== false) {
+                $rows[] = json_decode($line, true, flags: JSON_THROW_ON_ERROR);
+            }
+            if (count($rows) !== min($limit, count($prepared['offsets']) - $offset)) {
+                throw new RuntimeException('Подготовленный файл импорта повреждён или обрезан.');
+            }
+
+            return $rows;
+        } finally {
+            fclose($stream);
+        }
+    }
+
+    public function sheetName(string $path): string
+    {
+        if ($this->extension($path) !== 'xlsx') {
+            return self::CATALOG_SHEET_NAME;
+        }
+        $reader = new XlsxReader;
+        $reader->open($path);
+        try {
+            $names = [];
             foreach ($reader->getSheetIterator() as $sheet) {
-                $sheetName = method_exists($sheet, 'getName') ? $sheet->getName() : null;
-
-                if ($sheetName === self::CATALOG_SHEET_NAME) {
-                    $rowIndex = 0;
-                    foreach ($sheet->getRowIterator() as $row) {
-                        $rowIndex++;
-                        yield $rowIndex => $row->toArray();
-                    }
-
-                    return;
-                }
-
-                if ($fallbackRows === null) {
-                    $fallbackRows = [];
-                    $rowIndex = 0;
-
-                    foreach ($sheet->getRowIterator() as $row) {
-                        $rowIndex++;
-                        $fallbackRows[$rowIndex] = $row->toArray();
-                    }
-                }
+                $names[] = $sheet->getName();
             }
 
-            foreach (($fallbackRows ?? []) as $index => $row) {
-                yield $index => $row;
-            }
+            return CatalogImportFormat::sheetName($names);
         } finally {
             $reader->close();
         }

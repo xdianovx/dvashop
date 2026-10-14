@@ -6,6 +6,7 @@ use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
 use App\Models\ProductOptionTemplateItem;
 use App\Models\ProductOptionValue;
+use App\Services\Catalog\DefaultAutoPartOptionTemplateContract;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use LogicException;
@@ -51,9 +52,9 @@ class ProductOptionSeeder extends Seeder
         ],
     ];
 
-    public function run(): void
+    public function run(DefaultAutoPartOptionTemplateContract $contract): void
     {
-        DB::transaction(function (): void {
+        DB::transaction(function () use ($contract): void {
             $template = ProductOptionTemplate::query()->firstOrCreate(
                 ['slug' => 'default_auto_part'],
                 [
@@ -70,7 +71,7 @@ class ProductOptionSeeder extends Seeder
                 ],
             );
 
-            $this->ensureCanonicalTemplateIsCompatible($template);
+            $contract->assertCompatibleTemplate($template);
 
             foreach (self::GROUPS as $code => $definition) {
                 $group = $this->resolveGroup($code, $definition);
@@ -90,20 +91,9 @@ class ProductOptionSeeder extends Seeder
                     );
                 }
             }
+
+            $contract->normalizeMembership($template);
         });
-    }
-
-    private function ensureCanonicalTemplateIsCompatible(ProductOptionTemplate $template): void
-    {
-        if ($template->applies_to === ProductOptionGroup::APPLIES_AUTO_PART
-            && $template->part_type_id === null) {
-            return;
-        }
-
-        throw new LogicException(
-            'Системный шаблон «default_auto_part» имеет несовместимую область применения. '
-            .'Ожидаются applies_to=auto_part и пустой part_type_id.',
-        );
     }
 
     private function ensureSystemGroupIsCompatible(ProductOptionGroup $group, string $code): void

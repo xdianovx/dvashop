@@ -6,6 +6,8 @@ use App\Enums\ProductType;
 use App\Models\Product;
 use App\Models\ProductOptionTemplate;
 use App\Models\ProductVariant;
+use App\Services\Catalog\CatalogPriceGuard;
+use App\Services\Catalog\CatalogPriceOwnership;
 use App\Services\Catalog\CatalogRelationIdNormalizer;
 use App\Services\Catalog\ProductAdminService;
 use App\Services\Catalog\ProductOptionTemplateResolver;
@@ -14,11 +16,18 @@ use App\Services\Media\ProductGalleryService;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Locked;
 
 trait HandlesProductGalleryUploads
 {
     /** @var array<int, string> */
     private array $pendingGalleryUploads = [];
+
+    #[Locked]
+    public ?string $hydratedPrice = null;
+
+    #[Locked]
+    public ?string $priceRevision = null;
 
     /** @var array{price: mixed, old_price: mixed, stock_quantity: mixed, stock_status: mixed} */
     private array $defaultVariantData = [];
@@ -34,6 +43,8 @@ trait HandlesProductGalleryUploads
     {
         /** @var Product $product */
         $product = $this->record;
+        $this->priceRevision = app(CatalogPriceOwnership::class)->fingerprint($product);
+        $this->hydratedPrice = $product->price;
         $variant = $product->defaultVariant()->first();
 
         if (! $variant instanceof ProductVariant) {
@@ -44,12 +55,24 @@ trait HandlesProductGalleryUploads
         }
 
         $data['variant_management_mode'] = $variant->managementMode();
-        $data['price'] = $variant->price;
+        $data['price'] = $product->price_mode === 'unknown' ? $variant->price : $product->price;
+        $this->hydratedPrice = $data['price'];
         $data['old_price'] = $variant->old_price;
         $data['default_stock_quantity'] = $variant->stock_quantity;
         $data['stock_status'] = $variant->stock_status;
 
         return $data;
+    }
+
+    protected function beforeValidate(): void
+    {
+        $record = $this->record ?? null;
+        if ($record instanceof Product && $record->exists) {
+            app(CatalogPriceGuard::class)->assertWritable();
+            if ($this->priceRevision !== app(CatalogPriceOwnership::class)->fingerprint($record)) {
+                throw ValidationException::withMessages(['data.price' => 'Цена или варианты изменились после открытия карточки. Обновите страницу перед сохранением.']);
+            }
+        }
     }
 
     /** @param array<string, mixed> $data @return array<string, mixed> */
@@ -92,6 +115,11 @@ trait HandlesProductGalleryUploads
             'stock_status' => $data['stock_status'] ?? null,
         ];
         unset($data['default_stock_quantity']);
+        if (! $isCreating && $record->price_mode === 'unknown' && ($data['price_mode'] ?? 'unknown') === 'unknown'
+            && (new Product(['price' => $data['price'] ?? null]))->price === $this->hydratedPrice) {
+            // Historical compact field projects the default variant, not a manual price edit.
+            $data['price'] = $record->price;
+        }
 
         $relationIds = app(CatalogRelationIdNormalizer::class);
         $data['part_type_id'] = $relationIds->nullablePositive(
@@ -131,6 +159,7 @@ trait HandlesProductGalleryUploads
         $this->clearGenericProductRelations();
         $this->syncDefaultVariant();
         $this->persistPendingGalleryUploads();
+        $this->priceRevision = app(CatalogPriceOwnership::class)->fingerprint($this->record);
     }
 
     private function syncDefaultVariant(): void
@@ -156,6 +185,10 @@ trait HandlesProductGalleryUploads
                 'is_active' => true,
             ]);
         } elseif (! $this->usesExplicitVariantData) {
+            if ($product->price_mode === 'inherited') {
+                $this->defaultVariantData['price'] = $variant->price;
+                $this->defaultVariantData['price_mode'] = $variant->price_mode;
+            }
             $variant->forceFill([
                 ...$this->defaultVariantData,
                 'options' => ProductVariant::technicalOptions(),
@@ -169,7 +202,7 @@ trait HandlesProductGalleryUploads
         ]);
 
         $product->forceFill([
-            'price' => $variant->price,
+            ...($product->price_mode === 'unknown' ? ['price' => $variant->price] : []),
             'old_price' => $variant->old_price,
             'stock_status' => $variant->stock_status,
         ])->saveQuietly();

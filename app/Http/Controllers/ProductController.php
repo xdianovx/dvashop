@@ -216,9 +216,7 @@ class ProductController extends Controller
                 'price_available' => $this->availability->hasSellablePrice($availableVariant),
                 'price_label' => ProductCardViewModel::priceLabel($effectivePrice, 'руб.'),
                 'purchasable' => $this->availability->isPurchasable($availableVariant),
-                'old_price' => $availableVariant->old_price !== null
-                    ? (string) $availableVariant->old_price
-                    : ($product->old_price !== null ? (string) $product->old_price : null),
+                'old_price' => $this->availability->effectiveOldPrice($availableVariant),
                 'stock_status' => $availableVariant->stock_status->value,
                 'stock_quantity' => $availableVariant->stock_quantity,
             ];

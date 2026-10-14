@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use App\Enums\ImportRunStatus;
+use App\Services\Catalog\CatalogPriceGuard;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 class ImportRun extends Model
 {
@@ -24,6 +26,7 @@ class ImportRun extends Model
         'current_row',
         'chunk_size',
         'detail_columns',
+        'prepared_rows',
         'initialized_at',
         'created_makes',
         'updated_makes',
@@ -50,6 +53,17 @@ class ImportRun extends Model
         'heartbeat_at',
     ];
 
+    public function save(array $options = []): bool
+    {
+        return DB::transaction(function () use ($options): bool {
+            if ($this->isDirty('status') && $this->status?->isRowsRunning()) {
+                app(CatalogPriceGuard::class)->assertWritable();
+            }
+
+            return parent::save($options);
+        });
+    }
+
     protected function casts(): array
     {
         return [
@@ -60,6 +74,7 @@ class ImportRun extends Model
             'current_row' => 'integer',
             'chunk_size' => 'integer',
             'detail_columns' => 'array',
+            'prepared_rows' => 'array',
             'initialized_at' => 'datetime',
             'created_makes' => 'integer',
             'updated_makes' => 'integer',
@@ -83,6 +98,11 @@ class ImportRun extends Model
             'finished_at' => 'datetime',
             'heartbeat_at' => 'datetime',
         ];
+    }
+
+    public function isSnapshotCatalogImport(): bool
+    {
+        return ($this->prepared_rows['snapshot_version'] ?? null) === 1;
     }
 
     public function logs(): HasMany

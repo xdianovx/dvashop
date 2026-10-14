@@ -10,7 +10,10 @@ final class PartTypeDefinitionRegistry
     public function definitions(): array
     {
         return [
-            ['title' => 'Порог', 'position' => 10, 'default_image_key' => 'porog'],
+            ['title' => 'Порог', 'position' => 10, 'default_image_key' => 'porog', 'children' => [
+                ['title' => 'Стандартный', 'position' => 10, 'default_image_key' => 'porog'],
+                ['title' => 'Увеличенный', 'position' => 20, 'default_image_key' => 'porog'],
+            ]],
             [
                 'title' => 'Арка',
                 'position' => 20,
@@ -18,6 +21,8 @@ final class PartTypeDefinitionRegistry
                 'children' => [
                     ['title' => 'Задняя', 'position' => 10, 'default_image_key' => 'arka-zadniaia'],
                     ['title' => 'Передняя', 'position' => 20, 'default_image_key' => 'arka-peredniaia'],
+                    ['title' => 'Внутренняя задняя', 'position' => 31, 'default_image_key' => 'arka-vnutrenniaia'],
+                    ['title' => 'Внутренняя передняя', 'position' => 32, 'default_image_key' => 'arka-vnutrenniaia'],
                     ['title' => 'Внутренняя', 'position' => 30, 'default_image_key' => 'arka-vnutrenniaia'],
                     ['title' => 'Внутренняя универсальная', 'position' => 40, 'default_image_key' => 'arka-vnutrenniaia-universalnaia'],
                     ['title' => 'Карман задняя', 'position' => 50, 'default_image_key' => 'arka-karman-zadniaia'],

@@ -30,7 +30,11 @@ final class ImportProgressService
 
     public function statusLabel(ImportRun $run): string
     {
-        if ($run->status === ImportRunStatus::Done && ($run->warnings_count > 0 || $run->errors_count > 0 || $run->failed_images > 0)) {
+        if ($run->status === ImportRunStatus::Done && $run->errors_count > 0) {
+            return 'Завершён с ошибками';
+        }
+
+        if ($run->status === ImportRunStatus::Done && ($run->warnings_count > 0 || $run->failed_images > 0)) {
             return 'Завершён с предупреждениями';
         }
 

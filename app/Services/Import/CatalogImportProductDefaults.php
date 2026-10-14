@@ -5,33 +5,19 @@ namespace App\Services\Import;
 use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCharacteristic;
-use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
-use App\Models\ProductOptionTemplateItem;
 use App\Models\ProductOptionValue;
 use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
+use App\Services\Catalog\DefaultAutoPartOptionTemplateContract;
 use App\Services\Catalog\ProductVariantAdminService;
 use App\Services\Catalog\ProductVariantOptionGenerator;
 use App\Support\CatalogText;
-use Illuminate\Support\Collection;
 use LogicException;
 
 final class CatalogImportProductDefaults
 {
-    public const TEMPLATE_SLUG = 'default_auto_part';
-
-    /**
-     * Canonical effective option inventory expected by imported auto parts.
-     *
-     * @var array<string, array<int, string>>
-     */
-    private const OPTION_CONTRACT = [
-        'profile' => ['full', 'lower'],
-        'position' => ['left', 'right', 'both'],
-        'material' => ['galvanized', 'cold_rolled'],
-        'thickness' => ['1mm', '1_5mm'],
-    ];
+    public const TEMPLATE_SLUG = DefaultAutoPartOptionTemplateContract::TEMPLATE_SLUG;
 
     /** @var array<string, string> */
     private const DEFAULT_SIGNATURE = [
@@ -54,6 +40,7 @@ final class CatalogImportProductDefaults
     public function __construct(
         private readonly ProductVariantOptionGenerator $variantGenerator,
         private readonly ProductVariantAdminService $variantAdmin,
+        private readonly DefaultAutoPartOptionTemplateContract $optionContract,
     ) {}
 
     public function canonicalTemplate(): ProductOptionTemplate
@@ -71,13 +58,7 @@ final class CatalogImportProductDefaults
             $this->fail('Системный шаблон опций «default_auto_part» не найден.');
         }
 
-        if (! $template->is_active
-            || $template->applies_to !== ProductOptionGroup::APPLIES_AUTO_PART
-            || $template->part_type_id !== null) {
-            $this->fail('Системный шаблон опций «default_auto_part» неактивен или имеет несовместимую область применения.');
-        }
-
-        $this->validateEffectiveInventory($template, $template->items);
+        $this->optionContract->assertReadyForImport($template);
 
         $this->cachedTemplate = $template;
 
@@ -109,14 +90,14 @@ final class CatalogImportProductDefaults
             $this->fail('Новый импортный товар не связан с проверенным системным шаблоном опций.');
         }
 
-        $this->variantGenerator->createMissingVariants($product, 24);
+        $this->variantGenerator->createMissingVariants($product, DefaultAutoPartOptionTemplateContract::EXPECTED_COMBINATION_COUNT);
 
         $variants = $product->variants()
             ->with('optionValues.group')
             ->orderBy('id')
             ->get();
 
-        if ($variants->count() !== 24) {
+        if ($variants->count() !== DefaultAutoPartOptionTemplateContract::EXPECTED_COMBINATION_COUNT) {
             $this->fail('Системный шаблон опций должен создавать ровно 24 варианта импортного товара.');
         }
 
@@ -149,74 +130,6 @@ final class CatalogImportProductDefaults
             ],
             self::CHARACTERISTICS,
         ));
-    }
-
-    /** @param Collection<int, ProductOptionTemplateItem> $items */
-    private function validateEffectiveInventory(ProductOptionTemplate $template, Collection $items): void
-    {
-        $effective = $items->filter(function (ProductOptionTemplateItem $item): bool {
-            return $item->group instanceof ProductOptionGroup
-                && $item->value instanceof ProductOptionValue
-                && $item->group->is_active
-                && $item->value->is_active;
-        })->values();
-
-        if ($effective->count() !== 9) {
-            $this->fail('Системный шаблон «default_auto_part» должен содержать ровно 9 активных selectable values.');
-        }
-
-        $actual = [];
-        foreach ($effective as $item) {
-            $group = $item->group;
-            $value = $item->value;
-
-            if (! $group instanceof ProductOptionGroup || ! $value instanceof ProductOptionValue) {
-                $this->fail('Системный шаблон содержит повреждённую связь группы или значения опции.');
-            }
-
-            if ((int) $value->product_option_group_id !== (int) $group->getKey()) {
-                $this->fail('Системный шаблон содержит значение, принадлежащее другой группе опций.');
-            }
-
-            $groupCode = (string) $group->code;
-            $valueCode = (string) $value->code;
-
-            if (! array_key_exists($groupCode, self::OPTION_CONTRACT)
-                || ! in_array($valueCode, self::OPTION_CONTRACT[$groupCode], true)) {
-                $this->fail('Системный шаблон «default_auto_part» содержит неожиданную активную группу или значение.');
-            }
-
-            if (! in_array($group->applies_to, [
-                ProductOptionGroup::APPLIES_ALL,
-                ProductOptionGroup::APPLIES_AUTO_PART,
-            ], true)) {
-                $this->fail("Системная группа «{$groupCode}» несовместима с автодеталями.");
-            }
-
-            $actual[$groupCode][] = $valueCode;
-        }
-
-        ksort($actual);
-        $expected = self::OPTION_CONTRACT;
-        ksort($expected);
-
-        foreach ($actual as &$values) {
-            sort($values);
-        }
-        unset($values);
-
-        foreach ($expected as &$values) {
-            sort($values);
-        }
-        unset($values);
-
-        if ($actual !== $expected) {
-            $this->fail('Активный inventory шаблона «default_auto_part» не соответствует canonical contract 4 groups / 9 values / 24 combinations.');
-        }
-
-        if (count($this->variantGenerator->combinationsForTemplate($template)) !== 24) {
-            $this->fail('Системный шаблон «default_auto_part» должен создавать ровно 24 комбинации.');
-        }
     }
 
     /** @return array<string, string> */

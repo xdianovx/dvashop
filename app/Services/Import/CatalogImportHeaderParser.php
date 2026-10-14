@@ -10,7 +10,7 @@ class CatalogImportHeaderParser
     public const CATALOG_SHEET_NAME = 'Каталог';
 
     /**
-     * @param array<int, array<int, mixed>> $headerRows
+     * @param  array<int, array<int, mixed>>  $headerRows
      * @return array<int, array{index:int, group:string|null, parent_title:string|null, title:string, detail_title:string, full_detail_title:string, category_title:string}>
      */
     public function parse(string $path, int $detailStartColumn, array $headerRows, string $extension): array
@@ -21,7 +21,7 @@ class CatalogImportHeaderParser
     }
 
     /**
-     * @param array<int, array<int, mixed>> $headerRows
+     * @param  array<int, array<int, mixed>>  $headerRows
      * @return array<int, array{index:int, group:string|null, parent_title:string|null, title:string, detail_title:string, full_detail_title:string, category_title:string}>
      */
     private function parseXlsx(string $path, int $detailStartColumn, array $headerRows): array
@@ -33,12 +33,19 @@ class CatalogImportHeaderParser
         $maxColumn = max(array_key_last($groups) ?? 0, array_key_last($titles) ?? 0, $maxMergedColumn);
         $headers = [];
 
-        for ($index = $detailStartColumn; $index <= $maxColumn; $index++) {
+        for ($index = 0; $index <= $maxColumn; $index++) {
             $directGroup = $this->cellString($groups[$index] ?? null);
             $title = $this->cellString($titles[$index] ?? null);
             $mergedGroup = $mergedGroups[$index] ?? null;
 
+            if (CatalogImportFormat::isMetadata($title) || CatalogImportFormat::isMetadata($directGroup)) {
+                continue;
+            }
+
             if ($mergedGroup !== null && $mergedGroup !== '') {
+                if ($title === '') {
+                    continue;
+                }
                 $categoryTitle = $title !== '' ? $title : $mergedGroup;
                 $headers[$index] = $this->detailHeader(
                     index: $index,
@@ -75,14 +82,14 @@ class CatalogImportHeaderParser
             );
         }
 
-        return $headers;
+        return $this->validateDetailHeaders($headers);
     }
 
     /**
      * CSV does not have real merged ranges, so keep previous compatibility behaviour:
      * a non-empty group cell is carried until the next non-empty group cell.
      *
-     * @param array<int, array<int, mixed>> $headerRows
+     * @param  array<int, array<int, mixed>>  $headerRows
      * @return array<int, array{index:int, group:string|null, parent_title:string|null, title:string, detail_title:string, full_detail_title:string, category_title:string}>
      */
     private function parseCsvFallback(int $detailStartColumn, array $headerRows): array
@@ -93,9 +100,15 @@ class CatalogImportHeaderParser
         $headers = [];
         $currentGroup = null;
 
-        for ($index = $detailStartColumn; $index <= $maxColumn; $index++) {
+        for ($index = 0; $index <= $maxColumn; $index++) {
             $groupCell = $this->cellString($groups[$index] ?? null);
             $title = $this->cellString($titles[$index] ?? null);
+
+            if (CatalogImportFormat::isMetadata($title) || CatalogImportFormat::isMetadata($groupCell)) {
+                $currentGroup = null;
+
+                continue;
+            }
 
             if ($groupCell !== '') {
                 $currentGroup = $groupCell;
@@ -115,11 +128,27 @@ class CatalogImportHeaderParser
             );
         }
 
+        return $this->validateDetailHeaders($headers);
+    }
+
+    private function validateDetailHeaders(array $headers): array
+    {
+        $seen = [];
+        foreach ($headers as $index => &$header) {
+            $key = app(ImportPartTypeResolver::class)->structuralPath($header);
+            if (isset($seen[$key])) {
+                throw new \InvalidArgumentException('Коллизия товарных заголовков: '.CatalogImportCell::column($seen[$key]).' и '.CatalogImportCell::column($index).'.');
+            }
+            $seen[$key] = $index;
+            $header['structural_path'] = $key;
+        }
+        unset($header);
+
         return $headers;
     }
 
     /**
-     * @param array<int, mixed> $firstRow
+     * @param  array<int, mixed>  $firstRow
      * @return array<int, string>
      */
     private function mergedGroupsForFirstRow(string $path, array $firstRow): array
@@ -130,7 +159,7 @@ class CatalogImportHeaderParser
             return [];
         }
 
-        $zip = new ZipArchive();
+        $zip = new ZipArchive;
         if ($zip->open($path) !== true) {
             return [];
         }
@@ -178,7 +207,7 @@ class CatalogImportHeaderParser
 
     private function worksheetPath(string $path): ?string
     {
-        $zip = new ZipArchive();
+        $zip = new ZipArchive;
         if ($zip->open($path) !== true) {
             return null;
         }
@@ -203,8 +232,9 @@ class CatalogImportHeaderParser
 
         $selected = $sheets[0];
 
+        $sheetName = CatalogImportFormat::sheetName(array_column($sheets, 'name'));
         foreach ($sheets as $sheet) {
-            if (($sheet['name'] ?? null) === self::CATALOG_SHEET_NAME) {
+            if (($sheet['name'] ?? null) === $sheetName) {
                 $selected = $sheet;
                 break;
             }
@@ -308,7 +338,6 @@ class CatalogImportHeaderParser
 
         return [$column - 1, (int) $match[2]];
     }
-
 
     /**
      * @return array{index:int, group:string|null, parent_title:string|null, title:string, detail_title:string, full_detail_title:string, category_title:string}

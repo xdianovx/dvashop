@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\ImportLogLevel;
 use App\Enums\ImportRunStatus;
 use App\Models\ImportRun;
 use Illuminate\Http\UploadedFile;
@@ -241,6 +242,40 @@ class ImportStatusService
         ])->save();
 
         $this->logger->error($run, 'Импорт завершился ошибкой', ['error' => $error]);
+
+        return $run->refresh();
+    }
+
+    public function failFromRowErrors(ImportRun $run): ImportRun
+    {
+        $run->refresh();
+
+        $latest = $run->logs()
+            ->where('level', ImportLogLevel::Error->value)
+            ->latest('id')
+            ->first();
+        $lastRowError = is_array($latest?->context)
+            ? trim((string) ($latest->context['error'] ?? ''))
+            : '';
+        $error = 'Импорт завершён с ошибками строк: '.$run->errors_count.'.';
+
+        if ($lastRowError !== '') {
+            $error .= ' Последняя ошибка: '.$lastRowError;
+        }
+
+        $run->forceFill([
+            'status' => ImportRunStatus::Failed,
+            'last_error' => $error,
+            'finished_at' => now(),
+            'heartbeat_at' => now(),
+        ])->save();
+
+        // Row-level errors have already been counted/logged. Do not add one
+        // synthetic error to errors_count just for the terminal transition.
+        $this->logger->info($run, 'Импорт завершён с ошибками строк', [
+            'errors_count' => $run->errors_count,
+            'last_error' => $lastRowError !== '' ? $lastRowError : null,
+        ]);
 
         return $run->refresh();
     }

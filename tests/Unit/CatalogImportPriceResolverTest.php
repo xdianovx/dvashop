@@ -1,6 +1,14 @@
 <?php
 
 use App\Services\Import\CatalogImportPriceResolver;
+use Database\Seeders\PartTypeSeeder;
+use Database\Seeders\ProductCatalogSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+uses(TestCase::class, RefreshDatabase::class);
+
+beforeEach(fn () => $this->seed([ProductCatalogSeeder::class, PartTypeSeeder::class]));
 
 test('catalog import reference price resolver contains the exact approved PartType mapping', function (): void {
     $resolver = new CatalogImportPriceResolver;

@@ -21,6 +21,7 @@ use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Models\VehicleModel;
+use App\Services\Catalog\CatalogPriceOwnership;
 use App\Services\Catalog\CatalogRelationIdNormalizer;
 use App\Services\Catalog\ProductAdminService;
 use App\Services\Catalog\ProductOptionTemplateResolver;
@@ -484,6 +485,7 @@ final class ProductForm
                             ->label('SKU товара')
                             ->maxLength(255)
                             ->unique(ignoreRecord: true),
+                        Select::make('price_mode')->label('Источник цены')->options(CatalogPriceOwnership::options())->default('unknown')->helperText('Изменение суммы вручную включает индивидуальный режим. Общая цена берётся из типа детали.'),
                         TextInput::make('price')
                             ->label('Цена')
                             ->numeric()
@@ -532,6 +534,7 @@ final class ProductForm
                                 TextInput::make('title')
                                     ->label('Название варианта')
                                     ->maxLength(255),
+                                Select::make('price_mode')->label('Источник цены варианта')->options(CatalogPriceOwnership::options())->default('unknown')->helperText('Общая цена варианта наследуется от товара.'),
                                 TextInput::make('price')
                                     ->label('Цена')
                                     ->numeric()

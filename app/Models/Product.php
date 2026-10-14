@@ -6,6 +6,8 @@ use App\Enums\ProductStatus;
 use App\Enums\ProductType;
 use App\Enums\StockStatus;
 use App\Models\Concerns\CatalogSearchable;
+use App\Services\Catalog\CatalogPriceGuard;
+use App\Services\Catalog\CatalogPriceOwnership;
 use App\Services\Catalog\ProductAdminService;
 use App\Services\Media\MediaUrlService;
 use App\Support\CatalogText;
@@ -35,6 +37,7 @@ use Illuminate\Validation\ValidationException;
     'short_description',
     'description',
     'price',
+    'price_mode',
     'old_price',
     'stock_status',
     'position',
@@ -59,9 +62,19 @@ class Product extends Model
     /** @use HasFactory<ProductFactory> */
     use HasFactory, SoftDeletes;
 
+    public function delete()
+    {
+        return DB::transaction(function () {
+            app(CatalogPriceGuard::class)->assertWritable();
+
+            return parent::delete();
+        });
+    }
+
     public function save(array $options = []): bool
     {
         return DB::transaction(function () use ($options): bool {
+            app(CatalogPriceGuard::class)->saving($this);
             if ($this->exists) {
                 (new self)->newQuery()
                     ->withTrashed()
@@ -220,6 +233,8 @@ class Product extends Model
 
     protected static function booted(): void
     {
+        static::saving(fn (self $record) => app(CatalogPriceOwnership::class)->prepare($record));
+        static::saved(fn (self $record) => app(CatalogPriceOwnership::class)->syncDependentVariants($record));
         static::saving(function (self $product): void {
             $product->slug = CatalogText::slug($product->slug ?: $product->title, 'product', 150);
             $product->status ??= ProductStatus::Draft;
@@ -247,6 +262,7 @@ class Product extends Model
             'status' => ProductStatus::class,
             'stock_status' => StockStatus::class,
             'price' => 'decimal:2',
+            'last_import_price' => 'decimal:2',
             'old_price' => 'decimal:2',
             'position' => 'integer',
             'is_featured' => 'boolean',

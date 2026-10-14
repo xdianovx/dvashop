@@ -18,6 +18,7 @@ class PartTypeTreeService
     public function save(PartType $partType): PartType
     {
         return DB::transaction(function () use ($partType): PartType {
+            app(CatalogPriceGuard::class)->assertWritable();
             $shouldRecalculateDescendants = $partType->exists && $partType->isDirty(['title', 'parent_id']);
 
             $this->prepareForSave($partType);

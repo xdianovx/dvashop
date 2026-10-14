@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Services\Import\ImportImageDownloader;
 use App\Services\ImportLogger;
 use App\Services\ImportStatusService;
+use App\Services\Search\CatalogSearchSync;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -53,7 +54,12 @@ class DownloadProductImageJob implements ShouldQueue
                 throw new \RuntimeException('Товар для изображения не найден.');
             }
 
-            $downloader->download($product, $this->url);
+            if ($run?->isSnapshotCatalogImport()) {
+                // Search documents contain no image fields; status publication owns this sync.
+                CatalogSearchSync::withoutSyncing(fn () => $downloader->download($product, $this->url));
+            } else {
+                $downloader->download($product, $this->url);
+            }
 
             if ($run !== null) {
                 $statusService->imageProcessed($run);

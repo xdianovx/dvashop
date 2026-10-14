@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Enums\StockStatus;
+use App\Services\Catalog\CatalogPriceGuard;
+use App\Services\Catalog\CatalogPriceOwnership;
 use App\Services\Catalog\ProductVariantAdminService;
 use Database\Factories\ProductVariantFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -19,6 +21,7 @@ use Illuminate\Support\Facades\DB;
     'title',
     'options',
     'price',
+    'price_mode',
     'old_price',
     'stock_quantity',
     'stock_status',
@@ -36,10 +39,22 @@ class ProductVariant extends Model
     /** @use HasFactory<ProductVariantFactory> */
     use HasFactory;
 
+    public function delete()
+    {
+        return DB::transaction(function () {
+            app(CatalogPriceGuard::class)->assertWritable();
+
+            return parent::delete();
+        });
+    }
+
     public function save(array $options = []): bool
     {
-        return DB::transaction(fn (): bool => app(ProductVariantAdminService::class)
-            ->guardVariantSkuSave(fn (): bool => parent::save($options)));
+        return DB::transaction(function () use ($options): bool {
+            app(CatalogPriceGuard::class)->saving($this);
+
+            return app(ProductVariantAdminService::class)->guardVariantSkuSave(fn (): bool => parent::save($options));
+        });
     }
 
     public function product(): BelongsTo
@@ -177,6 +192,7 @@ class ProductVariant extends Model
 
     protected static function booted(): void
     {
+        static::saving(fn (self $record) => app(CatalogPriceOwnership::class)->prepare($record));
         static::saving(function (self $variant): void {
             $variant->stock_status ??= StockStatus::InStock;
             $variant->is_active ??= true;

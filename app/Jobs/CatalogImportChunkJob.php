@@ -2,7 +2,9 @@
 
 namespace App\Jobs;
 
+use App\Enums\ImportRunStatus;
 use App\Models\ImportRun;
+use App\Services\Import\CatalogImportSnapshot;
 use App\Services\Import\ImportProductFactory;
 use App\Services\Import\ImportRowProcessor;
 use App\Services\ImportLogger;
@@ -18,6 +20,7 @@ use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 use Throwable;
 
 class CatalogImportChunkJob implements ShouldQueue
@@ -41,6 +44,8 @@ class CatalogImportChunkJob implements ShouldQueue
             (new WithoutOverlapping('catalog-import-chunk-'.$this->importRunId))
                 ->releaseAfter(10)
                 ->expireAfter(self::OVERLAP_LOCK_EXPIRES_AFTER),
+            (new WithoutOverlapping('catalog-import-source-'.ImportRun::whereKey($this->importRunId)->value('type')))
+                ->shared()->releaseAfter(10)->expireAfter(self::OVERLAP_LOCK_EXPIRES_AFTER),
         ];
     }
 
@@ -67,16 +72,28 @@ class CatalogImportChunkJob implements ShouldQueue
             return;
         }
 
+        if (isset($run->prepared_rows['catalog_mode']) || ($run->initialized_at !== null && ! $run->isSnapshotCatalogImport())) {
+            $statusService->fail($run, 'Подготовка выполнена старой версией импорта. Загрузите файл заново для полной проверки.');
+
+            return;
+        }
         $catalogMutated = false;
 
         try {
             $absolutePath = Storage::disk('local')->path($run->stored_path);
             $offset = (int) $run->current_row;
             $limit = (int) $run->chunk_size;
-            $rows = $reader->readChunk($absolutePath, $offset, $limit, 2);
+            $rows = $run->prepared_rows !== null
+                ? $reader->readPreparedChunk($run->prepared_rows, $offset, $limit)
+                : $reader->readChunk($absolutePath, $offset, $limit, 2);
             $processed = count($rows);
 
-            if ($processed === 0) {
+            if ($processed === 0 && $run->isSnapshotCatalogImport() && $offset < $run->total_rows) {
+                throw new RuntimeException('Подготовленные строки закончились до завершения импорта.');
+            }
+
+            // A retry after the final progress checkpoint must still publish the snapshot.
+            if ($processed === 0 && ! $run->isSnapshotCatalogImport()) {
                 $statusService->markRowsDone($run);
                 $logger->info($run, 'Строки импорта завершены', [
                     'queued_images' => $run->fresh()->queued_images,
@@ -88,7 +105,7 @@ class CatalogImportChunkJob implements ShouldQueue
             $processedInChunk = 0;
 
             foreach ($rows as $index => $row) {
-                $rowNumber = $offset + $index + 3;
+                $rowNumber = $row['_row_number'] ?? ($offset + $index + 3);
 
                 try {
                     DB::transaction(function () use ($rowProcessor, $run, $row, $rowNumber): void {
@@ -144,9 +161,16 @@ class CatalogImportChunkJob implements ShouldQueue
                     $logger->warning($run, 'Автоархивация пропущена, потому что во время импорта были ошибки строк.', [
                         'errors_count' => $run->errors_count,
                     ]);
-                } elseif ($run->status?->isRowsRunning()) {
-                    $archived = $products->archiveMissingProducts($run);
-                    $catalogMutated = $catalogMutated || $archived > 0;
+                    $statusService->failFromRowErrors($run);
+
+                    return;
+                }
+
+                if ($run->status?->isRowsRunning()) {
+                    $archived = $run->isSnapshotCatalogImport()
+                        ? app(CatalogImportSnapshot::class)->finalize($run, fn (): int => $products->archiveMissingProducts($run))
+                        : $products->archiveMissingProducts($run);
+                    $catalogMutated = true;
                 }
 
                 $statusService->markRowsDone($run);
@@ -164,6 +188,13 @@ class CatalogImportChunkJob implements ShouldQueue
                 CatalogImportChunkJob::dispatch($run->getKey())->onQueue('imports');
             }
         } catch (Throwable $e) {
+            // A logging/notification failure after the atomic publication must not
+            // reclassify an already applied snapshot as a failed row import.
+            if ($run->isSnapshotCatalogImport() && in_array($run->fresh()->status, [ImportRunStatus::Done, ImportRunStatus::ProcessingImages], true)) {
+                report($e);
+
+                return;
+            }
             $statusService->fail($run, $e->getMessage());
         } finally {
             if ($catalogMutated) {

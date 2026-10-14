@@ -12,6 +12,7 @@ use App\Models\VehicleMake;
 use App\Models\VehicleModel;
 use App\Observers\CatalogSearchDependencyObserver;
 use App\Observers\CatalogSearchImportObserver;
+use App\Services\Catalog\CatalogPricingSchema;
 use App\Services\Feeds\YandexFeedInvalidator;
 use App\Services\Storefront\AboutPageViewDataProvider;
 use App\Services\Storefront\FaqPageViewDataProvider;
@@ -36,6 +37,7 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->scoped(CatalogPricingSchema::class);
         $this->app->scoped(
             GlobalStorefrontData::class,
             fn (Application $app): GlobalStorefrontData => $app->make(GlobalStorefrontDataProvider::class)->load(),
@@ -73,6 +75,9 @@ class AppServiceProvider extends ServiceProvider
         }
         ImportRun::observe(CatalogSearchImportObserver::class);
         DB::listen(function (QueryExecuted $event): void {
+            if (preg_match('/^\s*(?:create|alter|drop|rename|attach|detach)\b/i', $event->sql)) {
+                app(CatalogPricingSchema::class)->forget($event->connection);
+            }
             app(YandexFeedInvalidator::class)->queryExecuted($event);
         });
     }
