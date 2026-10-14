@@ -34,6 +34,7 @@ final class ProductAdminService
 
         return DB::transaction(fn (): Product => $this->guardProductSkuSave(
             function () use ($product, $data): Product {
+                app(CatalogPriceGuard::class)->assertWritable();
                 if ($product->exists) {
                     Product::withTrashed()->whereKey($product)->lockForUpdate()->firstOrFail();
                 }

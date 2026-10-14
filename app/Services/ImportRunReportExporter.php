@@ -94,6 +94,7 @@ class ImportRunReportExporter
     {
         return match ($reason) {
             'row_errors' => 'Ошибки обработки строк',
+            'additive_catalog' => 'Режим дополнения: отсутствующие товары и автомобили сохраняются',
             null, '' => '',
             default => $reason,
         };

@@ -1,6 +1,5 @@
 <?php
 
-use App\Enums\ImportLogLevel;
 use App\Enums\ImportRunStatus;
 use App\Enums\ProductStatus;
 use App\Enums\ProductType;
@@ -27,6 +26,7 @@ use App\Services\ImportStatusService;
 use App\Services\Media\DefaultProductImageService;
 use App\Services\SpreadsheetReader;
 use App\Support\CatalogText;
+use Database\Seeders\PartTypeSeeder;
 use Database\Seeders\ProductCatalogSeeder;
 use Database\Seeders\ProductOptionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -409,7 +409,7 @@ test('row creates vehicle make model and generation', function () {
         ->and($generation->vehicle_model_id)->toBe($model->getKey());
 });
 
-test('vehicle photo from column a is stored on generation and queued for download', function () {
+test('vehicle photo from column a is queued and not marked downloaded prematurely', function () {
     $run = catalogImportRun();
     $url = 'https://example.test/camry.jpg';
 
@@ -418,7 +418,7 @@ test('vehicle photo from column a is stored on generation and queued for downloa
     $generation = VehicleGeneration::query()->firstOrFail();
     $product = Product::query()->firstOrFail();
 
-    expect($generation->image_source_url)->toBe($url)
+    expect($generation->image_source_url)->toBeNull()
         ->and(ProductImage::query()
             ->where('product_id', $product->getKey())
             ->where('source_type', ProductImage::SOURCE_IMPORT)
@@ -458,6 +458,7 @@ test('row resolves part type and canonical store category without technical prod
 });
 
 test('row creates product default variant and fitment', function () {
+    $this->seed(PartTypeSeeder::class);
     $run = catalogImportRun();
 
     processCatalogRow($run, catalogRow(['6' => '1.0']));
@@ -484,21 +485,10 @@ test('row creates product default variant and fitment', function () {
         ->and($fitment->vehicle_generation_id)->toBe($generation->getKey());
 });
 
-test('non standard product cell value creates product and writes warning', function () {
+test('non standard product cell value is ignored without creating products', function () {
     $run = catalogImportRun();
-
     processCatalogRow($run, catalogRow([6 => 'maver']));
-
-    $product = Product::query()->firstOrFail();
-    $log = ImportLog::query()->where('level', ImportLogLevel::Warning->value)->latest('id')->firstOrFail();
-
-    expect($product->status)->toBe(ProductStatus::Active)
-        ->and($log->message)->toContain('Нестандартное значение')
-        ->and($log->context['row'])->toBe(3)
-        ->and($log->context['column'])->toBe('G')
-        ->and($log->context['value'])->toBe('maver')
-        ->and($log->context['part_type'])->toBe('porog')
-        ->and($log->context['store_category'])->toContain('/porogi');
+    expect(Product::count())->toBe(0);
 });
 
 test('negative product cell values do not create products', function (string $value) {
@@ -1025,7 +1015,7 @@ test('import inspect command outputs category tree and does not write to databas
 
     writeCatalogTestXlsx($path, [
         1 => [7 => 'Арка', 12 => 'Пенка'],
-        2 => [7 => 'Задняя', 12 => "Задней\nдвери", 15 => 'Лонжерон'],
+        2 => [0 => 'Фото', 1 => 'Марка', 2 => 'Модель', 3 => 'Поколение', 4 => 'Годы', 5 => 'Кузов', 7 => 'Задняя', 12 => "Задней\nдвери", 15 => 'Лонжерон'],
         3 => [0 => '1.0', 1 => 'Toyota', 2 => 'Camry', 3 => 'XV70', 4 => '2017-2023', 5 => 'седан', 7 => '1', 12 => 'https://example.test/part.jpg', 15 => '1'],
     ], ['H1:L1', 'M1:O1']);
 
@@ -1036,7 +1026,7 @@ test('import inspect command outputs category tree and does not write to databas
         ->and($output)->toContain('Пенка')
         ->and($output)->toContain('Задней двери')
         ->and($output)->toContain('Лонжерон')
-        ->and($output)->toContain('Проверка P:S')
+        ->and($output)->toContain('Проверка структуры и коллизий')
         ->and(ImportRun::query()->count())->toBe(0)
         ->and(Product::query()->count())->toBe(0);
 });
@@ -1086,7 +1076,7 @@ test('grouped imported details attach mapped default images', function (string $
         ],
     ]);
 
-    processCatalogRow($run, catalogRow([6 => 'да']));
+    processCatalogRow($run, catalogRow([6 => '1']));
 
     $image = ProductImage::query()->firstOrFail();
 
@@ -1098,30 +1088,11 @@ test('grouped imported details attach mapped default images', function (string $
     'penka zadnei dveri' => ['Пенка', 'Задней двери', 'penka-zadnei-dveri'],
 ]);
 
-test('product cell URL queues import image and does not attach default image', function () {
-    $run = catalogImportRun([
-        'detail_columns' => [
-            6 => [
-                'index' => 6,
-                'group' => null,
-                'parent_title' => null,
-                'title' => 'Порог',
-                'detail_title' => 'Порог',
-                'full_detail_title' => 'Порог',
-                'category_title' => 'Порог',
-            ],
-        ],
-    ]);
-    $url = 'https://example.test/porog.jpg';
-
-    processCatalogRow($run, catalogRow([6 => $url]));
-
-    $product = Product::query()->firstOrFail();
-
-    expect(ProductImage::query()->count())->toBe(0);
-    Queue::assertPushed(DownloadProductImageJob::class, fn (DownloadProductImageJob $job): bool => $job->productId === $product->getKey()
-        && $job->url === $url
-        && $job->importRunId === $run->getKey());
+test('product cell URL means absence and queues no image', function () {
+    $run = catalogImportRun();
+    processCatalogRow($run, catalogRow([6 => 'https://example.test/porog.jpg']));
+    expect(Product::count())->toBe(0)->and(ProductImage::count())->toBe(0);
+    Queue::assertNotPushed(DownloadProductImageJob::class);
 });
 
 test('repeated import does not duplicate default ProductImage', function () {
@@ -1141,7 +1112,7 @@ test('repeated import does not duplicate default ProductImage', function () {
     $secondRun = catalogImportRun(['detail_columns' => $firstRun->detail_columns]);
 
     processCatalogRow($firstRun, catalogRow([6 => '1']));
-    processCatalogRow($secondRun, catalogRow([6 => 'true']));
+    processCatalogRow($secondRun, catalogRow([6 => '1']));
 
     expect(Product::query()->count())->toBe(1)
         ->and(ProductImage::query()->where('source_type', 'default')->count())->toBe(1);
@@ -1173,7 +1144,7 @@ test('manual main image is not reset by default image on repeated import', funct
         'is_default' => false,
     ]);
 
-    processCatalogRow(catalogImportRun(['detail_columns' => $run->detail_columns]), catalogRow([6 => 'yes']));
+    processCatalogRow(catalogImportRun(['detail_columns' => $run->detail_columns]), catalogRow([6 => '1']));
 
     expect($manual->fresh()->is_main)->toBeTrue()
         ->and($default->fresh()->is_main)->toBeFalse()
@@ -1206,6 +1177,7 @@ test('missing default image is logged once per detail type and import continues'
 });
 
 test('repeated import preserves manual product fields variants fitments and default images', function () {
+    $this->seed(PartTypeSeeder::class);
     $firstRun = catalogImportRun([
         'detail_columns' => [
             6 => [
@@ -1241,6 +1213,7 @@ test('repeated import preserves manual product fields variants fitments and defa
         'part_type_id' => null,
         'product_category_id' => $legacyCategory->getKey(),
         'price' => 12345.67,
+        'price_mode' => 'individual',
         'old_price' => 15000,
         'sku' => 'MANUAL-SKU',
         'description' => 'Ручное описание',
@@ -1334,7 +1307,7 @@ test('manual product and another import source are not archived by catalog impor
         ->and($otherSource->fresh()->status)->toBe(ProductStatus::Active);
 });
 
-test('changed product image url queues new import image and disappeared url keeps manual and import images', function () {
+test('product URL is ignored and a returning one preserves manual and imported images', function () {
     Storage::fake('public');
     Queue::fake();
 
@@ -1352,7 +1325,7 @@ test('changed product image url queues new import image and disappeared url keep
         ],
     ]);
 
-    processCatalogRow($run, catalogRow([6 => 'https://example.test/old.jpg']));
+    processCatalogRow($run, catalogRow([6 => '1']));
     $product = Product::query()->firstOrFail();
     Storage::disk('public')->put('uploads/products/'.$product->getKey().'/old.webp', test_image_binary('webp'));
     $import = ProductImage::factory()->forProduct($product)->main()->create([
@@ -1372,7 +1345,7 @@ test('changed product image url queues new import image and disappeared url keep
     Queue::fake();
     app(ImportRowProcessor::class)->process($run, catalogRow([6 => 'https://example.test/new.jpg']), $run->detail_columns, 4);
 
-    Queue::assertPushed(DownloadProductImageJob::class, fn (DownloadProductImageJob $job): bool => $job->url === 'https://example.test/new.jpg');
+    Queue::assertNotPushed(DownloadProductImageJob::class);
 
     app(ImportRowProcessor::class)->process($run, catalogRow([6 => '1']), $run->detail_columns, 5);
 

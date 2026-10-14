@@ -17,6 +17,10 @@ test('part type seeder creates the complete tree with category assignments', fun
     $this->seed(PartTypeSeeder::class);
 
     $expected = [
+        'porog/standartnyi' => ['Порог / Стандартный', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/porogi'],
+        'porog/uvelichennyi' => ['Порог / Увеличенный', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/porogi'],
+        'arka/vnutrenniaia-zadniaia' => ['Арка / Внутренняя задняя', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
+        'arka/vnutrenniaia-peredniaia' => ['Арка / Внутренняя передняя', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
         'porog' => ['Порог', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/porogi'],
         'arka' => ['Арка', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
         'arka/zadniaia' => ['Арка / Задняя', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/arki'],
@@ -48,8 +52,8 @@ test('part type seeder creates the complete tree with category assignments', fun
     }
 
     expect(PartType::query()->whereNull('parent_id')->count())->toBe(7)
-        ->and(PartType::query()->whereNotNull('parent_id')->count())->toBe(9)
-        ->and(PartType::query()->count())->toBe(16);
+        ->and(PartType::query()->whereNotNull('parent_id')->count())->toBe(13)
+        ->and(PartType::query()->count())->toBe(20);
 });
 
 test('part type seeder assigns exact default image keys only to final types', function () {
@@ -57,6 +61,10 @@ test('part type seeder assigns exact default image keys only to final types', fu
 
     $expectedKeys = [
         'porog' => 'porog',
+        'porog/standartnyi' => 'porog',
+        'porog/uvelichennyi' => 'porog',
+        'arka/vnutrenniaia-zadniaia' => 'arka-vnutrenniaia',
+        'arka/vnutrenniaia-peredniaia' => 'arka-vnutrenniaia',
         'arka/karman-zadniaia' => 'arka-karman-zadniaia',
         'arka/peredniaia' => 'arka-peredniaia',
         'arka/vnutrenniaia' => 'arka-vnutrenniaia',
@@ -88,7 +96,7 @@ test('part type seeder is idempotent and restores a soft deleted type', function
     $this->seed(PartTypeSeeder::class);
     $this->seed(PartTypeSeeder::class);
 
-    expect(PartType::withTrashed()->count())->toBe(16)
+    expect(PartType::withTrashed()->count())->toBe(20)
         ->and(PartType::query()->whereKey($partTypeId)->exists())->toBeTrue();
 });
 

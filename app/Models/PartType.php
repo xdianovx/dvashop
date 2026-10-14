@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Catalog\CatalogPriceGuard;
 use App\Services\Catalog\CatalogStructureAdminService;
 use App\Services\Catalog\PartTypeTreeService;
 use Database\Factories\PartTypeFactory;
@@ -15,6 +16,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 
 #[Fillable([
+    'base_price',
+    'base_old_price',
     'parent_id',
     'title',
     'slug',
@@ -40,10 +43,22 @@ class PartType extends Model
     /** @use HasFactory<PartTypeFactory> */
     use HasFactory, SoftDeletes;
 
+    public function delete()
+    {
+        return DB::transaction(function () {
+            app(CatalogPriceGuard::class)->assertWritable();
+
+            return parent::delete();
+        });
+    }
+
     public function save(array $options = []): bool
     {
-        return DB::transaction(fn (): bool => app(CatalogStructureAdminService::class)
-            ->guardUniqueIdentitySave($this, fn (): bool => parent::save($options)));
+        return DB::transaction(function () use ($options): bool {
+            app(CatalogPriceGuard::class)->assertWritable();
+
+            return app(CatalogStructureAdminService::class)->guardUniqueIdentitySave($this, fn (): bool => parent::save($options));
+        });
     }
 
     public function parent(): BelongsTo
@@ -96,6 +111,8 @@ class PartType extends Model
     protected function casts(): array
     {
         return [
+            'base_price' => 'decimal:2',
+            'base_old_price' => 'decimal:2',
             'depth' => 'integer',
             'position' => 'integer',
             'is_active' => 'boolean',

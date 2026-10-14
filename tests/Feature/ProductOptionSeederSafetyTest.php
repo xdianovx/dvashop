@@ -6,6 +6,7 @@ use App\Models\ProductOptionTemplate;
 use App\Models\ProductOptionTemplateItem;
 use App\Models\ProductOptionValue;
 use App\Models\ProductVariant;
+use App\Services\Catalog\ProductOptionCombinationCalculator;
 use Database\Seeders\ProductOptionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -224,4 +225,57 @@ test('ProductOptionSeeder rejects a generic system group resolved by code and ro
         ->and($group->slug)->toBe('manual-profile-slug')
         ->and($group->position)->toBe(777)
         ->and($group->is_active)->toBeFalse();
+});
+
+test('existing legacy membership is replaced by the canonical set idempotently', function (): void {
+    $this->seed(ProductOptionSeeder::class);
+    $template = ProductOptionTemplate::where('slug', 'default_auto_part')->firstOrFail();
+    $group = ProductOptionGroup::where('code', 'profile')->firstOrFail();
+    $lower = $group->values()->where('code', 'lower')->firstOrFail();
+    $lower->templateItems()->delete();
+    $lower->delete();
+    $legacy = $group->values()->create(['title' => 'Увеличенный', 'slug' => 'lncreased', 'code' => 'lncreased', 'is_active' => true]);
+    $template->items()->create(['product_option_group_id' => $group->id, 'product_option_value_id' => $legacy->id]);
+    $custom = ProductOptionTemplate::factory()->create();
+    $customItem = $custom->items()->create(['product_option_group_id' => $group->id, 'product_option_value_id' => $legacy->id]);
+
+    foreach (range(1, 2) as $attempt) {
+        $this->seed(ProductOptionSeeder::class);
+        expect($template->items()->count())->toBe(9)
+            ->and($template->values()->where('code', 'lncreased')->exists())->toBeFalse()
+            ->and($template->values()->where('code', 'lower')->exists())->toBeTrue()
+            ->and($legacy->fresh()->is_active)->toBeTrue()
+            ->and($customItem->fresh())->not->toBeNull()
+            ->and(app(ProductOptionCombinationCalculator::class)->countForTemplate($template->fresh()))->toBe(24);
+    }
+});
+
+test('ProductOptionSeeder refuses to prune a legacy system membership used by variants', function (): void {
+    $this->seed(ProductOptionSeeder::class);
+
+    $template = ProductOptionTemplate::query()->where('slug', 'default_auto_part')->firstOrFail();
+    $group = ProductOptionGroup::query()->where('code', 'profile')->firstOrFail();
+    $legacy = $group->values()->create([
+        'title' => 'Увеличенный',
+        'slug' => 'lncreased',
+        'code' => 'lncreased',
+        'is_active' => true,
+    ]);
+    $template->items()->create([
+        'product_option_group_id' => $group->getKey(),
+        'product_option_value_id' => $legacy->getKey(),
+        'position' => 999,
+    ]);
+    $variant = ProductVariant::factory()->create();
+    $variant->variantOptionValues()->create([
+        'product_option_group_id' => $group->getKey(),
+        'product_option_value_id' => $legacy->getKey(),
+    ]);
+
+    expect(fn () => $this->seed(ProductOptionSeeder::class))
+        ->toThrow(LogicException::class, 'используется вариантами товаров');
+
+    expect($template->items()->where('product_option_value_id', $legacy->getKey())->exists())->toBeTrue()
+        ->and($legacy->fresh())->not->toBeNull()
+        ->and($variant->variantOptionValues()->where('product_option_value_id', $legacy->getKey())->exists())->toBeTrue();
 });

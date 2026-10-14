@@ -34,6 +34,7 @@ class ImportProductFactory
         private readonly ImportLogger $logger,
         private readonly CatalogImportPriceResolver $priceResolver,
         private readonly CatalogImportProductDefaults $productDefaults,
+        private readonly CatalogImportVehiclePruner $vehiclePruner,
     ) {}
 
     /** @var array<string, bool> */
@@ -63,6 +64,10 @@ class ImportProductFactory
         $importKey = $this->importKey($vehicle, $partType, $source);
         $slug = $this->stableSlug($vehicle, $partType, $source, $productTitle);
         $referencePrice = $this->priceResolver->resolve($partType);
+        $explicitPrice = CatalogImportCell::parse($cellValue)['price'] ?? null;
+        if ($explicitPrice !== null) {
+            $referencePrice = ['price' => $explicitPrice, 'old_price' => null];
+        }
 
         if ($referencePrice === null) {
             $this->warnMissingReferencePriceOnce($run, $partType);
@@ -79,8 +84,8 @@ class ImportProductFactory
             'part_type_id' => $partType->getKey(),
             'product_category_id' => $storeCategory->getKey(),
             'title' => $productTitle,
-            'slug' => $slug,
-            'status' => ProductStatus::Active,
+            'slug' => $product->exists ? $product->slug : $slug,
+            'status' => $run->isSnapshotCatalogImport() ? ($product->exists && ! $product->trashed() ? $product->status : ProductStatus::Archived) : ProductStatus::Active,
             'import_source' => $source,
             'last_import_run_id' => (string) $run->getKey(),
         ];
@@ -88,6 +93,8 @@ class ImportProductFactory
         if ($wasCreated) {
             $productAttributes['stock_status'] = StockStatus::InStock;
             $productAttributes['price'] = $referencePrice['price'] ?? null;
+            $productAttributes['price_mode'] = $referencePrice === null ? 'unknown' : 'inherited';
+            $productAttributes['last_import_price'] = $referencePrice['price'] ?? null;
             $productAttributes['old_price'] = $referencePrice['old_price'] ?? null;
         }
 
@@ -112,7 +119,7 @@ class ImportProductFactory
                 $product->restore();
             }
 
-            $product->fill($productAttributes);
+            $product->forceFill($productAttributes);
             $wasChanged = $product->isDirty();
             $product->save();
 
@@ -131,6 +138,7 @@ class ImportProductFactory
                 $variant->fill([
                     'title' => 'Основной',
                     'price' => $referencePrice['price'] ?? 0,
+                    'price_mode' => $referencePrice === null ? 'unknown' : 'inherited',
                     'old_price' => $referencePrice['old_price'] ?? null,
                     'stock_status' => StockStatus::InStock,
                     'is_active' => true,
@@ -146,16 +154,25 @@ class ImportProductFactory
             $product->setRelation('category', $storeCategory);
             $product->setRelation('defaultVariant', $variant);
 
-            ProductFitment::query()->firstOrCreate(
-                [
-                    'product_id' => $product->getKey(),
-                    'vehicle_generation_id' => $generation->getKey(),
-                ],
-                [
-                    'note' => null,
-                    'is_primary' => true,
-                ]
-            );
+            if ($run->isSnapshotCatalogImport()) {
+                // Staged generations are deliberately inactive. The snapshot validates
+                // their identity; database foreign keys protect this internal relation.
+                ProductFitment::query()->insertOrIgnore([
+                    'product_id' => $product->id, 'vehicle_generation_id' => $generation->id,
+                    'is_primary' => true, 'created_at' => now(), 'updated_at' => now(),
+                ]);
+            } else {
+                ProductFitment::query()->firstOrCreate(
+                    [
+                        'product_id' => $product->getKey(),
+                        'vehicle_generation_id' => $generation->getKey(),
+                    ],
+                    [
+                        'note' => null,
+                        'is_primary' => true,
+                    ]
+                );
+            }
 
             return [$product, $variant];
         });
@@ -174,29 +191,38 @@ class ImportProductFactory
             $this->attachDefaultImage($product, $partType, $run);
         }
 
+        if ($run->isSnapshotCatalogImport()) {
+            app(CatalogImportSnapshot::class)->record($run, $product);
+        }
+
         return $product->refresh();
     }
 
     public function archiveMissingProducts(ImportRun $run): int
     {
-        if ($run->total_rows <= 0 || ! $run->status?->isRowsRunning()) {
+        if ($run->total_rows <= 0 || ! $run->status?->isRowsRunning() || $run->errors_count > 0) {
             return 0;
         }
 
-        $archived = Product::query()
-            ->where('import_source', $this->sourceFor($run))
-            ->whereNotNull('import_key')
-            ->where(function ($query) use ($run): void {
-                $query
-                    ->whereNull('last_import_run_id')
-                    ->orWhere('last_import_run_id', '!=', (string) $run->getKey());
-            })
-            ->where('status', '!=', ProductStatus::Archived->value)
-            ->update(['status' => ProductStatus::Archived->value]);
+        return DB::transaction(function () use ($run): int {
+            $archived = Product::query()
+                ->where('import_source', $this->sourceFor($run))
+                ->whereNotNull('import_key')
+                ->where(function ($query) use ($run): void {
+                    if ($run->isSnapshotCatalogImport()) {
+                        $query->whereNotIn('import_key', DB::table('catalog_import_snapshot_items')->where('import_run_id', $run->id)->select('import_key'));
+                    } else {
+                        $query->whereNull('last_import_run_id')->orWhere('last_import_run_id', '!=', (string) $run->getKey());
+                    }
+                })
+                ->where('status', '!=', ProductStatus::Archived->value)
+                ->update(['status' => ProductStatus::Archived->value]);
 
-        $this->stats->increment($run, 'archived_products', $archived);
+            $this->stats->increment($run, 'archived_products', $archived);
+            $this->vehiclePruner->prune($run);
 
-        return $archived;
+            return $archived;
+        });
     }
 
     public function productTitle(PartType $partType, VehicleGeneration $generation): string
@@ -220,13 +246,8 @@ class ImportProductFactory
     {
         $generation->loadMissing('model.make');
 
-        return CatalogText::stableKey([
-            CatalogText::normKey($source, 'catalog', 60) ?: 'catalog',
-            $generation->model?->make?->norm_key,
-            $generation->model?->norm_key,
-            $generation->norm_key,
-            ...$this->partTypeImportKeySegments($partType),
-        ], ':', 240, 'catalog');
+        return CatalogImportIdentity::fromSegments($source, $generation->model->make->norm_key,
+            $generation->model->norm_key, $generation->norm_key, implode('/', $this->partTypeImportKeySegments($partType)));
     }
 
     /** @return array<int, string> */
@@ -426,9 +447,7 @@ class ImportProductFactory
 
     private function isPositiveAvailabilityCell(string $value): bool
     {
-        $normalized = mb_strtolower(str_replace(',', '.', trim($value)));
-
-        return in_array($normalized, ['да', 'yes', 'true'], true) || preg_match('/^1(?:\.0+)?$/', $normalized) === 1;
+        return CatalogImportCell::parse($value) !== null;
     }
 
     /** @var array<string, bool> */

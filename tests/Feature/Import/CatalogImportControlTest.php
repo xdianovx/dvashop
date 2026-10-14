@@ -240,3 +240,52 @@ test('ImportProgress row job stores progress and heartbeat inside a chunk', func
         ->and($run->fresh()->current_row)->toBe(25)
         ->and($run->fresh()->heartbeat_at)->not->toBeNull();
 });
+
+test('row errors finish import as failed with last error and without a synthetic extra error', function () {
+    Queue::fake();
+    Storage::fake('local');
+    Storage::disk('local')->put('imports/catalog/row-error.csv', "header,one\nheader,two\ndata,row\n");
+
+    $run = ImportRun::factory()->create([
+        'status' => ImportRunStatus::RunningRows,
+        'stored_path' => 'imports/catalog/row-error.csv',
+        'total_rows' => 1,
+        'processed_rows' => 0,
+        'current_row' => 0,
+        'chunk_size' => 1,
+        'detail_columns' => [],
+    ]);
+    $rowProcessor = Mockery::mock(ImportRowProcessor::class);
+    $rowProcessor->shouldReceive('process')->once()->andThrow(new LogicException('row boom'));
+    $products = Mockery::mock(ImportProductFactory::class);
+    $products->shouldNotReceive('archiveMissingProducts');
+
+    (new CatalogImportChunkJob($run->getKey()))->handle(
+        app(SpreadsheetReader::class),
+        app(ImportStatusService::class),
+        app(ImportLogger::class),
+        $rowProcessor,
+        $products,
+    );
+
+    $run->refresh();
+
+    expect($run->status)->toBe(ImportRunStatus::Failed)
+        ->and($run->processed_rows)->toBe(1)
+        ->and($run->current_row)->toBe(1)
+        ->and($run->errors_count)->toBe(1)
+        ->and($run->archive_skipped)->toBeTrue()
+        ->and($run->archive_skip_reason)->toBe('row_errors')
+        ->and($run->last_error)->toContain('row boom')
+        ->and(ImportLog::query()->where('import_run_id', $run->getKey())->where('level', 'error')->count())->toBe(1)
+        ->and(app(ImportProgressService::class)->statusLabel($run))->toBe('Ошибка');
+});
+
+test('ImportProgress distinguishes legacy done-with-errors from warnings', function () {
+    $run = ImportRun::factory()->create([
+        'status' => ImportRunStatus::Done,
+        'errors_count' => 1,
+    ]);
+
+    expect(app(ImportProgressService::class)->statusLabel($run))->toBe('Завершён с ошибками');
+});

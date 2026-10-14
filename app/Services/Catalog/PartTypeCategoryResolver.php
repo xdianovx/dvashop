@@ -12,6 +12,10 @@ class PartTypeCategoryResolver
 
     /** @var array<string, string> */
     private const CATEGORY_BY_PART_TYPE = [
+        'porog/standartnyi' => 'kuzovnye-detali/remontnye-elementy-kuzova/porogi',
+        'porog/uvelichennyi' => 'kuzovnye-detali/remontnye-elementy-kuzova/porogi',
+        'arka/vnutrenniaia-zadniaia' => 'kuzovnye-detali/remontnye-elementy-kuzova/arki',
+        'arka/vnutrenniaia-peredniaia' => 'kuzovnye-detali/remontnye-elementy-kuzova/arki',
         'porog' => 'kuzovnye-detali/remontnye-elementy-kuzova/porogi',
         'arka' => 'kuzovnye-detali/remontnye-elementy-kuzova/arki',
         'arka/zadniaia' => 'kuzovnye-detali/remontnye-elementy-kuzova/arki',

@@ -115,7 +115,7 @@ class YandexFeedGenerator
             $xml->writeAttribute('available', 'true');
             $xml->writeElement('url', $offerUrl);
             $xml->writeElement('price', number_format($price, 2, '.', ''));
-            $oldPrice = $variant->old_price ?? $product->old_price;
+            $oldPrice = $this->availability->effectiveOldPrice($variant);
             if ($oldPrice !== null && (float) $oldPrice > $price) {
                 $xml->writeElement('oldprice', number_format((float) $oldPrice, 2, '.', ''));
             }

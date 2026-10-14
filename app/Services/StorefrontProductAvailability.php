@@ -56,6 +56,15 @@ class StorefrontProductAvailability
         return round((float) ($variant->price ?? $variant->product?->price ?? 0), 2);
     }
 
+    public function effectiveOldPrice(ProductVariant $variant): ?string
+    {
+        $variant->loadMissing('product');
+        $old = $variant->old_price ?? $variant->product?->old_price;
+        $price = $this->effectivePrice($variant);
+
+        return $price > 0 && $old !== null && (float) $old > $price ? (string) $old : null;
+    }
+
     public function hasSellablePrice(ProductVariant $variant): bool
     {
         return $this->effectivePrice($variant) > 0;

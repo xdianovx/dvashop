@@ -589,11 +589,12 @@ test('product description is escaped while preserving line breaks', function ():
         'description' => "Первая строка\n<script>alert('unsafe')</script>",
     ]);
 
-    $this->get(route('products.show', $product->slug))
+    $response = $this->get(route('products.show', $product->slug))
         ->assertOk()
-        ->assertSee('Первая строка<br>', false)
         ->assertSee('&lt;script&gt;alert(&#039;unsafe&#039;)&lt;/script&gt;', false)
         ->assertDontSee("<script>alert('unsafe')</script>", false);
+
+    expect($response->getContent())->toMatch('/Первая строка\s*<br>/u');
 
     expect(file_get_contents(resource_path('views/part.blade.php')))
         ->not->toContain('{!!')

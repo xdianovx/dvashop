@@ -290,6 +290,23 @@ test('inactive or incompatible canonical template fails before a Product is crea
     'incompatible' => [['applies_to' => ProductOptionGroup::APPLIES_GENERIC]],
 ]);
 
+test('inactive canonical option value remains preserved by seeder but blocks import preflight', function (): void {
+    $profile = ProductOptionGroup::query()->where('code', 'profile')->firstOrFail();
+    $lower = ProductOptionValue::query()
+        ->whereBelongsTo($profile, 'group')
+        ->where('code', 'lower')
+        ->firstOrFail();
+    $lower->update(['is_active' => false]);
+
+    $this->seed(ProductOptionSeeder::class);
+
+    expect($lower->refresh()->is_active)->toBeFalse();
+    expect(fn () => p5oImportProduct())
+        ->toThrow(LogicException::class, 'должны быть активны для импорта');
+
+    p5oAssertNoPartialProduct();
+});
+
 test('missing required canonical option value fails without partial Product state', function (): void {
     $template = ProductOptionTemplate::query()->where('slug', 'default_auto_part')->firstOrFail();
     $right = ProductOptionValue::query()->whereHas('group', fn ($query) => $query->where('code', 'position'))

@@ -1,7 +1,9 @@
 <?php
 
+use App\Services\Catalog\CatalogBulkPrices;
 use App\Services\Feeds\YandexFeedInvalidator;
 use App\Services\Import\ImportFileInspector;
+use App\Services\Search\CatalogSearchPublication;
 use App\Support\ProjectCleanTreeInspector;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -9,6 +11,9 @@ use Symfony\Component\Process\Process;
 
 Schedule::call(fn () => app(YandexFeedInvalidator::class)->dispatchIfNeeded())
     ->name('yandex-feed-refresh')->everyTenMinutes()->withoutOverlapping();
+
+Schedule::call(fn () => app(CatalogSearchPublication::class)->dispatchPending())
+    ->name('catalog-search-publications')->everyMinute()->withoutOverlapping();
 
 Artisan::command('import:inspect-file {path : Путь к csv/xlsx файлу}', function (ImportFileInspector $inspector): int {
     $path = (string) $this->argument('path');
@@ -51,11 +56,7 @@ Artisan::command('import:inspect-file {path : Путь к csv/xlsx файлу}',
         }
     }
 
-    if ($result['penka_leak_detected']) {
-        $this->warn('Внимание: обнаружено ошибочное попадание P:S внутрь Пенка.');
-    } else {
-        $this->info('Проверка P:S: корневые категории не попали внутрь Пенка.');
-    }
+    $this->info('Проверка структуры и коллизий заголовков пройдена.');
 
     return 0;
 })->purpose('Inspect catalog import file without writing to database');
@@ -115,3 +116,5 @@ Artisan::command('project:check-clean-tree {--strict : Also check physical local
 
     return 0;
 })->purpose('Check repository and clean archive hygiene');
+
+Schedule::call(fn () => app(CatalogBulkPrices::class)->dispatchPending())->everyMinute()->name('catalog-prices-recovery')->withoutOverlapping();

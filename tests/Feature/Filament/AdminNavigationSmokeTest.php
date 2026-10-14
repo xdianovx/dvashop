@@ -1,6 +1,7 @@
 <?php
 
 use App\Filament\Pages\CatalogImportPage;
+use App\Filament\Pages\CatalogPricesPage;
 use App\Filament\Pages\LegalDocumentsPage;
 use App\Filament\Pages\ShopSettingsPage;
 use App\Filament\Pages\SiteContent\EditAboutPage;
@@ -128,6 +129,7 @@ test('filament discovery contains no deleted technical resources and every disco
         VehicleModelResource::class,
     ];
     $expectedPages = [
+        CatalogPricesPage::class,
         CatalogImportPage::class,
         Dashboard::class,
         ShopSettingsPage::class,

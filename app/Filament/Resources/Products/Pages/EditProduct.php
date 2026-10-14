@@ -63,14 +63,13 @@ class EditProduct extends EditRecord
 
     protected function afterSave(): void
     {
-        $hasGalleryUploads = $this->pendingGalleryUploads !== [];
-
         $this->finishProductOptionSave();
         $this->finishProductSave();
 
-        if ($hasGalleryUploads) {
-            $this->refreshProductGallery();
-        }
+        // Reload propagated variant prices and the effective ownership mode.
+        // A second save must not submit the form's pre-propagation prices.
+        $this->record->refresh();
+        $this->fillForm();
     }
 
     public function refreshProductGallery(): void

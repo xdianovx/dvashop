@@ -35,7 +35,7 @@ class ImportPartTypeResolver
     ) {}
 
     /**
-     * @param array{parent_title?:string|null,group?:string|null,detail_title?:string|null,title?:string|null,full_detail_title?:string|null,category_title?:string|null} $detailHeader
+     * @param  array{parent_title?:string|null,group?:string|null,detail_title?:string|null,title?:string|null,full_detail_title?:string|null,category_title?:string|null}  $detailHeader
      */
     public function resolve(ImportRun $run, array $detailHeader, ?int $columnIndex = null): ImportPartTypeResolution
     {
@@ -169,8 +169,13 @@ class ImportPartTypeResolver
         return [$this->partTypes[$fullSlug] = $partType->refresh(), $wasCreated, $wasRestored];
     }
 
+    public function structuralPath(array $header): string
+    {
+        return implode('/', array_map(fn (string $segment): string => $this->tree->slugForTitle($segment), $this->pathSegments($header)));
+    }
+
     /**
-     * @param array{parent_title?:string|null,group?:string|null,detail_title?:string|null,title?:string|null,full_detail_title?:string|null,category_title?:string|null} $detailHeader
+     * @param  array{parent_title?:string|null,group?:string|null,detail_title?:string|null,title?:string|null,full_detail_title?:string|null,category_title?:string|null}  $detailHeader
      * @return array<int, string>
      */
     private function pathSegments(array $detailHeader): array

@@ -601,7 +601,7 @@ test('suspicious categories including an unknown technical root are reported and
 
 test('soft deleted known part type is restored with the same id and manual metadata preserved', function () {
     repair_service()->apply(repair_service()->inspect());
-    $partType = PartType::query()->where('full_slug', 'porog')->firstOrFail();
+    $partType = PartType::query()->where('full_slug', 'porog/standartnyi')->firstOrFail();
     $partType->forceFill([
         'default_image_key' => 'manual-image-key',
         'meta_title' => 'Ручной SEO',
@@ -618,7 +618,7 @@ test('soft deleted known part type is restored with the same id and manual metad
         ->and($restored->default_image_key)->toBe('manual-image-key')
         ->and($restored->meta_title)->toBe('Ручной SEO')
         ->and($restored->meta_description)->toBe('Ручное описание')
-        ->and(PartType::withTrashed()->where('full_slug', 'porog')->count())->toBe(1);
+        ->and(PartType::withTrashed()->where('full_slug', 'porog/standartnyi')->count())->toBe(1);
 });
 
 test('soft deleted technical category with products is migrated without restoring the legacy category', function () {

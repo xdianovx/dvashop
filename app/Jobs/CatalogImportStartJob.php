@@ -4,6 +4,9 @@ namespace App\Jobs;
 
 use App\Enums\ImportRunStatus;
 use App\Models\ImportRun;
+use App\Services\Catalog\CatalogPriceGuard;
+use App\Services\Import\CatalogImportProductDefaults;
+use App\Services\Import\CatalogImportSnapshot;
 use App\Services\Import\ImportRowProcessor;
 use App\Services\ImportLogger;
 use App\Services\ImportStatusService;
@@ -16,6 +19,7 @@ use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 use Throwable;
 
 class CatalogImportStartJob implements ShouldQueue
@@ -31,6 +35,8 @@ class CatalogImportStartJob implements ShouldQueue
     {
         return [
             (new WithoutOverlapping('catalog-import-start-'.$this->importRunId))->releaseAfter(10),
+            (new WithoutOverlapping('catalog-import-source-'.ImportRun::query()->whereKey($this->importRunId)->value('type')))
+                ->shared()->releaseAfter(10)->expireAfter(630),
         ];
     }
 
@@ -39,7 +45,9 @@ class CatalogImportStartJob implements ShouldQueue
         ImportStatusService $statusService,
         ImportLogger $logger,
         ImportRowProcessor $rowProcessor,
+        ?CatalogImportProductDefaults $productDefaults = null,
     ): void {
+        $productDefaults ??= app(CatalogImportProductDefaults::class);
         $run = ImportRun::query()->findOrFail($this->importRunId);
 
         if ($run->isTerminal()) {
@@ -54,7 +62,8 @@ class CatalogImportStartJob implements ShouldQueue
             $shouldDispatchChunk = false;
             $emptyFile = false;
 
-            DB::transaction(function () use ($reader, $statusService, $logger, $rowProcessor, &$shouldDispatchChunk, &$emptyFile): void {
+            DB::transaction(function () use ($reader, $statusService, $logger, $rowProcessor, $productDefaults, &$shouldDispatchChunk, &$emptyFile): void {
+                app(CatalogPriceGuard::class)->assertWritable();
                 /** @var ImportRun $locked */
                 $locked = ImportRun::query()->whereKey($this->importRunId)->lockForUpdate()->firstOrFail();
 
@@ -68,21 +77,41 @@ class CatalogImportStartJob implements ShouldQueue
                     return;
                 }
 
+                $anotherImport = ImportRun::query()->where('type', $locked->type)
+                    ->whereKeyNot($locked->getKey())->whereNotNull('initialized_at')
+                    ->whereIn('status', [ImportRunStatus::RunningRows, ImportRunStatus::Running,
+                        ImportRunStatus::Paused, ImportRunStatus::ProcessingImages])->exists();
+                if ($anotherImport) {
+                    throw new RuntimeException('Другой импорт этого источника ещё не завершён. Завершите или отмените его перед новой загрузкой.');
+                }
+
                 $locked = $statusService->start($locked);
 
                 if (! $locked->status?->isRowsRunning()) {
                     return;
                 }
 
+                if ($locked->type === 'catalog') {
+                    // Global import prerequisites must be valid before header
+                    // resolution or any row-level catalog mutation starts.
+                    $productDefaults->canonicalTemplate();
+                }
+
                 $absolutePath = Storage::disk('local')->path($locked->stored_path);
 
+                $preparedRows = $reader->prepareRows($absolutePath);
                 $headers = $reader->readMergedDetailHeaders($absolutePath);
+                if ($headers === []) {
+                    throw new RuntimeException('Не найдены колонки деталей. Проверьте заголовки файла.');
+                }
                 $headers = $rowProcessor->prepareDetailColumns($locked, $headers);
-                $totalRows = $reader->countRows($absolutePath, 2);
+                $totalRows = count($preparedRows['offsets']);
+                $preparedRows['expected_products'] = app(CatalogImportSnapshot::class)->prepare($locked, $preparedRows, $headers, $reader);
 
                 $locked->forceFill([
                     'total_rows' => $totalRows,
                     'detail_columns' => $headers,
+                    'prepared_rows' => $preparedRows,
                     'initialized_at' => now(),
                     'heartbeat_at' => now(),
                 ])->save();
