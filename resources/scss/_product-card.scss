@@ -52,13 +52,14 @@
     opacity: 1;
 }
 
-// Active heart is the same outline, just red: the icon's own grey pixels are
-// pushed out of the box and the masked background shows through instead.
+// Active heart is a solid red silhouette: the icon's own grey pixels are pushed
+// out of the box and the masked background shows through instead. The filled
+// icon has a 32px canvas around the same heart, hence the 32px mask size.
 .product-card__fav.favorite-toggle--active img {
     object-position: -9999px 0;
     background-color: var(--color-danger);
-    mask: url('/img/product/heart-card.svg') center / contain no-repeat;
-    -webkit-mask: url('/img/product/heart-card.svg') center / contain no-repeat;
+    mask: url('/img/product/heart-filled.svg') center / 32px 32px no-repeat;
+    -webkit-mask: url('/img/product/heart-filled.svg') center / 32px 32px no-repeat;
 }
 
 .product-card__fav[aria-busy='true'] {
