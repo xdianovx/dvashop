@@ -26,10 +26,12 @@
     object-fit: contain;
 }
 
+// Measured from the card, not the image: the empty favourite <form> still takes
+// a flex slot, so the image starts one 13px gap lower. 29px = 16px on the image.
 .product-card__fav {
     position: absolute;
-    top: 24px;
-    right: 16px;
+    top: 29px;
+    right: 23px;
     z-index: 2;
     display: flex;
     align-items: center;
@@ -69,8 +71,8 @@
 }
 
 .product-card__fav img {
-    width: 32px;
-    height: 32px;
+    width: 24px;
+    height: 24px;
 }
 
 .product-card__row {

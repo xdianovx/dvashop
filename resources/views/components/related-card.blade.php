@@ -13,6 +13,8 @@
             :product-id="$product->id"
             :is-favorite="$isFavorite"
             button-class="related-card__fav"
+            icon="/img/product/heart-card.svg"
+            :icon-size="24"
         />
     </div>
     <p class="related-card__price @if ($product->oldPrice) related-card__price--sale @endif">

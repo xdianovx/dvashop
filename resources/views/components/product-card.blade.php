@@ -5,7 +5,7 @@
 @endphp
 
 <article class="product-card">
-    <x-favorite-toggle :product-id="$product->id" :is-favorite="$isFavorite" button-class="product-card__fav" />
+    <x-favorite-toggle :product-id="$product->id" :is-favorite="$isFavorite" button-class="product-card__fav" icon="/img/product/heart-card.svg" :icon-size="24" />
     <a href="{{ $product->url }}" class="product-card__image">
         <img src="{{ $product->image }}" alt="{{ $product->title }}" loading="lazy">
     </a>
