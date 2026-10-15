@@ -52,12 +52,13 @@
     opacity: 1;
 }
 
-.product-card__fav.favorite-toggle--active {
-    background-color: rgba(31, 79, 191, 0.14);
-}
-
+// Active heart is the same outline, just red: the icon's own grey pixels are
+// pushed out of the box and the masked background shows through instead.
 .product-card__fav.favorite-toggle--active img {
-    filter: brightness(0) saturate(100%) invert(29%) sepia(95%) saturate(1254%) hue-rotate(197deg) brightness(86%) contrast(94%);
+    object-position: -9999px 0;
+    background-color: var(--color-danger);
+    mask: url('/img/product/heart-card.svg') center / contain no-repeat;
+    -webkit-mask: url('/img/product/heart-card.svg') center / contain no-repeat;
 }
 
 .product-card__fav[aria-busy='true'] {
