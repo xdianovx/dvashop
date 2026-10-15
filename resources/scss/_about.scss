@@ -1,5 +1,5 @@
 .about {
-    margin-top: var(--section-gap);
+    margin-block: var(--section-gap);
 
     @media (max-width: 768px) {
         margin-top: 24px;
