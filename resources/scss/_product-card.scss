@@ -26,10 +26,12 @@
     object-fit: contain;
 }
 
+// Measured from the card, not the image: the empty favourite <form> still takes
+// a flex slot, so the image starts one 13px gap lower. 29px = 16px on the image.
 .product-card__fav {
     position: absolute;
-    top: 24px;
-    right: 16px;
+    top: 29px;
+    right: 23px;
     z-index: 2;
     display: flex;
     align-items: center;
@@ -50,12 +52,14 @@
     opacity: 1;
 }
 
-.product-card__fav.favorite-toggle--active {
-    background-color: rgba(31, 79, 191, 0.14);
-}
-
+// Active heart is a solid red silhouette: the icon's own grey pixels are pushed
+// out of the box and the masked background shows through instead. The filled
+// icon has a 32px canvas around the same heart, hence the 32px mask size.
 .product-card__fav.favorite-toggle--active img {
-    filter: brightness(0) saturate(100%) invert(29%) sepia(95%) saturate(1254%) hue-rotate(197deg) brightness(86%) contrast(94%);
+    object-position: -9999px 0;
+    background-color: var(--color-danger);
+    mask: url('/img/product/heart-filled.svg') center / 32px 32px no-repeat;
+    -webkit-mask: url('/img/product/heart-filled.svg') center / 32px 32px no-repeat;
 }
 
 .product-card__fav[aria-busy='true'] {
@@ -69,8 +73,8 @@
 }
 
 .product-card__fav img {
-    width: 32px;
-    height: 32px;
+    width: 24px;
+    height: 24px;
 }
 
 .product-card__row {
