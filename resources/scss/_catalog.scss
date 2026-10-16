@@ -95,6 +95,10 @@
     height: 100%;
 }
 
+.catalog-results {
+    padding-bottom: var(--section-gap);
+}
+
 .catalog-results__section+.catalog-results__section {
     margin-top: 56px;
 }
@@ -126,7 +130,7 @@
 }
 
 .catalog-results__empty {
-    margin: 24px 0 56px;
+    margin-top: 24px;
     padding: 24px 28px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
@@ -147,7 +151,6 @@
     }
 
     .catalog-results__empty {
-        margin-bottom: 32px;
         padding: 18px;
     }
 

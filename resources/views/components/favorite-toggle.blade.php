@@ -2,6 +2,8 @@
     'productId',
     'isFavorite' => false,
     'buttonClass',
+    'icon' => '/img/product/heart.svg',
+    'iconSize' => 32,
 ])
 
 @php
@@ -31,6 +33,6 @@
         aria-label="{{ $label }}"
         data-favorite-toggle
     >
-        <img src="/img/product/heart.svg" alt="" aria-hidden="true" width="32" height="32">
+        <img src="{{ $icon }}" alt="" aria-hidden="true" width="{{ $iconSize }}" height="{{ $iconSize }}">
     </button>
 </form>
