@@ -21,21 +21,22 @@ final class CatalogPriceGuard
 
     public function saving(Model $record): void
     {
-        if (! $record->exists || $record->isDirty(['price', 'old_price', 'price_mode', 'part_type_id', 'product_type', 'product_id', 'status', 'is_default', 'deleted_at'])) {
+        if (! $record->exists || $record->isDirty(['price', 'old_price', 'price_mode', 'part_type_id', 'product_type', 'product_id', 'status', 'is_default', 'is_active', 'options', 'catalog_configuration_id', 'publication_override', 'deleted_at'])) {
             $this->assertWritable();
         }
     }
 
     public function assertWritable(): void
     {
-        if ($this->lock()?->operation_id !== null) {
-            throw ValidationException::withMessages(['price' => 'Выполняется массовое изменение цен. Дождитесь завершения или продолжите прерванную операцию.']);
+        $lock = $this->lock();
+        if ($lock?->operation_id !== null || ($lock->catalog_action_id ?? null) !== null) {
+            throw ValidationException::withMessages(['price' => 'Выполняется массовое изменение каталога. Дождитесь завершения или продолжите прерванную операцию.']);
         }
     }
 
     public function busy(): bool
     {
         return app(CatalogPricingSchema::class)->ready()
-            && DB::table('catalog_price_locks')->whereNotNull('operation_id')->exists();
+            && DB::table('catalog_price_locks')->where(fn ($q) => $q->whereNotNull('operation_id')->when(app(CatalogConfigurations::class)->ready(), fn ($q) => $q->orWhereNotNull('catalog_action_id')))->exists();
     }
 }

@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 
 #[Fillable([
     'product_id',
+    'catalog_configuration_id',
     'sku',
     'title',
     'options',
@@ -51,10 +52,21 @@ class ProductVariant extends Model
     public function save(array $options = []): bool
     {
         return DB::transaction(function () use ($options): bool {
+            // Explicit availability changes take priority over later CSV synchronization.
+            // Do not set the column until the optional configuration migration exists.
+            if ($this->exists && $this->isDirty('is_active')
+                && array_key_exists('configuration_auto_retired', $this->getAttributes())) {
+                $this->configuration_auto_retired = false;
+            }
             app(CatalogPriceGuard::class)->saving($this);
 
             return app(ProductVariantAdminService::class)->guardVariantSkuSave(fn (): bool => parent::save($options));
         });
+    }
+
+    public function configuration(): BelongsTo
+    {
+        return $this->belongsTo(CatalogConfiguration::class, 'catalog_configuration_id');
     }
 
     public function product(): BelongsTo
@@ -214,6 +226,7 @@ class ProductVariant extends Model
             'stock_status' => StockStatus::class,
             'is_default' => 'boolean',
             'is_active' => 'boolean',
+            'configuration_auto_retired' => 'boolean',
         ];
     }
 }

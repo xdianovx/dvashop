@@ -14,6 +14,11 @@ final class ProductOptionCombinationCalculator
 
     public function countForTemplate(ProductOptionTemplate $template): int
     {
+        $explicit = app(CatalogConfigurations::class)->combinations($template);
+        if ($explicit !== null) {
+            return count($explicit);
+        }
+
         return $this->countForValueGroups($this->activeLoadedValuesByGroup(
             $this->templateItems($template),
         ));
@@ -43,6 +48,10 @@ final class ProductOptionCombinationCalculator
     /** @return array<int, array<int, ProductOptionValue>> */
     public function combinationsForTemplate(ProductOptionTemplate $template): array
     {
+        $explicit = app(CatalogConfigurations::class)->combinations($template);
+        if ($explicit !== null) {
+            return $explicit;
+        }
         $valuesByGroup = $this->activeLoadedValuesByGroup($this->templateItems($template));
 
         if ($valuesByGroup->isEmpty()) {

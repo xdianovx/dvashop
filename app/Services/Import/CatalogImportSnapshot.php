@@ -7,7 +7,10 @@ use App\Enums\ProductStatus;
 use App\Models\ImportRun;
 use App\Models\Product;
 use App\Models\VehicleGeneration;
+use App\Services\Catalog\CatalogConfigurations;
 use App\Services\Catalog\CatalogPriceGuard;
+use App\Services\Catalog\CatalogPublicationPolicy;
+use App\Services\ImportLogger;
 use App\Services\Search\CatalogSearchPublication;
 use App\Services\SpreadsheetReader;
 use App\Support\CatalogText;
@@ -22,8 +25,14 @@ final class CatalogImportSnapshot
         $identity->loadExisting();
         $expected = [];
         $vehicles = [];
+        $duplicates = 0;
+        $vehicleRows = [];
+        $duplicateVehicles = 0;
         for ($offset = 0; $offset < count($prepared['offsets']); $offset += 200) {
             foreach ($reader->readPreparedChunk($prepared, $offset, 200) as $row) {
+                $vehicleFingerprint = implode('|', array_slice($row, 1, 5));
+                $duplicateVehicles += isset($vehicleRows[$vehicleFingerprint]) ? 1 : 0;
+                $vehicleRows[$vehicleFingerprint] = true;
                 foreach ($headers as $column => $header) {
                     $cell = CatalogImportCell::parse($row['_details'][$column] ?? null);
                     if ($cell === null) {
@@ -39,9 +48,13 @@ final class CatalogImportSnapshot
                     if (isset($expected[$key]) && $price !== null && $expected[$key]['price'] !== null && $price !== $expected[$key]['price']) {
                         throw new RuntimeException('Противоречивые цены для '.$key.' в строке '.$row['_row_number']);
                     }
+                    $duplicates += isset($expected[$key]) ? 1 : 0;
                     $expected[$key] = ['import_run_id' => $run->id, 'import_key' => $key, 'price' => $price ?? ($expected[$key]['price'] ?? null)];
                 }
             }
+        }
+        if ($duplicates > 0 || $duplicateVehicles > 0) {
+            app(ImportLogger::class)->info($run, 'Повторные отметки наличия объединены по правилу OR', ['duplicate_vehicle_rows' => $duplicateVehicles, 'duplicate_positive_cells' => $duplicates]);
         }
         if ($expected === []) {
             throw new RuntimeException('В файле нет ни одного товара. Пустой снимок не применяется автоматически.');
@@ -84,9 +97,13 @@ final class CatalogImportSnapshot
             }
             $source = CatalogText::normKey($run->type ?: 'catalog', 'catalog', 60);
             Product::where('import_source', $source)->whereIn('id', (clone $items)->select('product_id'))
+                ->when(app(CatalogConfigurations::class)->ready(), fn ($q) => $q->where(fn ($q) => $q->whereNull('publication_override')->orWhere('publication_override', 'force_active')))
                 ->update(['status' => ProductStatus::Active->value]);
             VehicleGeneration::where('last_import_run_id', $run->id)->update(['is_active' => true]);
             $archived = $archive();
+            if (app(CatalogConfigurations::class)->ready()) {
+                app(CatalogPublicationPolicy::class)->publishSnapshot($run->id, $source);
+            }
             // Commit the authority marker with the status changes, not in a later job.
             app(CatalogSearchPublication::class)->record($locked);
             $locked->forceFill(['status' => $locked->hasPendingImages() ? ImportRunStatus::ProcessingImages : ImportRunStatus::Done,

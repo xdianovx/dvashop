@@ -12,6 +12,7 @@ use App\Models\VehicleMake;
 use App\Models\VehicleModel;
 use App\Observers\CatalogSearchDependencyObserver;
 use App\Observers\CatalogSearchImportObserver;
+use App\Services\Catalog\CatalogConfigurations;
 use App\Services\Catalog\CatalogPricingSchema;
 use App\Services\Feeds\YandexFeedInvalidator;
 use App\Services\Storefront\AboutPageViewDataProvider;
@@ -38,6 +39,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->scoped(CatalogPricingSchema::class);
+        $this->app->scoped(CatalogConfigurations::class);
         $this->app->scoped(
             GlobalStorefrontData::class,
             fn (Application $app): GlobalStorefrontData => $app->make(GlobalStorefrontDataProvider::class)->load(),

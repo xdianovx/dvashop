@@ -22,6 +22,12 @@ final class ProductVariantAdminService
     {
         return DB::transaction(fn (): ProductVariant => $this->guardVariantSkuSave(
             function () use ($variant, $data): ProductVariant {
+                // Saving the availability field is an explicit administrative decision,
+                // even if the value was already false due to a CSV retirement.
+                if ($variant->exists && array_key_exists('is_active', $data)
+                    && array_key_exists('configuration_auto_retired', $variant->getAttributes())) {
+                    $variant->configuration_auto_retired = false;
+                }
                 $variant->fill($data)->save();
 
                 return $variant->refresh();

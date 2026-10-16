@@ -1,4 +1,15 @@
 <x-filament-panels::page>
+    <x-filament::tabs label="Массовые действия">
+        <x-filament::tabs.item :active="$workspace === 'prices'" wire:click="$set('workspace', 'prices')">Цены товаров</x-filament::tabs.item>
+        <x-filament::tabs.item :active="$workspace === 'actions'" wire:click="$set('workspace', 'actions')">Статусы товаров и конфигурации</x-filament::tabs.item>
+    </x-filament::tabs>
+    @if($workspace === 'actions')
+        @if(app(\App\Services\Catalog\CatalogConfigurations::class)->ready())
+            <livewire:catalog-actions-panel />
+        @else
+            <x-filament::section>Раздел будет доступен после согласованного применения миграции конфигураций.</x-filament::section>
+        @endif
+    @else
     <div class="catalog-prices-page" wire:poll.10s="refreshOperation">
         <x-filament::section heading="1. Настройка операции" description="Выберите область изменения. До подтверждения цены в каталоге не меняются.">
             <div class="cp-fields">
@@ -156,4 +167,5 @@
             @endif
         </x-filament::section>
     </div>
+    @endif
 </x-filament-panels::page>

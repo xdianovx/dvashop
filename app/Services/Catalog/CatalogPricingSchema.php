@@ -17,9 +17,21 @@ final class CatalogPricingSchema
 
     public function ready(): bool
     {
-        $connection = DB::connection();
+        $ready = $this->has('catalog_price_locks');
+        // Prime the optional extension alongside the existing catalog guard.
+        $this->has('catalog_configurations');
 
-        return $this->connections[$connection] ??= $connection->getSchemaBuilder()->hasTable('catalog_price_locks');
+        return $ready;
+    }
+
+    public function has(string $table): bool
+    {
+        $connection = DB::connection();
+        $tables = $this->connections[$connection] ?? [];
+        $tables[$table] ??= $connection->getSchemaBuilder()->hasTable($table);
+        $this->connections[$connection] = $tables;
+
+        return $tables[$table];
     }
 
     public function forget(Connection $connection): void

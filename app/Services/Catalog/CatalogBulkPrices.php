@@ -4,6 +4,7 @@ namespace App\Services\Catalog;
 
 use App\Enums\AdminPermission;
 use App\Jobs\ApplyCatalogPrices;
+use App\Models\CatalogConfiguration;
 use App\Models\PartType;
 use App\Models\Product;
 use App\Models\User;
@@ -72,6 +73,9 @@ final class CatalogBulkPrices
         $overrides = $this->normalizeOverrides($overrides);
         $price = $this->price($price);
         $ids = $this->scope($typeId, $descendants);
+        if (app(CatalogConfigurations::class)->ready() && CatalogConfiguration::whereIn('part_type_id', $ids)->exists()) {
+            throw ValidationException::withMessages(['price' => 'В области есть ценовая матрица. Выберите изменение цены конкретной конфигурации: выравнивание всех вариантов запрещено.']);
+        }
         $types = PartType::query()->whereKey($ids)->orderBy('id')->get(['id', 'full_title', 'base_price', 'base_old_price'])->toArray();
         $hash = hash_init('sha256');
         hash_update($hash, json_encode($types, JSON_THROW_ON_ERROR));
@@ -329,7 +333,7 @@ final class CatalogBulkPrices
             if (! $op || ! in_array($op->status, ['pending', 'running', 'paused', 'failed'], true)) {
                 throw ValidationException::withMessages(['price' => 'Эту операцию нельзя продолжить.']);
             }
-            if (($lock->operation_id !== null && (int) $lock->operation_id !== $id)
+            if (($lock->catalog_action_id ?? null) !== null || ($lock->operation_id !== null && (int) $lock->operation_id !== $id)
                 || DB::table('catalog_price_operations')->where('id', '>', $id)->exists()
                 || DB::table('import_runs')->whereIn('status', ['running', 'running_rows', 'paused'])->exists()) {
                 throw ValidationException::withMessages(['price' => 'После остановки началась другая операция или импорт. Создайте новый предварительный просмотр.']);

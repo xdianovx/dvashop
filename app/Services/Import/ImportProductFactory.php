@@ -16,6 +16,7 @@ use App\Models\ProductFitment;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
+use App\Services\Catalog\CatalogConfigurations;
 use App\Services\ImportLogger;
 use App\Services\ImportRunStats;
 use App\Services\ImportStatusService;
@@ -77,7 +78,7 @@ class ImportProductFactory
         $product = Product::query()->withTrashed()->firstOrNew(['import_key' => $importKey]);
         $wasCreated = ! $product->exists;
         $initializeDefaults = $wasCreated && $source === 'catalog';
-        $canonicalTemplate = $initializeDefaults ? $this->productDefaults->canonicalTemplate() : null;
+        $canonicalTemplate = $initializeDefaults ? $this->productDefaults->templateFor($partType) : null;
 
         $productAttributes = [
             'product_type' => ProductType::AutoPart,
@@ -129,25 +130,35 @@ class ImportProductFactory
                 $this->stats->increment($run, 'updated_products');
             }
 
-            $variant = ProductVariant::query()->firstOrNew([
-                'product_id' => $product->getKey(),
-                'is_default' => true,
-            ]);
-
-            if (! $variant->exists) {
-                $variant->fill([
-                    'title' => 'Основной',
-                    'price' => $referencePrice['price'] ?? 0,
-                    'price_mode' => $referencePrice === null ? 'unknown' : 'inherited',
-                    'old_price' => $referencePrice['old_price'] ?? null,
-                    'stock_status' => StockStatus::InStock,
-                    'is_active' => true,
-                ])->save();
-            }
-
-            if ($initializeDefaults && $canonicalTemplate !== null) {
+            if ($initializeDefaults && app(CatalogConfigurations::class)->rows($partType->id)->isNotEmpty()) {
                 $this->productDefaults->initialize($product, $canonicalTemplate);
                 $variant = $product->defaultVariant()->firstOrFail();
+            } elseif ($product->configuration_managed && $product->variants()->exists()) {
+                // A repeat import must not replace an administrator's inactive variants with a technical offer.
+                $variant = $product->defaultVariant()->first()
+                    ?? $product->variants()->orderByDesc('is_active')->orderBy('id')->firstOrFail();
+            } else {
+                $variant = ProductVariant::query()->firstOrNew([
+                    'product_id' => $product->getKey(),
+                    'is_default' => true,
+                ]);
+
+                if (! $variant->exists) {
+                    $variant->fill([
+                        'title' => 'Основной',
+                        'price' => $referencePrice['price'] ?? 0,
+                        'price_mode' => $referencePrice === null ? 'unknown' : 'inherited',
+                        'old_price' => $referencePrice['old_price'] ?? null,
+                        'stock_status' => StockStatus::InStock,
+                        'is_active' => true,
+                    ])->save();
+                }
+
+                if ($initializeDefaults && $canonicalTemplate !== null) {
+                    $this->productDefaults->initialize($product, $canonicalTemplate);
+                    $variant = $product->defaultVariant()->firstOrFail();
+                }
+
             }
 
             $product->setRelation('partType', $partType);
@@ -216,6 +227,7 @@ class ImportProductFactory
                     }
                 })
                 ->where('status', '!=', ProductStatus::Archived->value)
+                ->when(app(CatalogConfigurations::class)->ready(), fn ($q) => $q->where(fn ($q) => $q->whereNull('publication_override')->orWhere('publication_override', 'archived')))
                 ->update(['status' => ProductStatus::Archived->value]);
 
             $this->stats->increment($run, 'archived_products', $archived);

@@ -2,6 +2,7 @@
 
 namespace App\Services\Catalog;
 
+use App\Models\CatalogConfiguration;
 use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -39,6 +40,12 @@ final class CatalogPriceOwnership
             $price = $record instanceof Product
                 ? PartType::query()->whereKey($record->part_type_id)->value('base_price')
                 : Product::query()->whereKey($record->product_id)->value('price');
+            $matrix = app(CatalogConfigurations::class);
+            if ($record instanceof Product && $matrix->rows($record->part_type_id)->isNotEmpty()) {
+                $price = $matrix->basePrice($record->part_type_id);
+            } elseif ($record instanceof ProductVariant && $record->catalog_configuration_id) {
+                $price = CatalogConfiguration::whereKey($record->catalog_configuration_id)->value('price');
+            }
             if ($price === null || ($record instanceof Product && ! $record->isAutoPart())) {
                 throw ValidationException::withMessages(['price_mode' => 'Для наследования сначала задайте общую цену типа / товара.']);
             }
@@ -54,6 +61,7 @@ final class CatalogPriceOwnership
                 throw ValidationException::withMessages(['price' => 'Нельзя очистить цену товара с зависимыми вариантами.']);
             }
             DB::table('product_variants')->where('product_id', $product->id)->where('price_mode', 'inherited')
+                ->when(app(CatalogConfigurations::class)->ready(), fn ($q) => $q->whereNull('catalog_configuration_id'))
                 ->update(['price' => $product->price, 'updated_at' => now()]);
         }
     }

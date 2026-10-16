@@ -49,6 +49,7 @@ final class PartTypeDefinitionRegistry
                     ['title' => 'соединитель порогов', 'position' => 10, 'default_image_key' => 'usilitel-soedinitel-porogov'],
                 ],
             ],
+            ['title' => 'Соединитель', 'position' => 80, 'default_image_key' => null],
         ];
     }
 
