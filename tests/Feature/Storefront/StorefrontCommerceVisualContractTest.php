@@ -123,7 +123,7 @@ test('commerce pages preserve approved classes assets and real form actions', fu
         ->assertSee('🤝')
         ->assertSee('Выбор способа получения')
         ->assertSee('placeholder="Иванов Иван Иванович"', false)
-        ->assertSee('placeholder="+7 (___) ___-__-__"', false)
+        ->assertSee('placeholder="+7(___) ___ __ __"', false)
         ->assertSee('placeholder="mail@yandex.ru"', false)
         ->assertSee('placeholder="Москва"', false)
         ->assertSee('placeholder="Текст...."', false)
@@ -214,7 +214,7 @@ test('storefront JavaScript source contract isolates product runtime features an
         ->and($inquiry)
         ->toContain('type="tel"')
         ->toContain('inputmode="tel"')
-        ->toContain('placeholder="+7 (___) ___-__-__"')
+        ->toContain('placeholder="+7(___) ___ __ __"')
         ->not->toContain('pattern=');
 });
 
