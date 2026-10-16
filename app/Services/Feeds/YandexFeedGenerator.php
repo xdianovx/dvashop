@@ -71,7 +71,7 @@ class YandexFeedGenerator
         $offers = 0;
         $reasons = [];
         $variants = ProductVariant::query()->with([
-            'optionValues.group', 'product.category', 'product.partType', 'product.mainImage',
+            'configuration', 'optionValues.group', 'product.category', 'product.partType', 'product.mainImage',
             'product.visibleImages',
             'product.characteristics' => fn ($query) => $query->visible(),
             'product.fitments' => fn ($query) => $query->whereHas('generation', fn ($generation) => $generation

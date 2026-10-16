@@ -35,6 +35,7 @@ test('part type seeder creates the complete tree with category assignments', fun
         'lonzheron' => ['Лонжерон', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/lonzherony'],
         'remkomplekt-pola' => ['Ремкомплект пола', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/remkomplekty-pola'],
         'tortsevaia-zaglushka' => ['Торцевая заглушка', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/zaglushki'],
+        'soedinitel' => ['Соединитель', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/usiliteli'],
         'usilitel' => ['Усилитель', 0, 'kuzovnye-detali/remontnye-elementy-kuzova/usiliteli'],
         'usilitel/soedinitel-porogov' => ['Усилитель / соединитель порогов', 1, 'kuzovnye-detali/remontnye-elementy-kuzova/usiliteli'],
     ];
@@ -51,9 +52,9 @@ test('part type seeder creates the complete tree with category assignments', fun
             ->and($partType->productCategory->full_slug)->toBe($categoryPath);
     }
 
-    expect(PartType::query()->whereNull('parent_id')->count())->toBe(7)
+    expect(PartType::query()->whereNull('parent_id')->count())->toBe(8)
         ->and(PartType::query()->whereNotNull('parent_id')->count())->toBe(13)
-        ->and(PartType::query()->count())->toBe(20);
+        ->and(PartType::query()->count())->toBe(21);
 });
 
 test('part type seeder assigns exact default image keys only to final types', function () {
@@ -96,7 +97,7 @@ test('part type seeder is idempotent and restores a soft deleted type', function
     $this->seed(PartTypeSeeder::class);
     $this->seed(PartTypeSeeder::class);
 
-    expect(PartType::withTrashed()->count())->toBe(20)
+    expect(PartType::withTrashed()->count())->toBe(21)
         ->and(PartType::query()->whereKey($partTypeId)->exists())->toBeTrue();
 });
 

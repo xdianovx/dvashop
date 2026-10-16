@@ -9,10 +9,12 @@ use App\Models\ProductOptionTemplate;
 use App\Models\ProductOptionValue;
 use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
+use App\Services\Catalog\CatalogConfigurations;
 use App\Services\Catalog\DefaultAutoPartOptionTemplateContract;
 use App\Services\Catalog\ProductVariantAdminService;
 use App\Services\Catalog\ProductVariantOptionGenerator;
 use App\Support\CatalogText;
+use Illuminate\Validation\ValidationException;
 use LogicException;
 
 final class CatalogImportProductDefaults
@@ -42,6 +44,18 @@ final class CatalogImportProductDefaults
         private readonly ProductVariantAdminService $variantAdmin,
         private readonly DefaultAutoPartOptionTemplateContract $optionContract,
     ) {}
+
+    public function templateFor(PartType $type): ProductOptionTemplate
+    {
+        $matrix = app(CatalogConfigurations::class);
+        // CSV is authoritative: never recreate the old 24-way product when the last
+        // matrix combination of a previously configured type has been retired.
+        if ($matrix->hasHistory($type->id) && $matrix->rows($type->id)->isEmpty()) {
+            throw ValidationException::withMessages(['configuration' => 'У типа детали нет разрешённых конфигураций. Обновите CSV до импорта.']);
+        }
+
+        return $matrix->template($type->id) ?? $this->canonicalTemplate();
+    }
 
     public function canonicalTemplate(): ProductOptionTemplate
     {
@@ -90,32 +104,37 @@ final class CatalogImportProductDefaults
             $this->fail('Новый импортный товар не связан с проверенным системным шаблоном опций.');
         }
 
-        $this->variantGenerator->createMissingVariants($product, DefaultAutoPartOptionTemplateContract::EXPECTED_COMBINATION_COUNT);
+        if (app(CatalogConfigurations::class)->rows($product->part_type_id)->isNotEmpty()) {
+            app(CatalogConfigurations::class)->synchronize($product);
+        } else {
+            $this->variantGenerator->createMissingVariants($product, DefaultAutoPartOptionTemplateContract::EXPECTED_COMBINATION_COUNT);
 
-        $variants = $product->variants()
-            ->with('optionValues.group')
-            ->orderBy('id')
-            ->get();
+            $variants = $product->variants()
+                ->with('optionValues.group')
+                ->orderBy('id')
+                ->get();
 
-        if ($variants->count() !== DefaultAutoPartOptionTemplateContract::EXPECTED_COMBINATION_COUNT) {
-            $this->fail('Системный шаблон опций должен создавать ровно 24 варианта импортного товара.');
-        }
-
-        foreach ($variants as $variant) {
-            if ($variant->optionValues->count() !== 4) {
-                $this->fail('Каждый импортный вариант должен содержать ровно четыре системные опции.');
+            if ($variants->count() !== DefaultAutoPartOptionTemplateContract::EXPECTED_COMBINATION_COUNT) {
+                $this->fail('Системный шаблон опций должен создавать ровно 24 варианта импортного товара.');
             }
+
+            foreach ($variants as $variant) {
+                if ($variant->optionValues->count() !== 4) {
+                    $this->fail('Каждый импортный вариант должен содержать ровно четыре системные опции.');
+                }
+            }
+
+            $defaultVariant = $variants->first(
+                fn (ProductVariant $variant): bool => $this->variantSignature($variant) === self::DEFAULT_SIGNATURE,
+            );
+
+            if (! $defaultVariant instanceof ProductVariant) {
+                $this->fail('Не найден вариант по умолчанию full + left + galvanized + 1mm.');
+            }
+
+            $this->variantAdmin->setDefault($product, $defaultVariant);
+
         }
-
-        $defaultVariant = $variants->first(
-            fn (ProductVariant $variant): bool => $this->variantSignature($variant) === self::DEFAULT_SIGNATURE,
-        );
-
-        if (! $defaultVariant instanceof ProductVariant) {
-            $this->fail('Не найден вариант по умолчанию full + left + galvanized + 1mm.');
-        }
-
-        $this->variantAdmin->setDefault($product, $defaultVariant);
 
         if ($product->characteristics()->exists()) {
             $this->fail('Новый импортный товар неожиданно содержит характеристики до начальной инициализации.');

@@ -7,6 +7,7 @@ use App\Enums\StockStatus;
 use App\Models\Product;
 use App\Models\ProductOptionValue;
 use App\Models\ProductVariant;
+use App\Services\Catalog\CatalogConfigurations;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
@@ -28,6 +29,9 @@ class StorefrontProductAvailability
     {
         return $query
             ->where('is_active', true)
+            ->when(app(CatalogConfigurations::class)->ready(), fn ($q) => $q->where(fn ($q) => $q
+                ->whereHas('product', fn ($p) => $p->where('configuration_managed', false))
+                ->orWhereHas('configuration', fn ($c) => $c->where('is_active', true)->whereRaw('catalog_configurations.part_type_id = (select part_type_id from products where products.id = product_variants.product_id)'))))
             ->whereDoesntHave('optionValues', fn (Builder $valueQuery): Builder => $valueQuery
                 ->where('is_active', false)
                 ->orWhereHas('group', fn (Builder $groupQuery): Builder => $groupQuery->where('is_active', false)))
@@ -95,6 +99,14 @@ class StorefrontProductAvailability
         if ($product->part_type_id !== null
             && (! $product->partType || ! $product->partType->is_active)) {
             return false;
+        }
+
+        if ($product->configuration_managed) {
+            $variant->loadMissing('configuration');
+            if (! $variant->configuration?->is_active || $variant->configuration->part_type_id !== $product->part_type_id
+                || app(CatalogConfigurations::class)->signature($variant) !== $variant->configuration->signature) {
+                return false;
+            }
         }
 
         return ! $variant->optionValues->contains(

@@ -40,6 +40,7 @@ class ProductController extends Controller
                     ->orderBy('id'),
                 'variants.optionValues' => fn ($query) => $query->where('is_active', true)->whereHas('group', fn ($groupQuery) => $groupQuery->where('is_active', true)),
                 'variants.optionValues.group',
+                'variants.configuration',
                 'mainImage',
                 'visibleImages',
                 'characteristics' => fn ($query) => $query->visible()->orderBy('position')->orderBy('id'),
@@ -94,6 +95,7 @@ class ProductController extends Controller
                     ->orderByDesc('is_default')
                     ->orderBy('id'),
                 'variants.optionValues.group',
+                'variants.configuration',
                 'mainImage',
                 'visibleImages',
                 'category',

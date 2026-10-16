@@ -27,6 +27,8 @@ class CatalogPricesPage extends Page
 
     protected static ?string $slug = 'catalog/prices';
 
+    public string $workspace = 'prices';
+
     public ?int $typeId = null;
 
     public bool $descendants = true;

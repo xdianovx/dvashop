@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\ImportRunStatus;
 use App\Models\ImportRun;
+use App\Services\Catalog\CatalogConfigurations;
 use App\Services\Import\CatalogImportSnapshot;
 use App\Services\Import\ImportProductFactory;
 use App\Services\Import\ImportRowProcessor;
@@ -104,6 +105,9 @@ class CatalogImportChunkJob implements ShouldQueue
 
             $processedInChunk = 0;
 
+            if (app(CatalogConfigurations::class)->ready()) {
+                app(CatalogConfigurations::class)->prime(array_column($run->detail_columns ?? [], 'part_type_id'));
+            }
             foreach ($rows as $index => $row) {
                 $rowNumber = $row['_row_number'] ?? ($offset + $index + 3);
 

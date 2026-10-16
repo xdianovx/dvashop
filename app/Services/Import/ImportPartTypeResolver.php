@@ -203,6 +203,10 @@ class ImportPartTypeResolver
             return array_values(array_filter([...$parentSegments, ...$detailSegments]));
         }
 
+        if ($parentTitle === '' && in_array(mb_strtolower($detailTitle), ['усилитель порогов', 'соединитель порогов'], true)) {
+            return [mb_strtolower($detailTitle) === 'усилитель порогов' ? 'Усилитель' : 'Соединитель'];
+        }
+
         $candidate = $detailTitle !== ''
             ? $detailTitle
             : $this->text($detailHeader['category_title'] ?? $detailHeader['full_detail_title'] ?? null);

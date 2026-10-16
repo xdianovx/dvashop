@@ -30,6 +30,7 @@ class PartTypeCategoryResolver
         'lonzheron' => 'kuzovnye-detali/remontnye-elementy-kuzova/lonzherony',
         'remkomplekt-pola' => 'kuzovnye-detali/remontnye-elementy-kuzova/remkomplekty-pola',
         'tortsevaia-zaglushka' => 'kuzovnye-detali/remontnye-elementy-kuzova/zaglushki',
+        'soedinitel' => 'kuzovnye-detali/remontnye-elementy-kuzova/usiliteli',
         'usilitel' => 'kuzovnye-detali/remontnye-elementy-kuzova/usiliteli',
         'usilitel/soedinitel-porogov' => 'kuzovnye-detali/remontnye-elementy-kuzova/usiliteli',
     ];

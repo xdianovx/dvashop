@@ -61,6 +61,11 @@ final class ProductVariantOptionGenerator
                 return 0;
             }
 
+            if (app(CatalogConfigurations::class)->rows($lockedProduct->part_type_id)->isNotEmpty()
+                && str_starts_with($template->slug, 'matrix_')) {
+                return app(CatalogConfigurations::class)->synchronize($lockedProduct)['created_variants'] ?? 0;
+            }
+
             $combinations = array_slice($this->combinationsForTemplate($template), 0, $limit);
 
             if ($combinations === []) {
