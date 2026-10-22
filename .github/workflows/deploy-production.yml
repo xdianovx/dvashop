@@ -28,7 +28,7 @@ jobs:
           set -Eeuo pipefail
           umask 077
 
-          HOST='80.78.246.72'
+          HOST='153.76.169.240'
           USER='deploy'
 
           SSH_DIR="$HOME/.ssh"
