@@ -31,15 +31,16 @@ test('Validation uses Russian messages and never renders raw translation keys', 
 
     Livewire::test(CatalogImportPage::class)
         ->call('submitImport')
-        ->assertHasErrors(['file' => 'required'])
-        ->assertSee('Выберите файл импорта.')
+        ->assertHasErrors(['file' => 'required_unless', 'configurationFile' => 'required_if'])
+        ->assertSee('Выберите файл XLSX для выбранного режима.')
+        ->assertSee('Выберите CSV с конфигурациями и ценами для выбранного режима.')
         ->assertDontSee('validation.required');
 
     Livewire::test(CatalogImportPage::class)
         ->set('file', UploadedFile::fake()->createWithContent('catalog.txt', 'not a spreadsheet'))
         ->call('submitImport')
         ->assertHasErrors(['file' => 'mimes'])
-        ->assertSee('Файл должен быть в формате CSV или XLSX.')
+        ->assertSee('Нужен файл XLSX с одним рабочим листом.')
         ->assertDontSee('validation.mimes');
 
     Livewire::test(CatalogImportPage::class)
@@ -71,9 +72,11 @@ test('Validation page presents the accessible import workflow and empty history 
         ->assertSee('Новый импорт каталога')
         ->assertSee('Перетащите файл сюда')
         ->assertSee('Выбрать файл')
-        ->assertSee('CSV или XLSX, до 50 МБ')
+        ->assertSee('XLSX с одним рабочим листом, до 50 МБ')
         ->assertSee('Дополнительные настройки')
-        ->assertSee('Запустить импорт сразу после загрузки')
+        ->assertSee('Весь каталог (Excel + CSV)')
+        ->assertSee('Загрузить и посмотреть изменения CSV')
+        ->assertDontSee('Запустить импорт сразу после загрузки')
         ->assertSee('История импортов')
         ->assertSee('Импортов пока нет')
         ->assertDontSee('validation.required');
@@ -84,13 +87,11 @@ test('Validation selected file card can be cleared without creating an import ru
     $this->actingAs(User::factory()->admin()->create());
 
     Livewire::test(CatalogImportPage::class)
-        ->set('file', UploadedFile::fake()->createWithContent('catalog.csv', "header\nvalue\n"))
-        ->assertSee('catalog.csv')
+        ->set('file', UploadedFile::fake()->createWithContent('catalog.xlsx', 'test file'))
+        ->assertSee('catalog.xlsx')
         ->assertSee('Готов к загрузке')
         ->assertSee('Заменить файл')
-        ->assertSee('Загрузить и запустить импорт')
-        ->set('startAfterUpload', false)
-        ->assertSee('Только загрузить файл')
+        ->assertSee('Загрузить и посмотреть изменения CSV')
         ->call('removeSelectedFile')
         ->assertSet('file', null)
         ->assertHasNoErrors(['file'])

@@ -14,7 +14,7 @@ use SplFileObject;
 
 class SpreadsheetReader
 {
-    public const CATALOG_SHEET_NAME = 'Каталог';
+    public const CATALOG_SHEET_NAME = CatalogImportFormat::SHEET_NAME;
 
     public int $headerRows = 1;
 
@@ -109,7 +109,6 @@ class SpreadsheetReader
         $headerRows ??= $this->headerRows;
         $rows = [];
         $dataIndex = 0;
-        $headers = $this->readHeaderRows($path, 2);
 
         foreach ($this->iterateRows($path) as $rowIndex => $row) {
             if ($rowIndex <= $headerRows || $this->isEmptyRow($row)) {
@@ -196,41 +195,21 @@ class SpreadsheetReader
     public function prepareRows(string $path): array
     {
         $sheetName = $this->sheetName($path);
-        $details = $this->readMergedDetailHeaders($path);
         $destination = $path.'.rows.jsonl';
         $stream = fopen($destination, 'wb');
         if ($stream === false) {
             throw new RuntimeException('Не удалось подготовить строки импорта.');
         }
-        $headers = [];
         $offsets = [];
+        $skipped = [];
         try {
-            foreach ($this->iterateRows($path) as $number => $row) {
-                if ($number <= 2) {
-                    $headers[$number] = $this->normalizeRow($row);
-                    if ($number === 2) {
-
-                        CatalogImportFormat::validateHeaders($headers);
-                    }
-
+            foreach ($this->catalogRows($path) as $entry) {
+                $number = $entry['number'];
+                if ($entry['row'] === null) {
+                    $skipped[] = ['row' => $number, 'reason' => $entry['reason']];
                     continue;
                 }
-                if ($this->isEmptyRow($row)) {
-                    continue;
-                }
-                try {
-                    $raw = $this->normalizeRow($row);
-                    $row = CatalogImportFormat::normalize($raw, $headers);
-                    foreach ($raw as $index => $value) {
-                        if (CatalogText::plain($value) !== '' && ! isset($details[$index])
-                            && ! CatalogImportFormat::isMetadata(CatalogText::plain($headers[1][$index] ?? ''))
-                            && ! CatalogImportFormat::isMetadata(CatalogText::plain($headers[2][$index] ?? ''))) {
-                            throw new InvalidArgumentException('Заполненная колонка без заголовка: '.CatalogImportCell::column($index).$number);
-                        }
-                    }
-                } catch (InvalidArgumentException $e) {
-                    throw new InvalidArgumentException('Строка '.$number.': '.$e->getMessage(), previous: $e);
-                }
+                $row = $entry['row'];
                 $row['_row_number'] = $number;
                 $offsets[] = ftell($stream);
                 $line = json_encode($row, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n";
@@ -242,7 +221,73 @@ class SpreadsheetReader
             fclose($stream);
         }
 
-        return ['path' => $destination, 'offsets' => $offsets, 'snapshot_version' => 1, 'sheet' => $sheetName];
+        return ['path' => $destination, 'offsets' => $offsets, 'snapshot_version' => 1, 'format_version' => 2, 'identity_version' => 1, 'sheet' => $sheetName, 'skipped_rows' => $skipped];
+    }
+
+    /** One validation path for preview and import, preserving physical Excel row numbers. */
+    public function catalogRows(string $path): iterable
+    {
+        $this->sheetName($path);
+        $details = $this->readMergedDetailHeaders($path);
+        $headers = [];
+        foreach ($this->iterateRows($path) as $number => $row) {
+            if ($number <= 2) {
+                $headers[$number] = $this->normalizeRow($row);
+                if ($number === 2) {
+                    CatalogImportFormat::validateHeaders($headers);
+                }
+                continue;
+            }
+            if ($this->isEmptyRow($row)) {
+                continue;
+            }
+            $raw = $this->normalizeRow($row);
+            foreach ($raw as $index => $value) {
+                if (CatalogText::plain($value) !== '' && ! isset($details[$index])
+                    && ! CatalogImportFormat::isMetadata(CatalogText::plain($headers[1][$index] ?? ''))
+                    && ! CatalogImportFormat::isMetadata(CatalogText::plain($headers[2][$index] ?? ''))
+                    && ! CatalogImportFormat::isUnlabelledLeadingPhoto($headers, $index, $value)
+                    && ! CatalogImportFormat::isUnlabelledMissingPhoto($headers, $index, $value)) {
+                    throw new InvalidArgumentException('Заполненная колонка без заголовка: '.CatalogImportCell::column($index).$number);
+                }
+            }
+            $missing = CatalogImportFormat::missingFields($raw, $headers);
+            yield ['number' => $number, 'row' => $missing === [] ? CatalogImportFormat::normalize($raw, $headers) : null,
+                'reason' => $missing === [] ? null : 'Не заполнены обязательные поля: '.implode(', ', $missing).'.'];
+        }
+    }
+
+    /**
+     * Read vehicle identities and photos from a partial workbook. Unlike catalogRows,
+     * this intentionally does not require or interpret any product columns.
+     * Their absence can never archive or deactivate the existing assortment.
+     */
+    public function catalogImageRows(string $path): iterable
+    {
+        $this->sheetName($path);
+        $headers = [];
+        foreach ($this->iterateRows($path) as $number => $row) {
+            if ($number <= 2) {
+                $headers[$number] = $this->normalizeRow($row);
+                if ($number === 2) {
+                    CatalogImportFormat::validateHeaders($headers);
+                    if (! in_array('photo', array_keys(CatalogImportFormat::columns($headers)), true)) {
+                        throw new InvalidArgumentException('В файле обновления фотографий отсутствует колонка фото.');
+                    }
+                }
+                continue;
+            }
+            if ($this->isEmptyRow($row)) {
+                continue;
+            }
+            $raw = $this->normalizeRow($row);
+            $missing = CatalogImportFormat::missingFields($raw, $headers);
+            yield [
+                'number' => $number,
+                'row' => $missing === [] ? CatalogImportFormat::normalize($raw, $headers) : null,
+                'reason' => $missing === [] ? null : 'Не заполнены обязательные поля: '.implode(', ', $missing).'.',
+            ];
+        }
     }
 
     public function readPreparedChunk(array $prepared, int $offset, int $limit): array
@@ -275,7 +320,7 @@ class SpreadsheetReader
     public function sheetName(string $path): string
     {
         if ($this->extension($path) !== 'xlsx') {
-            return self::CATALOG_SHEET_NAME;
+            throw new InvalidArgumentException('Каталог принимается только в XLSX с одним рабочим листом.');
         }
         $reader = new XlsxReader;
         $reader->open($path);

@@ -3,11 +3,13 @@
 use App\Enums\ImportRunStatus;
 use App\Filament\Pages\CatalogImportPage;
 use App\Jobs\CatalogImportChunkJob;
+use App\Jobs\CatalogImportStartJob;
 use App\Jobs\DownloadProductImageJob;
 use App\Models\ImportLog;
 use App\Models\ImportRun;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\Catalog\CatalogConfigurations;
 use App\Services\Import\ImportImageDownloader;
 use App\Services\Import\ImportProductFactory;
 use App\Services\Import\ImportProgressService;
@@ -15,12 +17,48 @@ use App\Services\Import\ImportRowProcessor;
 use App\Services\ImportLogger;
 use App\Services\ImportStatusService;
 use App\Services\SpreadsheetReader;
+use Database\Seeders\PartTypeSeeder;
+use Database\Seeders\ProductCatalogSeeder;
+use Database\Seeders\ProductOptionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use OpenSpout\Common\Entity\Row;
+use OpenSpout\Writer\XLSX\Writer;
 
 uses(RefreshDatabase::class);
+
+/** Prepare a real, valid snapshot: old raw CSV checkpoints are not accepted by the importer. */
+function controlPreparedSnapshot(int $rows, int $chunkSize): ImportRun
+{
+    Storage::fake('local');
+    Queue::fake();
+    test()->seed([ProductCatalogSeeder::class, PartTypeSeeder::class, ProductOptionSeeder::class]);
+    app(CatalogConfigurations::class)->install(base_path('tests/Fixtures/catalog-configurations.csv'));
+    $path = Storage::disk('local')->path('imports/catalog/progress.xlsx');
+    if (! is_dir(dirname($path))) {
+        mkdir(dirname($path), 0777, true);
+    }
+    $writer = new Writer;
+    $writer->openToFile($path);
+    $writer->getCurrentSheet()->setName('Каталог (new)');
+    $writer->addRow(Row::fromValues([null, null, null, null, null, null, 'Порог']));
+    $writer->addRow(Row::fromValues([
+        'Фото', 'Марка', 'Модель', 'Поколение', 'Годы выпуска', 'Кузов', 'Порог',
+    ]));
+    for ($i = 1; $i <= $rows; $i++) {
+        $writer->addRow(Row::fromValues([
+            null, 'Toyota', 'Camry '.$i, 'XV70', '2017–2023', 'Седан', 1,
+        ]));
+    }
+    $writer->close();
+    $run = app(ImportStatusService::class)->createFromStoredPath('catalog', 'progress.xlsx', 'imports/catalog/progress.xlsx', chunkSize: $chunkSize);
+    app()->call([new CatalogImportStartJob($run->id), 'handle']);
+    expect($run->fresh()->status)->toBe(ImportRunStatus::RunningRows);
+
+    return $run->refresh();
+}
 
 test('ImportProgress combines row and image work and reserves 100 percent for done', function () {
     $service = app(ImportProgressService::class);
@@ -64,7 +102,7 @@ test('ImportProgress reports done with warnings in Russian', function () {
     expect(app(ImportProgressService::class)->statusLabel($run))->toBe('Завершён с предупреждениями');
 });
 
-test('ImportStatus pause releases image job without warnings or failed counters', function () {
+test('ImportStatus pause parks image job durably without warnings or failed counters', function () {
     Storage::fake('public');
     Http::fake();
 
@@ -84,7 +122,7 @@ test('ImportStatus pause releases image job without warnings or failed counters'
         app(ImportStatusService::class),
     );
 
-    $job->assertReleased(60);
+    $job->assertDeleted();
     Http::assertNothingSent();
 
     expect($run->fresh()->status)->toBe(ImportRunStatus::Paused)
@@ -196,27 +234,8 @@ test('ImportStatus paused and canceled row chunks do not process rows or archive
         ->and($run->fresh()->status)->toBe($status);
 })->with([ImportRunStatus::Paused, ImportRunStatus::Canceled]);
 
-test('ImportProgress row job stores progress and heartbeat inside a chunk', function () {
-    Queue::fake();
-    Storage::fake('local');
-
-    $lines = [',', ','];
-    foreach (range(1, 25) as $index) {
-        $lines[] = "row-{$index},value";
-    }
-    Storage::disk('local')->put('imports/catalog/checkpoints.csv', implode("\n", $lines));
-
-    $run = ImportRun::factory()->create([
-        'status' => ImportRunStatus::RunningRows,
-        'stored_path' => 'imports/catalog/checkpoints.csv',
-        'total_rows' => 100,
-        'processed_rows' => 0,
-        'current_row' => 0,
-        'chunk_size' => 25,
-        'detail_columns' => [],
-        'heartbeat_at' => null,
-    ]);
-
+test('ImportProgress row job stores progress and heartbeat inside a prepared XLSX chunk', function () {
+    $run = controlPreparedSnapshot(100, 25);
     $calls = 0;
     $progressSeenInsideChunk = null;
     $rowProcessor = Mockery::mock(ImportRowProcessor::class);
@@ -241,20 +260,8 @@ test('ImportProgress row job stores progress and heartbeat inside a chunk', func
         ->and($run->fresh()->heartbeat_at)->not->toBeNull();
 });
 
-test('row errors finish import as failed with last error and without a synthetic extra error', function () {
-    Queue::fake();
-    Storage::fake('local');
-    Storage::disk('local')->put('imports/catalog/row-error.csv', "header,one\nheader,two\ndata,row\n");
-
-    $run = ImportRun::factory()->create([
-        'status' => ImportRunStatus::RunningRows,
-        'stored_path' => 'imports/catalog/row-error.csv',
-        'total_rows' => 1,
-        'processed_rows' => 0,
-        'current_row' => 0,
-        'chunk_size' => 1,
-        'detail_columns' => [],
-    ]);
+test('row errors finish prepared XLSX import as failed without a synthetic extra error', function () {
+    $run = controlPreparedSnapshot(1, 1);
     $rowProcessor = Mockery::mock(ImportRowProcessor::class);
     $rowProcessor->shouldReceive('process')->once()->andThrow(new LogicException('row boom'));
     $products = Mockery::mock(ImportProductFactory::class);
@@ -269,7 +276,6 @@ test('row errors finish import as failed with last error and without a synthetic
     );
 
     $run->refresh();
-
     expect($run->status)->toBe(ImportRunStatus::Failed)
         ->and($run->processed_rows)->toBe(1)
         ->and($run->current_row)->toBe(1)

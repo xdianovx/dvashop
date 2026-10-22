@@ -5,6 +5,7 @@ use App\Enums\ProductStatus;
 use App\Enums\ProductType;
 use App\Enums\StockStatus;
 use App\Jobs\CatalogImportChunkJob;
+use App\Jobs\CatalogImportStartJob;
 use App\Jobs\DownloadProductImageJob;
 use App\Jobs\DownloadVehicleGenerationImageJob;
 use App\Models\ImportLog;
@@ -18,6 +19,7 @@ use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Models\VehicleModel;
+use App\Services\Catalog\CatalogConfigurations;
 use App\Services\Import\ImportImageDownloader;
 use App\Services\Import\ImportProductFactory;
 use App\Services\Import\ImportRowProcessor;
@@ -32,15 +34,19 @@ use Database\Seeders\ProductOptionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
     $this->seed(ProductCatalogSeeder::class);
     $this->seed(ProductOptionSeeder::class);
+    $this->seed(PartTypeSeeder::class);
+    app(CatalogConfigurations::class)->install(base_path('tests/Fixtures/catalog-configurations.csv'));
 });
 
 function catalogImportRun(array $state = []): ImportRun
@@ -170,7 +176,7 @@ function writeCatalogTestXlsx(string $path, array $rows, array $mergedRanges = [
         .'</Relationships>');
     $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         .'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-        .'<sheets><sheet name="Каталог" sheetId="1" r:id="rId1"/></sheets></workbook>');
+        .'<sheets><sheet name="Каталог (new)" sheetId="1" r:id="rId1"/></sheets></workbook>');
     $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         .'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
         .'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
@@ -248,34 +254,17 @@ function writeCatalogDateFormattedModelTestXlsx(string $path): void
     $zip->close();
 }
 
-test('csv merged detail headers keep legacy fallback behaviour', function () {
+test('catalog header reader rejects legacy CSV workbooks before any catalog mutation', function () {
     $path = storage_path('framework/testing/catalog-merged-headers.csv');
-
     if (! is_dir(dirname($path))) {
         mkdir(dirname($path), 0777, true);
     }
+    file_put_contents($path, "Фото,Марка,Модель,Поколение,Годы,Кузов,Порог\n,Toyota,Camry,XV70,2017-2023,седан,1\n");
 
-    file_put_contents($path, implode("\n", [
-        ',,,,,,Кузовные детали,,Оптика',
-        'Фото,Марка,Модель,Поколение,Годы,Кузов,Пороги,Арки,Фары',
-        ',Toyota,Camry,XV70,2017-2023,седан,1,1,',
-    ]));
-
-    $headers = app(SpreadsheetReader::class)->readMergedDetailHeaders($path);
-
-    expect($headers[6])->toMatchArray([
-        'index' => 6,
-        'group' => 'Кузовные детали',
-        'parent_title' => 'Кузовные детали',
-        'title' => 'Пороги',
-        'detail_title' => 'Пороги',
-        'full_detail_title' => 'Кузовные детали пороги',
-        'category_title' => 'Пороги',
-    ])->and($headers[7]['group'])->toBe('Кузовные детали')
-        ->and($headers[7]['category_title'])->toBe('Арки')
-        ->and($headers[8]['group'])->toBe('Оптика')
-        ->and($headers[8]['category_title'])->toBe('Фары')
-        ->and(app(SpreadsheetReader::class)->countRows($path, 2))->toBe(1);
+    expect(fn () => app(SpreadsheetReader::class)->readMergedDetailHeaders($path))
+        ->toThrow(InvalidArgumentException::class, 'только в XLSX');
+    expect(Product::query()->count())->toBe(0)
+        ->and(VehicleGeneration::query()->count())->toBe(0);
 });
 
 test('xlsx date-formatted model cells use their displayed text value', function () {
@@ -374,12 +363,15 @@ test('xlsx merged detail headers use real merge ranges and reset group after ran
     Queue::fake();
     $prepared = app(ImportRowProcessor::class)->prepareDetailColumns($run, $headers);
 
-    app(ImportRowProcessor::class)->process(
+    // The merged worksheet intentionally mentions retired legacy types without
+    // CSV offers. Parsing those headers must not accidentally sell them.
+    expect(fn () => DB::transaction(fn () => app(ImportRowProcessor::class)->process(
         run: $run,
         row: app(SpreadsheetReader::class)->readChunk($path, 0, 1, 2)[0],
         detailColumns: $prepared,
         rowNumber: 3,
-    );
+    )))->toThrow(ValidationException::class);
+    expect(Product::query()->count())->toBe(0);
 
     expect($prepared[6]['part_type_full_slug'])->toBe('porog')
         ->and($prepared[7]['part_type_full_slug'])->toBe('arka/zadniaia')
@@ -474,12 +466,12 @@ test('row creates product default variant and fitment', function () {
         ->and($product->import_key)->not->toBeNull()
         ->and($product->import_source)->toBe('catalog')
         ->and($product->last_import_run_id)->toBe((string) $run->getKey())
-        ->and($product->price)->toBe('1790.00')
+        ->and($product->price)->toBe(app(CatalogConfigurations::class)->basePrice($product->part_type_id))
         ->and($product->old_price)->toBeNull()
         ->and($product->sku)->toBeNull()
         ->and($variant->product_id)->toBe($product->getKey())
         ->and($variant->is_default)->toBeTrue()
-        ->and($variant->price)->toBe('1790.00')
+        ->and($variant->price)->toBe($variant->configuration()->firstOrFail()->price)
         ->and($variant->old_price)->toBeNull()
         ->and($fitment->product_id)->toBe($product->getKey())
         ->and($fitment->vehicle_generation_id)->toBe($generation->getKey());
@@ -566,24 +558,19 @@ test('catalog chunk archives missing products after successful import', function
         'status' => ProductStatus::Active,
     ]);
 
-    Storage::disk('local')->put('imports/catalog/catalog.csv', implode("\n", [
-        ',,,,,,',
-        'Фото,Марка,Модель,Поколение,Годы,Кузов,Порог',
-        ',Toyota,Camry,XV70,2017-2023,седан,1',
-    ]));
+    writeCatalogTestXlsx(Storage::disk('local')->path('imports/catalog/catalog.xlsx'), [
+        1 => [6 => 'Порог'],
+        2 => [0 => 'Фото', 1 => 'Марка', 2 => 'Модель', 3 => 'Поколение', 4 => 'Годы', 5 => 'Кузов', 6 => 'Порог'],
+        3 => [1 => 'Toyota', 2 => 'Camry', 3 => 'XV70', 4 => '2017-2023', 5 => 'седан', 6 => '1'],
+    ]);
 
     Cache::put('public_catalog:public_make_ids:v3', [999999], 1800);
 
-    $run = catalogImportRun([
-        'stored_path' => 'imports/catalog/catalog.csv',
-        'total_rows' => 1,
-        'processed_rows' => 0,
-        'current_row' => 0,
-        'chunk_size' => 10,
-        'detail_columns' => app(SpreadsheetReader::class)->readMergedDetailHeaders(
-            Storage::disk('local')->path('imports/catalog/catalog.csv')
-        ),
-    ]);
+    $run = app(ImportStatusService::class)->createFromStoredPath(
+        'catalog', 'catalog.xlsx', 'imports/catalog/catalog.xlsx', chunkSize: 10,
+    );
+    app()->call([new CatalogImportStartJob($run->id), 'handle']);
+    expect($run->fresh()->status)->toBe(ImportRunStatus::RunningRows);
 
     (new CatalogImportChunkJob($run->getKey()))->handle(
         app(SpreadsheetReader::class),
@@ -629,6 +616,8 @@ test('fake http image download saves product image file', function () {
 });
 
 test('fake http vehicle generation image download saves image path on generation', function () {
+    Storage::fake('local');
+    fake_vehicle_photo_verifier(smallFixtures: true);
     Storage::fake('public');
     Http::fake([
         'https://example.test/car.jpg' => Http::response(test_image_binary('jpeg', 640, 360), 200, ['Content-Type' => 'image/jpeg']),
@@ -694,7 +683,7 @@ test('excel text normalization removes line breaks and duplicate spaces from cat
 
     writeCatalogTestXlsx($path, [
         1 => [12 => 'Пенка'],
-        2 => [12 => "Задней\nдвери", 13 => "Передней\t  двери", 15 => 'Усилитель / соединитель   порогов'],
+        2 => [12 => "Задней\nдвери", 13 => "Передней\t  двери", 15 => 'Усилитель'],
         3 => [1 => 'Toyota', 2 => 'Camry', 3 => 'XV70', 4 => '2017-2023', 5 => 'седан', 12 => '1', 13 => '1', 15 => '1'],
     ], ['M1:O1']);
 
@@ -710,14 +699,14 @@ test('excel text normalization removes line breaks and duplicate spaces from cat
 
     expect($headers[12]['category_title'])->toBe('Задней двери')
         ->and($headers[13]['category_title'])->toBe('Передней двери')
-        ->and($headers[15]['category_title'])->toBe('Усилитель / соединитель порогов')
+        ->and($headers[15]['category_title'])->toBe('Усилитель')
         ->and(PartType::query()->where('title', "Задней\nдвери")->exists())->toBeFalse()
         ->and(PartType::query()->where('full_slug', 'penka/zadnei-dveri')->exists())->toBeTrue()
         ->and(Product::query()->where('title', 'like', "%\n%")->exists())->toBeFalse()
         ->and(Product::query()->where('title', 'like', '%  %')->exists())->toBeFalse()
         ->and(Product::query()->where('title', 'like', 'Пенка задней двери для%')->exists())->toBeTrue()
         ->and(Product::query()->where('title', 'like', 'Пенка передней двери для%')->exists())->toBeTrue()
-        ->and(Product::query()->where('title', 'like', 'Усилитель соединитель порогов для%')->exists())->toBeTrue();
+        ->and(Product::query()->where('title', 'like', 'Усилитель для%')->exists())->toBeTrue();
 });
 
 test('chunk skips auto archive when row errors were logged', function () {
@@ -731,23 +720,18 @@ test('chunk skips auto archive when row errors were logged', function () {
         'status' => ProductStatus::Active,
     ]);
 
-    Storage::disk('local')->put('imports/catalog/catalog.csv', implode("\n", [
-        ',,,,,,',
-        'Фото,Марка,Модель,Поколение,Годы,Кузов,Порог',
-        ',Toyota,Camry,XV70,2017-2023,седан,1',
-    ]));
-
-    $run = catalogImportRun([
-        'stored_path' => 'imports/catalog/catalog.csv',
-        'total_rows' => 1,
-        'processed_rows' => 0,
-        'current_row' => 0,
-        'chunk_size' => 10,
-        'errors_count' => 1,
-        'detail_columns' => app(SpreadsheetReader::class)->readMergedDetailHeaders(
-            Storage::disk('local')->path('imports/catalog/catalog.csv')
-        ),
+    writeCatalogTestXlsx(Storage::disk('local')->path('imports/catalog/catalog.xlsx'), [
+        1 => [6 => 'Порог'],
+        2 => [0 => 'Фото', 1 => 'Марка', 2 => 'Модель', 3 => 'Поколение', 4 => 'Годы', 5 => 'Кузов', 6 => 'Порог'],
+        3 => [1 => 'Toyota', 2 => 'Camry', 3 => 'XV70', 4 => '2017-2023', 5 => 'седан', 6 => '1'],
     ]);
+
+    $run = app(ImportStatusService::class)->createFromStoredPath(
+        'catalog', 'catalog.xlsx', 'imports/catalog/catalog.xlsx', chunkSize: 10,
+    );
+    app()->call([new CatalogImportStartJob($run->id), 'handle']);
+    expect($run->fresh()->status)->toBe(ImportRunStatus::RunningRows);
+    $run->forceFill(['errors_count' => 1])->save();
 
     (new CatalogImportChunkJob($run->getKey()))->handle(
         app(SpreadsheetReader::class),
@@ -854,7 +838,9 @@ test('product image source url is queued again when existing record file is miss
         imageUrl: 'https://example.test/part.jpg',
     );
 
-    Queue::assertPushed(DownloadProductImageJob::class);
+    Queue::assertNotPushed(DownloadProductImageJob::class);
+    // File repair occurs only in the separate image-import flow; a source URL
+    // in a catalog presence cell must not create a product image job.
 });
 
 test('vehicle image column availability and garbage values never create product images', function () {
@@ -1057,8 +1043,8 @@ test('positive availability cell attaches default image for root detail', functi
         ->and($image->is_visible)->toBeTrue()
         ->and($image->is_main)->toBeTrue()
         ->and($image->disk)->toBe(DefaultProductImageService::DISK)
-        ->and($image->path)->toStartWith('img/products_default/porog.')
-        ->and($product->fresh()->main_image_url)->toContain('img/products_default/porog.');
+        ->and($image->path)->toStartWith('catalog/defaults/porog.')
+        ->and($product->fresh()->main_image_url)->toContain('catalog/defaults/porog.');
 });
 
 test('grouped imported details attach mapped default images', function (string $parentTitle, string $detailTitle, string $expectedKey) {
@@ -1082,7 +1068,7 @@ test('grouped imported details attach mapped default images', function (string $
 
     expect($image->source_type)->toBe('default')
         ->and($image->is_default)->toBeTrue()
-        ->and($image->path)->toStartWith('img/products_default/'.$expectedKey.'.');
+        ->and($image->path)->toStartWith('catalog/defaults/'.$expectedKey.'.');
 })->with([
     'arka vnutrenniaia universalnaia' => ['Арка', 'Внутренняя универсальная', 'arka-vnutrenniaia-universalnaia'],
     'penka zadnei dveri' => ['Пенка', 'Задней двери', 'penka-zadnei-dveri'],
@@ -1151,32 +1137,21 @@ test('manual main image is not reset by default image on repeated import', funct
         ->and(ProductImage::query()->where('source_type', 'default')->count())->toBe(1);
 });
 
-test('missing default image is logged once per detail type and import continues', function () {
-    $run = catalogImportRun([
-        'detail_columns' => [
-            6 => [
-                'index' => 6,
-                'group' => null,
-                'parent_title' => null,
-                'title' => 'Неизвестная деталь',
-                'detail_title' => 'Неизвестная деталь',
-                'full_detail_title' => 'Неизвестная деталь',
-                'category_title' => 'Неизвестная деталь',
-            ],
-        ],
-    ]);
-
-    Queue::fake();
-    $processor = app(ImportRowProcessor::class);
-    $processor->process($run, catalogRow([3 => 'I', 6 => '1']), $run->detail_columns, 3);
-    $processor->process($run, catalogRow([3 => 'II', 6 => '1.0']), $run->detail_columns, 4);
-
-    expect(Product::query()->count())->toBe(2)
-        ->and(ProductImage::query()->count())->toBe(0)
-        ->and(ImportLog::query()->where('message', 'Дефолтное изображение детали не найдено')->count())->toBe(1);
+test('unknown part types cannot bypass CSV offers even when an image is unavailable', function () {
+    $run = catalogImportRun(['detail_columns' => [6 => [
+        'index' => 6, 'group' => null, 'parent_title' => null,
+        'title' => 'Неизвестная деталь', 'detail_title' => 'Неизвестная деталь',
+        'full_detail_title' => 'Неизвестная деталь', 'category_title' => 'Неизвестная деталь',
+    ]]]);
+    expect(fn () => app(ImportRowProcessor::class)->process(
+        $run, catalogRow([6 => '1']), $run->detail_columns, 3,
+    ))->toThrow(ValidationException::class, 'нет разрешённых конфигураций CSV');
+    expect(Product::query()->count())->toBe(0)
+        ->and(ProductVariant::query()->count())->toBe(0)
+        ->and(ProductImage::query()->count())->toBe(0);
 });
 
-test('repeated import preserves manual product fields variants fitments and default images', function () {
+test('repeated import preserves manual content and stock but restores catalog prices from CSV', function () {
     $this->seed(PartTypeSeeder::class);
     $firstRun = catalogImportRun([
         'detail_columns' => [
@@ -1196,9 +1171,10 @@ test('repeated import preserves manual product fields variants fitments and defa
 
     $product = Product::query()->firstOrFail();
     $variant = $product->defaultVariant()->firstOrFail();
+    $csvPrice = $variant->configuration()->firstOrFail()->price;
 
-    expect($product->price)->toEqual('1790.00')
-        ->and($variant->price)->toEqual('1790.00');
+    expect($product->price)->toEqual(app(CatalogConfigurations::class)->basePrice($product->part_type_id))
+        ->and($variant->price)->toEqual($csvPrice);
     $manual = ProductImage::factory()->forProduct($product)->main()->create([
         'disk' => 'public',
         'path' => 'uploads/products/'.$product->getKey().'/manual-main.webp',
@@ -1225,13 +1201,24 @@ test('repeated import preserves manual product fields variants fitments and defa
         'is_featured' => true,
     ])->saveQuietly();
 
+    // Price edits of imported variants are forbidden outside the approved bulk workflow.
+    expect(fn () => $variant->forceFill(['price' => 7777.77])->save())
+        ->toThrow(ValidationException::class, 'Изменяйте цены импортируемых товаров');
+    $variant->refresh();
+
+    // Non-price manual fields remain editable and survive the next import.
     $variant->forceFill([
         'sku' => 'MANUAL-VARIANT-SKU',
-        'price' => 7777.77,
-        'old_price' => 8888.88,
         'stock_quantity' => 42,
         'stock_status' => StockStatus::OutOfStock,
     ])->save();
+
+    // An old non-CSV price can exist in historic data. Simulate that state without
+    // bypassing the model guard in an ordinary user operation.
+    DB::table('product_variants')->where('id', $variant->id)->update([
+        'price' => '7777.77',
+        'price_mode' => 'individual',
+    ]);
 
     $primaryFitment = ProductFitment::query()->firstOrFail();
     $primaryFitment->forceFill(['note' => 'Ручная заметка', 'is_primary' => false])->saveQuietly();
@@ -1258,7 +1245,8 @@ test('repeated import preserves manual product fields variants fitments and defa
         ->and($product->fresh()->partType->full_slug)->toBe('porog')
         ->and($product->fresh()->category->full_slug)->toBe('kuzovnye-detali/remontnye-elementy-kuzova/porogi')
         ->and($product->fresh()->last_import_run_id)->toBe((string) $secondRun->getKey())
-        ->and($product->fresh()->price)->toEqual('12345.67')
+        ->and($product->fresh()->price)->toBe($csvPrice)
+        ->and($product->fresh()->price_mode)->toBe('inherited')
         ->and($product->fresh()->old_price)->toEqual('15000.00')
         ->and($product->fresh()->sku)->toBe('MANUAL-SKU')
         ->and($product->fresh()->description)->toBe('Ручное описание')
@@ -1269,15 +1257,18 @@ test('repeated import preserves manual product fields variants fitments and defa
         ->and($product->fresh()->position)->toBe(77)
         ->and($product->fresh()->is_featured)->toBeTrue()
         ->and($variant->fresh()->sku)->toBe('MANUAL-VARIANT-SKU')
-        ->and($variant->fresh()->price)->toEqual('7777.77')
-        ->and($variant->fresh()->old_price)->toEqual('8888.88')
+        ->and($variant->fresh()->price)->toBe($csvPrice)
+        ->and($variant->fresh()->price_mode)->toBe('inherited')
+        ->and($variant->fresh()->old_price)->toBeNull()
         ->and($variant->fresh()->stock_quantity)->toBe(42)
         ->and($variant->fresh()->stock_status)->toBe(StockStatus::OutOfStock)
         ->and($primaryFitment->fresh()->note)->toBe('Ручная заметка')
         ->and($primaryFitment->fresh()->is_primary)->toBeFalse()
         ->and($additionalFitment->fresh()->note)->toBe('Дополнительная применимость')
         ->and($manual->fresh()->is_main)->toBeTrue()
-        ->and($importImage->fresh()->source_url)->toBe('https://example.test/existing-import.jpg');
+        ->and($importImage->fresh()->source_url)->toBe('https://example.test/existing-import.jpg')
+        ->and(DB::table('catalog_matrix_price_history')->where('product_variant_id', $variant->id)
+            ->where('old_price', '7777.77')->exists())->toBeTrue();
 });
 
 test('manual product and another import source are not archived by catalog import', function () {
@@ -1462,6 +1453,17 @@ test('known Excel detail paths map to exact PartTypes and canonical store catego
     $processor = app(ImportRowProcessor::class);
     $prepared = $processor->prepareDetailColumns($run, $run->detail_columns);
 
+    $type = PartType::query()->findOrFail($prepared[6]['part_type_id']);
+    if (app(CatalogConfigurations::class)->rows($type->id)->isEmpty()) {
+        expect(fn () => $processor->process($run, catalogRow([6 => '1']), $prepared, 3))
+            ->toThrow(ValidationException::class, 'нет разрешённых конфигураций CSV');
+        expect($prepared[6]['part_type_full_slug'])->toBe($expectedPartType)
+            ->and($prepared[6]['product_category_full_slug'])->toBe($expectedStoreCategory)
+            ->and(Product::query()->count())->toBe(0);
+
+        return;
+    }
+
     $processor->process($run, catalogRow([6 => '1']), $prepared, 3);
 
     $product = Product::query()->with(['partType', 'category'])->firstOrFail();
@@ -1506,8 +1508,10 @@ test('unknown child creates one PartType and logs fallback once for the import r
     $processor = app(ImportRowProcessor::class);
     $prepared = $processor->prepareDetailColumns($run, $run->detail_columns);
 
-    $processor->process($run, catalogRow([3 => 'XV70', 6 => '1']), $prepared, 3);
-    $processor->process($run, catalogRow([3 => 'XV71', 6 => '1']), $prepared, 4);
+    expect(fn () => $processor->process($run, catalogRow([3 => 'XV70', 6 => '1']), $prepared, 3))
+        ->toThrow(ValidationException::class, 'нет разрешённых конфигураций CSV');
+    expect(fn () => $processor->process($run, catalogRow([3 => 'XV71', 6 => '1']), $prepared, 4))
+        ->toThrow(ValidationException::class, 'нет разрешённых конфигураций CSV');
 
     $partType = PartType::query()->where('full_slug', 'arka/peredniaia-usilennaia')->firstOrFail();
     $rootPartType = PartType::query()->where('full_slug', 'arka')->firstOrFail();
@@ -1521,11 +1525,7 @@ test('unknown child creates one PartType and logs fallback once for the import r
         ->and($rootPartType->product_category_id)->toBe($archesCategoryId)
         ->and(PartType::query()->where('full_slug', 'arka')->count())->toBe(1)
         ->and(PartType::query()->where('full_slug', 'arka/peredniaia-usilennaia')->count())->toBe(1)
-        ->and($products)->toHaveCount(2)
-        ->and($products->pluck('part_type_id')->unique()->values()->all())->toBe([$partType->getKey()])
-        ->and($products->pluck('product_category_id')->unique()->values()->all())->toBe([
-            ProductCategory::query()->where('full_slug', 'kuzovnye-detali/remontnye-elementy-kuzova')->value('id'),
-        ])->and($products->pluck('import_key')->unique())->toHaveCount(2)
+        ->and($products)->toHaveCount(0)
         ->and(ImportLog::query()->where('message', 'Для нового типа детали использована резервная категория магазина')->count())->toBe(1)
         ->and(ProductCategory::query()->whereIn('title', ['Арка', 'Передняя усиленная'])->exists())->toBeFalse();
 });
@@ -1545,14 +1545,15 @@ test('unknown root creates a fallback PartType without creating a technical Prod
         ],
     ]);
 
-    processCatalogRow($run, catalogRow([6 => '1']));
+    expect(fn () => app(ImportRowProcessor::class)->process(
+        $run, catalogRow([6 => '1']), $run->detail_columns, 3,
+    ))->toThrow(ValidationException::class, 'нет разрешённых конфигураций CSV');
 
     $partType = PartType::query()->where('title', 'Новая кузовная деталь')->firstOrFail();
-    $product = Product::query()->firstOrFail();
 
     expect($partType->default_image_key)->toBeNull()
-        ->and($product->part_type_id)->toBe($partType->getKey())
-        ->and($product->category->full_slug)->toBe('kuzovnye-detali/remontnye-elementy-kuzova')
+        ->and(Product::query()->count())->toBe(0)
+        ->and(ProductVariant::query()->count())->toBe(0)
         ->and(ProductCategory::query()->where('title', 'Новая кузовная деталь')->exists())->toBeFalse()
         ->and(ImportLog::query()->where('message', 'Для нового типа детали использована резервная категория магазина')->count())->toBe(1);
 });
@@ -1641,15 +1642,19 @@ test('missing prepared ids are safely resolved again from header text', function
 });
 
 test('import resolver restores soft deleted PartType without replacing manual metadata', function () {
-    $partType = PartType::factory()->create([
-        'title' => 'Порог',
+    // The common fixture has already seeded canonical porog. Modify and
+    // soft-delete that identity, never create a duplicate structural page.
+    $partType = PartType::query()->where('full_slug', 'porog')->firstOrFail();
+    $partTypeId = $partType->getKey();
+    // Seeded porog already has descendants. Emulate a legacy soft-deleted
+    // record directly, without running current administrative deletion guards.
+    DB::table('part_types')->where('id', $partTypeId)->update([
         'default_image_key' => 'manual-porog-key',
         'meta_title' => 'Ручной title',
         'meta_description' => 'Ручное description',
         'is_active' => false,
+        'deleted_at' => now(),
     ]);
-    $partTypeId = $partType->getKey();
-    $partType->delete();
     $run = catalogImportRun();
 
     $prepared = app(ImportRowProcessor::class)->prepareDetailColumns($run, $run->detail_columns);

@@ -277,13 +277,13 @@ test('product gallery falls back to real part type and generic category default 
 
     $this->get(route('products.show', $partTypeProduct->slug))
         ->assertOk()
-        ->assertSee('/img/products_default/porog.png', false)
+        ->assertSee('/storage/catalog/defaults/porog.png', false)
         ->assertSee('data-gallery-main', false)
         ->assertDontSee('data-gallery-thumbs', false)
         ->assertDontSee('/img/placeholders/image.svg', false);
     $this->get(route('products.show', $genericProduct->slug))
         ->assertOk()
-        ->assertSee('/img/products_default/porog.png', false)
+        ->assertSee('/storage/catalog/defaults/porog.png', false)
         ->assertDontSee('/img/placeholders/image.svg', false);
 });
 

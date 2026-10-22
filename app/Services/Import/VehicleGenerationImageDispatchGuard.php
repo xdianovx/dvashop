@@ -8,6 +8,12 @@ use Illuminate\Support\Facades\DB;
 
 class VehicleGenerationImageDispatchGuard
 {
+    public function queue(ImportRun $run, VehicleGeneration $generation, string $url, array $alternatives = []): bool
+    {
+        return app(ImportImageTasks::class)->enqueue($run, 'vehicle', $generation->id, $url, $alternatives);
+    }
+
+    /** Legacy reservation API; current producers use queue() for atomic registration/count/dispatch. */
     public function reserve(ImportRun $run, VehicleGeneration $generation, string $url): bool
     {
         return DB::transaction(function () use ($run, $generation, $url): bool {

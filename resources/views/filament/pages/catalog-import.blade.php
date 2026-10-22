@@ -1,13 +1,26 @@
 <x-filament-panels::page>
-    <div class="space-y-6" @if ($this->hasActiveImport()) wire:poll.2s="refreshImportSnapshot" @endif>
+    <div class="space-y-6" @if ($this->hasActiveImport() && ! $file && ! $configurationFile && ! $uploadInProgress) wire:poll.2s="refreshImportSnapshot" @endif>
         <x-filament::section>
             <x-slot name="heading">Новый импорт каталога</x-slot>
             <x-slot name="description">
-                Загрузите таблицу CSV или XLSX. После загрузки система создаст марки, модели, поколения, товары, применимости и поставит изображения в очередь обработки.
+                Выберите режим и загрузите Excel и/или CSV. Данные предварительно проверяются, а изменения выполняются через очередь.
             </x-slot>
 
             <div class="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(17rem,1fr)]">
                 <form wire:submit.prevent="submitImport" class="min-w-0 space-y-5">
+                    <div class="space-y-2">
+                        <label for="catalog-import-mode" class="block text-sm font-semibold">Что обновить?</label>
+                        <x-filament::input.wrapper>
+                            <x-filament::input.select id="catalog-import-mode" wire:model.live="importMode">
+                                <option value="excel">Автомобили и наличие (Excel)</option>
+                                <option value="safe_partial">Безопасная часть каталога (Excel + CSV)</option>
+                                <option value="full">Весь каталог (Excel + CSV)</option>
+                                <option value="csv">Только конфигурации и цены (CSV)</option>
+                                <option value="images">Только фотографии автомобилей (Excel)</option>
+                            </x-filament::input.select>
+                        </x-filament::input.wrapper>
+                    </div>
+                    @if ($importMode !== 'csv')
                     <div class="min-w-0">
                         <span id="catalog-import-file-label" class="mb-2 block text-sm font-semibold text-gray-950 dark:text-white">
                             Файл каталога
@@ -15,10 +28,16 @@
 
                         @if ($file)
                             @php
-                                $fileSize = (int) $file->getSize();
-                                $readableFileSize = $fileSize >= 1048576
-                                    ? number_format($fileSize / 1048576, 1, ',', ' ').' МБ'
-                                    : max(1, (int) ceil($fileSize / 1024)).' КБ';
+                                $fileAvailable = true;
+                                try {
+                                    $fileSize = (int) $file->getSize();
+                                    $readableFileSize = $fileSize >= 1048576
+                                        ? number_format($fileSize / 1048576, 1, ',', ' ').' МБ'
+                                        : max(1, (int) ceil($fileSize / 1024)).' КБ';
+                                } catch (\League\Flysystem\UnableToRetrieveMetadata) {
+                                    $fileAvailable = false;
+                                    $readableFileSize = 'Временный файл недоступен';
+                                }
                             @endphp
 
                             <div class="rounded-2xl border border-success-200 bg-success-50/70 p-4 dark:border-success-500/30 dark:bg-success-500/10 sm:p-5">
@@ -35,7 +54,7 @@
                                             <span>{{ $readableFileSize }}</span>
                                             <span class="inline-flex items-center gap-1.5 font-medium text-success-700 dark:text-success-300">
                                                 <x-filament::icon icon="heroicon-m-check-circle" class="size-4" aria-hidden="true" />
-                                                Готов к загрузке
+                                                {{ $fileAvailable ? 'Готов к загрузке' : 'Выберите файл заново' }}
                                             </span>
                                         </div>
                                     </div>
@@ -59,7 +78,7 @@
                                         wire:model="file"
                                         wire:loading.attr="disabled"
                                         wire:target="file,submitImport"
-                                        accept=".csv,.xlsx"
+                                        accept=".xlsx"
                                         class="peer sr-only"
                                         aria-describedby="catalog-import-file-help"
                                     />
@@ -77,7 +96,7 @@
                                     wire:model="file"
                                     wire:loading.attr="disabled"
                                     wire:target="file,submitImport"
-                                    accept=".csv,.xlsx"
+                                    accept=".xlsx"
                                     class="absolute inset-0 z-10 size-full cursor-pointer opacity-0 disabled:cursor-wait"
                                     aria-labelledby="catalog-import-file-label catalog-import-drop-title"
                                     aria-describedby="catalog-import-file-help catalog-import-file-error"
@@ -89,11 +108,11 @@
                                         <x-filament::icon icon="heroicon-o-arrow-up-tray" class="size-6" aria-hidden="true" />
                                     </div>
                                     <p id="catalog-import-drop-title" class="mt-4 text-lg font-bold text-gray-950 dark:text-white">Перетащите файл сюда</p>
-                                    <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">или нажмите, чтобы выбрать CSV/XLSX</p>
+                                    <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">или нажмите, чтобы выбрать XLSX</p>
                                     <span class="mt-4 inline-flex min-h-11 items-center rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm">
                                         Выбрать файл
                                     </span>
-                                    <p id="catalog-import-file-help" class="mt-3 text-xs font-medium text-gray-500 dark:text-gray-400">CSV или XLSX, до 50 МБ</p>
+                                    <p id="catalog-import-file-help" class="mt-3 text-xs font-medium text-gray-500 dark:text-gray-400">XLSX с одним рабочим листом, до 50 МБ</p>
                                 </div>
 
                                 <div wire:loading.flex wire:target="file" class="pointer-events-none min-h-44 flex-col items-center justify-center px-5 py-7 text-center" role="status" aria-live="polite" aria-atomic="true">
@@ -114,17 +133,29 @@
                         @enderror
                     </div>
 
+                    @endif
+
+                    @if (in_array($importMode, ['csv', 'full', 'safe_partial'], true))
+                    <div class="space-y-2">
+                        <label for="catalog-import-configurations" class="block text-sm font-semibold text-gray-950 dark:text-white">CSV конфигураций</label>
+                        <input id="catalog-import-configurations" type="file" wire:model="configurationFile" accept=".csv"
+                            class="block w-full rounded-lg border border-gray-300 bg-white p-3 text-sm text-gray-900 dark:border-white/20 dark:bg-gray-900 dark:text-white" />
+                        <p class="text-xs text-gray-600 dark:text-gray-300">В полном импорте CSV проверяется вместе с Excel. При обновлении только цен автомобили и наличие не изменяются.</p>
+                        @error('configurationFile') <p class="text-sm text-danger-600">{{ $message }}</p> @enderror
+                    </div>
+                    @endif
+
                     <x-filament::button
                         type="submit"
                         size="lg"
                         icon="heroicon-o-arrow-up-tray"
                         wire:loading.attr="disabled"
-                        wire:target="submitImport,file,removeSelectedFile"
-                        :disabled="blank($file) || $uploadInProgress"
+                        wire:target="submitImport,file,configurationFile,removeSelectedFile"
+                        :disabled="($importMode === 'csv' ? blank($configurationFile) : (blank($file) || (in_array($importMode, ['full', 'safe_partial'], true) && blank($configurationFile)))) || $uploadInProgress"
                         class="w-full justify-center sm:w-auto"
                     >
                         <span wire:loading.remove wire:target="submitImport">
-                            {{ $startAfterUpload ? 'Загрузить и запустить импорт' : 'Только загрузить файл' }}
+                            {{ in_array($importMode, ['full', 'csv', 'safe_partial'], true) ? 'Загрузить и посмотреть изменения CSV' : ($startAfterUpload ? 'Загрузить и запустить импорт' : 'Только загрузить файл') }}
                         </span>
                         <span wire:loading wire:target="submitImport" role="status">Создаём импорт…</span>
                     </x-filament::button>
@@ -165,6 +196,7 @@
                                 @enderror
                             </div>
 
+                            @if (! in_array($importMode, ['full', 'csv', 'safe_partial'], true))
                             <div class="rounded-xl bg-gray-50 p-4 dark:bg-white/5 lg:col-span-2">
                                 <label class="flex cursor-pointer items-start gap-3">
                                     <input type="checkbox" wire:model.live="startAfterUpload" class="mt-0.5 size-5 rounded border-gray-300 text-primary-600 focus:ring-primary-600 dark:border-white/20 dark:bg-white/5" />
@@ -174,6 +206,7 @@
                                     </span>
                                 </label>
                             </div>
+                            @endif
                         </div>
                     </details>
                 </form>
@@ -188,7 +221,7 @@
 
                     <ol class="mt-5 space-y-4">
                         @foreach ([
-                            ['Выберите таблицу', 'CSV или XLSX размером до 50 МБ.'],
+                            ['Выберите таблицу', 'XLSX с одним рабочим листом размером до 50 МБ.'],
                             ['Проверьте настройки', 'Обычно достаточно значений по умолчанию.'],
                             ['Запустите и следите за прогрессом', 'Строки и изображения обрабатываются очередями.'],
                         ] as $index => [$step, $description])
@@ -204,6 +237,90 @@
                 </aside>
             </div>
         </x-filament::section>
+
+        @error('configurationReview')
+            <p role="alert" class="text-sm text-danger-600">{{ $message }}</p>
+        @enderror
+        @if ($configurationReview)
+            <x-filament::section heading="Подтверждение изменений CSV">
+                <div class="space-y-4">
+                    <p>Импорт #{{ $configurationReview['run_id'] }}. Проверьте изменения конфигурационной матрицы перед запуском.</p>
+                    @if (($configurationReview['mode'] ?? null) === 'safe_partial')
+                        <p>Будет обработана только подтверждённая область. Остальные товары получат постоянную защиту. Глобальное архивирование отключено.</p>
+                        @if (! $configurationReview['schema_ready'])
+                            <p role="alert">Постоянная защита ещё не развёрнута. Запуск недоступен.</p>
+                        @endif
+                        <dl class="grid grid-cols-2 gap-2 text-sm">
+                            @foreach (['updates' => 'Обновляемые товары', 'new' => 'Подтверждённые новые', 'protected_existing' => 'Защищённые товары', 'skipped_keys' => 'Пропущенные ключи', 'skipped_rows' => 'Неполные строки'] as $key => $label)
+                                <dt>{{ $label }}</dt><dd>{{ $configurationReview['counts'][$key] ?? 'Не определено' }}</dd>
+                            @endforeach
+                            @foreach (['variants_create' => 'Новые варианты', 'variants_update' => 'Обновляемые варианты', 'variants_reactivate' => 'Восстанавливаемые варианты', 'variants_retire' => 'Отключаемые варианты', 'variant_prices_change' => 'Изменения цен вариантов', 'product_prices_change' => 'Изменения цен карточек', 'default_changes' => 'Смена варианта по умолчанию', 'conflicts' => 'Конфликты в разрешённой области'] as $key => $label)
+                                <dt>{{ $label }}</dt><dd>{{ $configurationReview['variant_counts'][$key] ?? 'Не определено' }}</dd>
+                            @endforeach
+                        </dl>
+                        <details><summary>Причины пропуска и влияние матрицы</summary>
+                            @foreach ($configurationReview['skip_reasons'] as $reason => $count)
+                                <p>{{ ['unresolved_identity' => 'Неоднозначная идентичность', 'protected_or_ambiguous_relation' => 'Защищённая применимость или неоднозначные связи', 'new_candidate_not_proven' => 'Новизна не доказана', 'variant_conflict_or_custom_template' => 'Конфликт вариантов или пользовательский шаблон', 'missing_existing_part_category' => 'Недоступен тип или категория детали', 'inactive_new_applicability' => 'Новые детали для неактивной применимости'][$reason] ?? 'Требует проверки' }}: {{ $count }}</p>
+                            @endforeach
+                            <p>Блокирующие типы матрицы: {{ implode(', ', $configurationReview['installation']['blocked_types']) ?: 'Нет' }}</p>
+                        </details>
+                    @else
+                    <p class="text-sm">Это предпросмотр конфигураций CSV. Он не прогнозирует количество создаваемых или отключаемых товарных вариантов. Изменения товаров будут выполнены следующим этапом импорта.</p>
+                    @endif
+                    @if (($configurationReview['mode'] ?? null) === 'full')
+                        <p>Полное соответствие Excel: {{ $configurationReview['excel_complete'] ? 'подтверждено' : 'не подтверждено — есть сохранённые исключения' }}.</p>
+                        <p>Создать: {{ $configurationReview['assortment_counts']['new'] }};
+                            обновить: {{ $configurationReview['assortment_counts']['updates'] }};
+                            архивировать: {{ $configurationReview['assortment_counts']['archive'] }};
+                            сохранить без изменений: {{ $configurationReview['assortment_counts']['preserved'] }}.</p>
+                        <p>Из архивируемых — устаревших обобщённых карточек: {{ $configurationReview['structural_counts']['archive'] ?? 0 }}.
+                            Исторических карточек с неразрешёнными вопросами: {{ $configurationReview['structural_counts']['held'] ?? 0 }}.</p>
+                        @if (!empty($configurationReview['structural_counts']['held_by_reason']))
+                            <ul>
+                                @foreach ($configurationReview['structural_counts']['held_by_reason'] as $reason => $count)
+                                    <li>{{ match ($reason) {
+                                        'structural_restyling_requires_decision' => 'Неуточнённый рестайлинг',
+                                        'uncertain_applicability' => 'Конфликтная или неполная применимость',
+                                        'structural_type_requires_mapping', 'unmapped_historical_type' => 'Неуточнённый исторический тип',
+                                        'manual_publication_hold' => 'Ручной статус публикации',
+                                        default => 'Не подтверждены отдельные позиции или их применимость',
+                                    } }}: {{ $count }}</li>
+                                @endforeach
+                            </ul>
+                        @endif
+                        @if (!$configurationReview['execution_allowed'] || !$configurationReview['schema_ready'])
+                            <p>Запуск заблокирован. Проверьте источники, защиту общей матрицы и готовность схемы.</p>
+                        @endif
+                    @endif
+                    <p class="break-all text-xs">CSV SHA-256: {{ $configurationReview['csv_sha256'] }}</p>
+                    @foreach (['added' => 'Добавляемые конфигурации', 'retired' => 'Отключаемые конфигурации', 'reactivated' => 'Восстанавливаемые конфигурации', 'price_conflicts' => 'Изменения цен конфигураций'] as $key => $title)
+                        <details class="rounded-lg border border-gray-200 p-3 dark:border-white/10">
+                            <summary class="cursor-pointer font-semibold">{{ $title }}: {{ count($configurationReview[$key]) }}</summary>
+                            <ul class="mt-3 space-y-2 text-sm">
+                                @forelse ($configurationReview[$key] as $item)
+                                    <li>
+                                        @if ($key === 'added')
+                                            {{ $item['key'] }} — {{ json_encode($item['options'], JSON_UNESCAPED_UNICODE) }} — {{ $item['price'] }} ₽
+                                        @else
+                                            {{ $item['type'] }} / {{ $item['label'] }}
+                                            @if ($key === 'price_conflicts')
+                                                — {{ $item['previous_price'] }} → {{ $item['csv_price'] }} ₽
+                                            @endif
+                                        @endif
+                                    </li>
+                                @empty
+                                    <li>Нет изменений</li>
+                                @endforelse
+                            </ul>
+                        </details>
+                    @endforeach
+                    <div class="flex flex-wrap gap-3">
+                        <x-filament::button :disabled="(($configurationReview['mode'] ?? null) === 'safe_partial' && (! $configurationReview['valid'] || ! $configurationReview['schema_ready'])) || (($configurationReview['mode'] ?? null) === 'full' && (! $configurationReview['execution_allowed'] || ! $configurationReview['schema_ready']))" wire:click="confirmConfigurationImport" wire:loading.attr="disabled" wire:target="confirmConfigurationImport,previewConfigurationImport" wire:confirm="Подтвердить показанные изменения CSV и запустить импорт?">Подтвердить изменения CSV и запустить</x-filament::button>
+                        <x-filament::button color="gray" wire:click="previewConfigurationImport({{ $configurationReview['run_id'] }})" wire:loading.attr="disabled">Обновить предпросмотр</x-filament::button>
+                    </div>
+                </div>
+            </x-filament::section>
+        @endif
 
         @if ($activeRun = $this->activeRun())
             @php($progress = $this->progress($activeRun))

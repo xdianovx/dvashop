@@ -57,7 +57,15 @@ class MediaUrlService
         }
 
         if ($image->source_type === ProductImage::SOURCE_DEFAULT || $image->is_default || $image->disk === DefaultProductImageService::DISK) {
-            return app(DefaultProductImageService::class)->urlForPath($image->path) ?? $this->placeholderUrl();
+            if (is_string($image->path)
+                && str_starts_with($image->path, 'catalog/defaults/')
+                && ! str_contains($image->path, '..')
+                && Storage::disk('public')->exists($image->path)) {
+                return '/storage/'.ltrim($image->path, '/');
+            }
+
+            return app(DefaultProductImageService::class)
+                ->urlForPath($image->path) ?? $this->placeholderUrl();
         }
 
         return $this->publicDiskUrlOrPlaceholder($image->path, $image->disk ?: 'public');

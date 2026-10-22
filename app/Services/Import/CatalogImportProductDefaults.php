@@ -4,79 +4,53 @@ namespace App\Services\Import;
 
 use App\Models\PartType;
 use App\Models\Product;
-use App\Models\ProductCharacteristic;
 use App\Models\ProductOptionTemplate;
-use App\Models\ProductOptionValue;
-use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
 use App\Services\Catalog\CatalogConfigurations;
-use App\Services\Catalog\DefaultAutoPartOptionTemplateContract;
-use App\Services\Catalog\ProductVariantAdminService;
-use App\Services\Catalog\ProductVariantOptionGenerator;
 use App\Support\CatalogText;
 use Illuminate\Validation\ValidationException;
 use LogicException;
 
 final class CatalogImportProductDefaults
 {
-    public const TEMPLATE_SLUG = DefaultAutoPartOptionTemplateContract::TEMPLATE_SLUG;
+    private array $templates = [];
 
-    /** @var array<string, string> */
-    private const DEFAULT_SIGNATURE = [
-        'material' => 'galvanized',
-        'position' => 'left',
-        'profile' => 'full',
-        'thickness' => '1mm',
-    ];
-
-    /** @var array<int, array{name:string,value:string,position:int}> */
-    private const CHARACTERISTICS = [
-        ['name' => 'Марка', 'value' => 'Автопороги.ру', 'position' => 10],
-        ['name' => 'Производство', 'value' => 'Россия', 'position' => 20],
-        ['name' => 'Материал', 'value' => 'Сталь ГОСТ 19904-90', 'position' => 30],
-        ['name' => 'Сертификат', 'value' => '№0098556', 'position' => 40],
-    ];
-
-    private ?ProductOptionTemplate $cachedTemplate = null;
-
-    public function __construct(
-        private readonly ProductVariantOptionGenerator $variantGenerator,
-        private readonly ProductVariantAdminService $variantAdmin,
-        private readonly DefaultAutoPartOptionTemplateContract $optionContract,
-    ) {}
+    /** Read-only preflight, before resolving headers can create any catalog entities. */
+    public function assertHeadersReady(array $headers): void
+    {
+        $matrix = app(CatalogConfigurations::class);
+        $matrix->assertReady();
+        app(\App\Services\Catalog\CatalogMatrixPriceHistory::class)->sourceSha256();
+        $paths = array_unique(array_map(fn ($header) => app(ImportPartTypeResolver::class)->structuralPath($header), $headers));
+        $types = PartType::whereIn('full_slug', $paths)->get()->keyBy('full_slug');
+        foreach ($paths as $path) {
+            $type = $types->get($path);
+            if (! $type || ! $matrix->template($type->id)) {
+                throw ValidationException::withMessages(['configuration' => 'Нет установленной матрицы CSV для типа '.$path.'. Установите согласованные конфигурации до импорта.']);
+            }
+            $this->templateFor($type);
+        }
+    }
 
     public function templateFor(PartType $type): ProductOptionTemplate
     {
+        if (isset($this->templates[$type->id])) {
+            return $this->templates[$type->id];
+        }
         $matrix = app(CatalogConfigurations::class);
-        // CSV is authoritative: never recreate the old 24-way product when the last
-        // matrix combination of a previously configured type has been retired.
-        if ($matrix->hasHistory($type->id) && $matrix->rows($type->id)->isEmpty()) {
-            throw ValidationException::withMessages(['configuration' => 'У типа детали нет разрешённых конфигураций. Обновите CSV до импорта.']);
+        $matrix->assertReady();
+        app(\App\Services\Catalog\CatalogMatrixPriceHistory::class)->sourceSha256();
+        $template = $matrix->template($type->id);
+        if (! $template || ! $template->is_active || (int) $template->part_type_id !== (int) $type->id
+            || ! str_starts_with((string) $template->slug, 'matrix_')) {
+            throw ValidationException::withMessages(['configuration' => 'У типа '.$type->full_slug.' нет разрешённых конфигураций CSV.']);
+        }
+        $combinations = $matrix->combinations($template);
+        if ($combinations === null || count($combinations) !== $matrix->rows($type->id)->count()) {
+            throw ValidationException::withMessages(['configuration' => 'Опции матрицы '.$type->full_slug.' неполны или отключены.']);
         }
 
-        return $matrix->template($type->id) ?? $this->canonicalTemplate();
-    }
-
-    public function canonicalTemplate(): ProductOptionTemplate
-    {
-        if ($this->cachedTemplate instanceof ProductOptionTemplate) {
-            return $this->cachedTemplate;
-        }
-
-        $template = ProductOptionTemplate::query()
-            ->with(['items.group', 'items.value'])
-            ->where('slug', self::TEMPLATE_SLUG)
-            ->first();
-
-        if (! $template instanceof ProductOptionTemplate) {
-            $this->fail('Системный шаблон опций «default_auto_part» не найден.');
-        }
-
-        $this->optionContract->assertReadyForImport($template);
-
-        $this->cachedTemplate = $template;
-
-        return $template;
+        return $this->templates[$type->id] = $template;
     }
 
     public function description(PartType $partType, VehicleGeneration $generation): string
@@ -90,78 +64,24 @@ final class CatalogImportProductDefaults
             $this->fail('Невозможно сформировать начальное описание импортного товара: не определены тип детали, марка или модель.');
         }
 
-        return sprintf(
-            "Ремкомплект «%s» для %s %s предназначен для кузовного ремонта при коррозии, деформации и незначительных повреждениях после ДТП. Имеет запас по длине 5 см для упрощения подгонки при установке. Ремкомплект выполнен из высококачественной стали ГОСТ 19904-90, что гарантирует срок службы до 10 лет.\n\nБлагодаря использованию современного оборудования и усиленному контролю качества, продукция полностью соответствует оригинальным деталям и имеет сертификат РосТест №РО30-4539.",
-            $detail,
-            $make,
-            $model,
-        );
+        // The two import sources do not certify materials, standards, brands or
+        // warranties. Never invent commercial claims for imported products.
+        return sprintf('Деталь «%s» для %s %s. Доступные варианты и цены указаны на странице товара.',
+            $detail, $make, $model);
+
     }
 
-    public function initialize(Product $product, ProductOptionTemplate $template): void
+    public function initialize(Product $product, ProductOptionTemplate $template, ?int $importRunId = null): void
     {
         if ((int) $product->product_option_template_id !== (int) $template->getKey()) {
             $this->fail('Новый импортный товар не связан с проверенным системным шаблоном опций.');
         }
 
-        if (app(CatalogConfigurations::class)->rows($product->part_type_id)->isNotEmpty()) {
-            app(CatalogConfigurations::class)->synchronize($product);
-        } else {
-            $this->variantGenerator->createMissingVariants($product, DefaultAutoPartOptionTemplateContract::EXPECTED_COMBINATION_COUNT);
+        app(CatalogConfigurations::class)->synchronize($product, $importRunId !== null ? 'import:'.$importRunId : 'import');
 
-            $variants = $product->variants()
-                ->with('optionValues.group')
-                ->orderBy('id')
-                ->get();
+        // Vehicle and CSV sources contain no verified product characteristics.
+        // Manually entered characteristics are owned by the administrator.
 
-            if ($variants->count() !== DefaultAutoPartOptionTemplateContract::EXPECTED_COMBINATION_COUNT) {
-                $this->fail('Системный шаблон опций должен создавать ровно 24 варианта импортного товара.');
-            }
-
-            foreach ($variants as $variant) {
-                if ($variant->optionValues->count() !== 4) {
-                    $this->fail('Каждый импортный вариант должен содержать ровно четыре системные опции.');
-                }
-            }
-
-            $defaultVariant = $variants->first(
-                fn (ProductVariant $variant): bool => $this->variantSignature($variant) === self::DEFAULT_SIGNATURE,
-            );
-
-            if (! $defaultVariant instanceof ProductVariant) {
-                $this->fail('Не найден вариант по умолчанию full + left + galvanized + 1mm.');
-            }
-
-            $this->variantAdmin->setDefault($product, $defaultVariant);
-
-        }
-
-        if ($product->characteristics()->exists()) {
-            $this->fail('Новый импортный товар неожиданно содержит характеристики до начальной инициализации.');
-        }
-
-        $product->characteristics()->createMany(array_map(
-            static fn (array $item): array => [
-                ...$item,
-                'unit' => null,
-                'source_type' => ProductCharacteristic::SOURCE_IMPORT,
-                'is_visible' => true,
-            ],
-            self::CHARACTERISTICS,
-        ));
-    }
-
-    /** @return array<string, string> */
-    private function variantSignature(ProductVariant $variant): array
-    {
-        return $variant->optionValues
-            ->mapWithKeys(function (ProductOptionValue $value): array {
-                $groupCode = (string) $value->group?->code;
-
-                return $groupCode === '' ? [] : [$groupCode => (string) $value->code];
-            })
-            ->sortKeys()
-            ->all();
     }
 
     private function partTypeDisplayTitle(PartType $partType): string

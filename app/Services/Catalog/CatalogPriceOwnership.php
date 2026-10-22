@@ -29,6 +29,20 @@ final class CatalogPriceOwnership
         if (! app(CatalogPricingSchema::class)->ready()) {
             return;
         }
+        if ($record instanceof ProductVariant && ! $record->exists) {
+            $owner = Product::query()->find($record->product_id);
+            if ($owner && ($owner->import_source === 'catalog' || $owner->configuration_managed)) {
+                throw ValidationException::withMessages(['configuration' => 'Импортные варианты создаются только синхронизацией CSV.']);
+            }
+        }
+        if ($record->exists && $record->isDirty(['price', 'price_mode'])) {
+            $product = $record instanceof Product
+                ? $record
+                : Product::query()->find($record->product_id);
+            if ($product && ($product->import_source === 'catalog' || $product->configuration_managed)) {
+                throw ValidationException::withMessages(['price' => 'Изменяйте цены импортируемых товаров через «Массовое управление товарами». Следующий импорт восстановит цены из CSV.']);
+            }
+        }
         $mode = $record->price_mode ?? 'unknown';
         if (! array_key_exists($mode, self::options())) {
             throw ValidationException::withMessages(['price_mode' => 'Недопустимый режим цены.']);
@@ -56,6 +70,9 @@ final class CatalogPriceOwnership
 
     public function syncDependentVariants(Product $product): void
     {
+        if ($product->import_source === 'catalog' || $product->configuration_managed) {
+            return; // Matrix variants must never inherit one shared product amount.
+        }
         if ($product->wasChanged(['price', 'price_mode'])) {
             if ($product->price === null && DB::table('product_variants')->where('product_id', $product->id)->where('price_mode', 'inherited')->exists()) {
                 throw ValidationException::withMessages(['price' => 'Нельзя очистить цену товара с зависимыми вариантами.']);

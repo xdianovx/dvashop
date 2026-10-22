@@ -157,9 +157,9 @@ class ImportPartTypeResolver
                 $updates['is_active'] = true;
             }
 
-            if (($partType->default_image_key === null || $partType->default_image_key === '') && $defaultImageKey !== null) {
-                $updates['default_image_key'] = $defaultImageKey;
-            }
+            // Existing shared metadata is administrator-owned. The image service
+            // already resolves an empty key from the definition registry without
+            // persisting it; writing here would also invalidate the sealed matrix.
 
             if ($updates !== []) {
                 $partType->forceFill($updates)->saveQuietly();
@@ -187,6 +187,10 @@ class ImportPartTypeResolver
                 ?? $detailHeader['category_title']
                 ?? null
         );
+
+        if ($parentTitle === '' && mb_strtolower($detailTitle) === 'барабан') {
+            return ['Арка', 'Внутренняя универсальная'];
+        }
 
         if ($parentTitle !== '') {
             $parentSegments = $this->splitPath($parentTitle);

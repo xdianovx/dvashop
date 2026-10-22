@@ -13,9 +13,8 @@ use App\Models\ProductOptionGroup;
 use App\Models\ProductOptionTemplate;
 use App\Models\ProductVariant;
 use App\Models\ProductVariantOptionValue;
-use App\Models\User;
 use App\Models\VehicleGeneration;
-use App\Services\Catalog\CatalogBulkPrices;
+use App\Services\Catalog\CatalogConfigurations;
 use App\Services\Import\CatalogImportCell;
 use App\Services\Import\ImportImageDownloader;
 use App\Services\Import\ImportProductFactory;
@@ -27,6 +26,7 @@ use App\Support\CatalogText;
 use Database\Seeders\PartTypeSeeder;
 use Database\Seeders\ProductCatalogSeeder;
 use Database\Seeders\ProductOptionSeeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -41,7 +41,8 @@ beforeEach(function (): void {
     }
     // Real row commits keep the full workbook test bounded in memory, as in queue workers.
     $this->artisan('migrate:fresh', ['--force' => true]);
-    $this->seed([ProductCatalogSeeder::class, ProductOptionSeeder::class]);
+    $this->seed([ProductCatalogSeeder::class, PartTypeSeeder::class, ProductOptionSeeder::class]);
+    app(CatalogConfigurations::class)->install(base_path('tests/Fixtures/catalog-configurations.csv'));
     Queue::fake();
     Storage::fake('local');
     Http::preventStrayRequests();
@@ -108,38 +109,20 @@ function completeModernCatalogImport(string $path, int $chunkSize = 2): ImportRu
     return $run->refresh();
 }
 
-test('broken default auto part contract fails before row processing or archive phase', function (): void {
+test('legacy default option-template additions cannot invent CSV configurations', function (): void {
     $template = ProductOptionTemplate::query()->where('slug', 'default_auto_part')->firstOrFail();
     $profile = ProductOptionGroup::query()->where('code', 'profile')->firstOrFail();
     $legacy = $profile->values()->create([
-        'title' => 'Увеличенный',
-        'slug' => 'lncreased',
-        'code' => 'lncreased',
-        'is_active' => true,
+        'title' => 'Увеличенный', 'slug' => 'lncreased', 'code' => 'lncreased', 'is_active' => true,
     ]);
     $template->items()->create([
         'product_option_group_id' => $profile->getKey(),
-        'product_option_value_id' => $legacy->getKey(),
-        'position' => 999,
+        'product_option_value_id' => $legacy->getKey(), 'position' => 999,
     ]);
-
-    $productIdsBefore = Product::query()->orderBy('id')->pluck('id')->all();
-    $partTypesBefore = PartType::query()->count();
-    $path = modernCatalogFile([modernCatalogRow(), modernCatalogRow([2 => 'RDX'])]);
-
-    $run = completeModernCatalogImport($path);
-
-    expect($run->status)->toBe(ImportRunStatus::Failed)
-        ->and($run->errors_count)->toBe(1)
-        ->and($run->processed_rows)->toBe(0)
-        ->and($run->total_rows)->toBe(0)
-        ->and($run->initialized_at)->toBeNull()
-        ->and($run->archive_skipped)->toBeFalse()
-        ->and($run->last_error)->toContain('9 активных canonical selectable values')
-        ->and($run->logs()->where('level', 'error')->count())->toBe(1)
-        ->and($run->logs()->where('message', 'Ошибка обработки строки импорта')->count())->toBe(0)
-        ->and(Product::query()->orderBy('id')->pluck('id')->all())->toBe($productIdsBefore)
-        ->and(PartType::query()->count())->toBe($partTypesBefore);
+    $run = completeModernCatalogImport(modernCatalogFile([modernCatalogRow()]));
+    assertSnapshotSuccess($run);
+    $product = Product::firstOrFail();
+    expect($product->variants()->count())->toBe(app(CatalogConfigurations::class)->rows($product->part_type_id)->count());
 });
 
 test('snapshot chunks seek directly preserve source row numbers and detect truncation', function (): void {
@@ -158,7 +141,7 @@ test('invalid required fields fail preparation before catalog changes or pruning
     completeModernCatalogImport(modernCatalogFile([modernCatalogRow()]));
     $ids = Product::pluck('id')->all();
     $run = completeModernCatalogImport(modernCatalogFile([modernCatalogRow([1 => null, 18 => null])]));
-    expect($run->status)->toBe(ImportRunStatus::Failed)->and($run->last_error)->toContain('Строка 3')
+    expect($run->status)->toBe(ImportRunStatus::Failed)->and($run->last_error)->toContain('В файле нет ни одного товара')
         ->and(Product::where('status', ProductStatus::Active)->pluck('id')->all())->toBe($ids);
 });
 
@@ -208,7 +191,7 @@ test('a second snapshot cannot start while the same source is running or paused'
         ->and(Product::count())->toBe(0);
 });
 
-function snapshotFile(array $details, array $rows, ?array $order = null, string $sheetName = 'Любая редакция'): string
+function snapshotFile(array $details, array $rows, ?array $order = null, string $sheetName = 'Каталог (new)'): string
 {
     $headers = ['Ссылка на фото автомобиля', 'Марка', 'Модель', 'Поколение', 'Годы выпуска', 'Кузов', ...$details];
     $order ??= array_keys($headers);
@@ -222,8 +205,6 @@ function snapshotFile(array $details, array $rows, ?array $order = null, string 
         $row = [null, 'Acura', 'Integra', '3', '1993 - 2001', 'Седан 4 дв.', ...$cells];
         $writer->addRow(Row::fromValues(array_map(fn ($i) => $row[$i] ?? null, $order)));
     }
-    $writer->addNewSheetAndMakeItCurrent()->setName('Каталог (new)');
-    $writer->addRow(Row::fromValues(['must never be imported']));
     $writer->close();
 
     return $path;
@@ -236,12 +217,13 @@ function assertSnapshotSuccess(ImportRun $run): void
 }
 
 test('snapshot archives missing cells and reactivates identical cards with all variants and manual fields', function (): void {
-    $details = ['Порог', 'Арка / Задняя', 'Арка / Внутренняя', 'Арка / Внутренняя универсальная', 'Лонжерон', 'Торцевая заглушка', 'Ремкомплект пола', 'Усилитель / соединитель порогов'];
+    $details = ['Порог', 'Арка / Задняя', 'Арка / Внутренняя задняя', 'Арка / Внутренняя универсальная', 'Лонжерон', 'Торцевая заглушка', 'Ремкомплект пола', 'Усилитель'];
     $path = snapshotFile($details, [array_fill(0, 8, 1)]);
     assertSnapshotSuccess(completeModernCatalogImport($path));
     expect(Product::where('status', ProductStatus::Active)->count())->toBe(8);
     $old = Product::firstOrFail();
-    $old->update(['description' => 'Ручное описание', 'slug' => 'my-permanent-url', 'price' => 3500]);
+    $old->update(['description' => 'Ручное описание', 'slug' => 'my-permanent-url']);
+    DB::table('products')->where('id', $old->id)->update(['price' => '3500.00']);
     $before = Product::orderBy('id')->get(['id', 'slug', 'import_key'])->toArray();
     $variants = ProductVariant::orderBy('id')->get()->toArray();
     $manual = Product::factory()->create(['import_source' => null, 'status' => ProductStatus::Active]);
@@ -252,44 +234,46 @@ test('snapshot archives missing cells and reactivates identical cards with all v
         ->and($manual->refresh()->status)->toBe(ProductStatus::Active)->and($foreign->refresh()->status)->toBe(ProductStatus::Active);
     assertSnapshotSuccess(completeModernCatalogImport($path));
     assertSnapshotSuccess(completeModernCatalogImport($path));
-    expect($old->refresh()->status)->toBe(ProductStatus::Active)->and($old->description)->toBe('Ручное описание')->and($old->price)->toBe('3500.00')
+    expect($old->refresh()->status)->toBe(ProductStatus::Active)->and($old->description)->toBe('Ручное описание')->and($old->price)->toBe($old->defaultVariant()->firstOrFail()->price)
         ->and(Product::where('import_source', 'catalog')->orderBy('id')->get(['id', 'slug', 'import_key'])->toArray())->toBe($before)
         ->and(ProductVariant::whereIn('product_id', array_column($before, 'id'))->orderBy('id')->get()->toArray())->toBe($variants);
 });
 
 test('columns can be reordered added removed and structurally renamed without special detail rules', function (): void {
-    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Новая деталь', 'Другая деталь'], [[1, 1]])));
+    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Порог', 'Лонжерон'], [[1, 1]])));
     $ids = Product::orderBy('id')->pluck('id')->all();
     $first = Product::findOrFail($ids[0]);
     $second = Product::findOrFail($ids[1]);
-    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['  НОВАЯ  ДЕТАЛЬ ', 'Другая деталь'], [[1, 1]], [7, 3, 1, 2, 0, 6, 5, 4])));
+    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['  ПОРОГ ', 'Лонжерон'], [[1, 1]], [7, 3, 1, 2, 0, 6, 5, 4])));
     expect(Product::orderBy('id')->pluck('id')->all())->toBe($ids);
-    $first->update(['price' => 4100]);
-    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Новая деталь', 'Совсем иная'], [[1, 1]])));
-    expect($first->refresh()->price)->toBe('4100.00')->and($second->refresh()->status)->toBe(ProductStatus::Archived)->and(Product::count())->toBe(3);
-    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Новая деталь'], [[1]])));
+    DB::table('products')->where('id', $first->id)->update(['price' => '4100.00']);
+    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Порог', 'Арка / Задняя'], [[1, 1]])));
+    expect($first->refresh()->price)->toBe($first->defaultVariant()->firstOrFail()->price)->and($second->refresh()->status)->toBe(ProductStatus::Archived)->and(Product::count())->toBe(3);
+    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Порог'], [[1]])));
     expect(Product::where('status', ProductStatus::Active)->count())->toBe(1);
 });
 
 test('colliding columns fail before any assortment mutation', function (): void {
-    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Деталь'], [[1]])));
+    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Порог'], [[1]])));
     $before = Product::firstOrFail()->getAttributes();
-    foreach ([snapshotFile(['Деталь', ' деталь '], [[1, 1]])] as $path) {
+    foreach ([snapshotFile(['Порог', ' порог '], [[1, 1]])] as $path) {
         $run = completeModernCatalogImport($path);
         expect($run->status)->toBe(ImportRunStatus::Failed)->and($run->processed_rows)->toBe(0)->and($run->errors_count)->toBe(1)
             ->and($run->archived_products)->toBe(0)->and(Product::firstOrFail()->getAttributes())->toBe($before);
     }
 });
 
-test('invalid first sheet never falls back to a valid later sheet', function (): void {
+test('an old named sheet never overrides ambiguity in a multi sheet workbook', function (): void {
     $run = completeModernCatalogImport(modernCatalogFile([modernCatalogRow()], true));
-    expect($run->status)->toBe(ImportRunStatus::Failed)->and($run->processed_rows)->toBe(0)->and(Product::count())->toBe(0);
+    expect($run->status)->toBe(ImportRunStatus::Failed)
+        ->and($run->last_error)->toContain('один рабочий лист')
+        ->and(Product::count())->toBe(0);
 });
 
 test('a failed partially processed snapshot keeps old assortment and a fresh retry reuses staged cards', function (): void {
-    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Старое'], [[1]])));
+    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Порог'], [[1]])));
     $old = Product::firstOrFail();
-    $path = snapshotFile(['Новое'], [[1], [2]]);
+    $path = snapshotFile(['Лонжерон'], [[1], [2]]);
     $run = app(ImportStatusService::class)->createFromStoredPath('catalog', basename($path), basename($path), chunkSize: 1);
     app()->call([new CatalogImportStartJob($run->id), 'handle']);
     app()->call([new CatalogImportChunkJob($run->id), 'handle']);
@@ -378,7 +362,7 @@ test('full supplied workbook snapshot synchronizes a legacy catalog and repeats 
     mkdir($root, 0777, true);
     config(['filesystems.disks.local' => ['driver' => 'local', 'root' => $root]]);
     Storage::forgetDisk('local');
-    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Порог', 'Арка / Задняя', 'Арка / Внутренняя', 'Арка / Внутренняя универсальная', 'Лонжерон', 'Торцевая заглушка', 'Ремкомплект пола', 'Усилитель / соединитель порогов'], [array_fill(0, 8, 1)])));
+    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Порог', 'Арка / Задняя', 'Арка / Внутренняя задняя', 'Арка / Внутренняя универсальная', 'Лонжерон', 'Торцевая заглушка', 'Ремкомплект пола', 'Усилитель'], [array_fill(0, 8, 1)])));
     $legacy = Product::orderBy('id')->get(['id', 'slug', 'import_key'])->toArray();
     $obsolete = Product::factory()->create(['import_source' => 'catalog', 'import_key' => 'catalog:obsolete', 'status' => ProductStatus::Active]);
     $path = Storage::disk('local')->path('full.xlsx');
@@ -420,7 +404,8 @@ test('a changed imported photo url with identical content is remembered without 
     Http::assertSentCount(2);
 });
 
-test('changed vehicle photo is downloaded before its source is replaced and identical repeat is skipped', function (): void {
+test('a verified vehicle photo survives changed source URLs and identical repeat is skipped', function (): void {
+    fake_vehicle_photo_verifier(smallFixtures: true);
     Storage::fake('public');
     Http::fake([
         'images.example.test/old.jpg' => Http::response(test_image_binary('jpeg', 32, 24), 200, ['Content-Type' => 'image/jpeg']),
@@ -434,19 +419,24 @@ test('changed vehicle photo is downloaded before its source is replaced and iden
     $processor->vehicleGeneration('Example', 'Car', 'I', '2000-2005', 'Седан', 'https://images.example.test/new.jpg');
     expect($generation->refresh()->image_source_url)->toBe('https://images.example.test/old.jpg');
     $downloader->downloadVehicleGenerationImage($generation, 'https://images.example.test/new.jpg');
-    expect($generation->refresh()->image_source_url)->toBe('https://images.example.test/new.jpg')->and($generation->image)->not->toBe($oldPath);
+    expect($generation->refresh()->image_source_url)->toBe('https://images.example.test/old.jpg')->and($generation->image)->toBe($oldPath);
     $downloader->downloadVehicleGenerationImage($generation, 'https://images.example.test/new.jpg');
     Http::assertSentCount(2);
 });
 
 test('snapshot schema migration preserves existing products variants and mappings', function (): void {
     assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Порог'], [[1]])));
+    // This fixture deliberately goes back to an older column layout. Remove the
+    // newer empty protection schema first, as a real guarded rollback requires.
+    $protections = require database_path('migrations/2026_10_20_000100_add_safe_partial_catalog_protections.php');
+    $protections->down();
     $migration = require database_path('migrations/2026_10_09_000100_create_catalog_import_snapshot_items.php');
     $migration->down();
     $before = Product::firstOrFail()->getAttributes();
     $variants = ProductVariant::orderBy('id')->get()->toArray();
     $mappings = ProductVariantOptionValue::orderBy('id')->get()->toArray();
     $migration->up();
+    $protections->up();
     $after = Product::firstOrFail()->getAttributes();
     unset($after['last_import_price']);
     expect($after)->toBe($before)
@@ -456,7 +446,7 @@ test('snapshot schema migration preserves existing products variants and mapping
 
 test('search refresh is queued only after snapshot publication', function (): void {
     config(['scout.driver' => 'meilisearch']);
-    $path = snapshotFile(['Деталь'], [[1], [1]]);
+    $path = snapshotFile(['Порог'], [[1], [1]]);
     $run = app(ImportStatusService::class)->createFromStoredPath('catalog', basename($path), basename($path), chunkSize: 1);
     app()->call([new CatalogImportStartJob($run->id), 'handle']);
     app()->call([new CatalogImportChunkJob($run->id), 'handle']);
@@ -468,17 +458,17 @@ test('search refresh is queued only after snapshot publication', function (): vo
 });
 
 test('a snapshot cannot claim an existing key owned by another source', function (): void {
-    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Деталь'], [[1]])));
+    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Порог'], [[1]])));
     $product = Product::firstOrFail();
     $product->update(['import_source' => 'manual']);
     $before = $product->fresh()->getAttributes();
-    $run = completeModernCatalogImport(snapshotFile(['Деталь'], [[1]]));
+    $run = completeModernCatalogImport(snapshotFile(['Порог'], [[1]]));
     expect($run->status)->toBe(ImportRunStatus::Failed)->and($run->last_error)->toContain('другого источника')
         ->and($product->fresh()->getAttributes())->toBe($before);
 });
 
 test('empty snapshots and unnamed populated columns are rejected', function (): void {
-    foreach ([snapshotFile(['Деталь'], [[null]]), snapshotFile([''], [[1]])] as $path) {
+    foreach ([snapshotFile(['Порог'], [[null]]), snapshotFile([''], [[1]])] as $path) {
         $run = completeModernCatalogImport($path);
         expect($run->status)->toBe(ImportRunStatus::Failed)->and($run->processed_rows)->toBe(0)->and(Product::count())->toBe(0);
     }
@@ -501,31 +491,29 @@ test('platform and restyling distinguish vehicles and omitted generations are de
     expect(Product::count())->toBe(3)->and(Product::where('status', ProductStatus::Active)->count())->toBe(3);
 });
 
-test('retry after the last row checkpoint still validates and publishes the snapshot', function (bool $rowError): void {
-    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Прежняя деталь'], [[1]])));
+test('retry after the last row checkpoint does not duplicate an existing catalog product', function (bool $rowError): void {
+    assertSnapshotSuccess(completeModernCatalogImport(snapshotFile(['Порог'], [[1]])));
     $previous = Product::firstOrFail();
-    $path = snapshotFile(['Новая деталь'], [[1]]);
+    $variantIds = $previous->variants()->orderBy('id')->pluck('id')->all();
+    $path = snapshotFile(['Порог'], [[1]]);
     $run = app(ImportStatusService::class)->createFromStoredPath('catalog', basename($path), basename($path));
     app()->call([new CatalogImportStartJob($run->id), 'handle']);
     $run->refresh();
     $row = app(SpreadsheetReader::class)->readPreparedChunk($run->prepared_rows, 0, 1)[0];
     app(ImportRowProcessor::class)->process($run, $row, $run->detail_columns, $row['_row_number']);
-    $staged = Product::whereKeyNot($previous->id)->firstOrFail();
-    expect($staged->status)->toBe(ProductStatus::Archived);
-
-    // Simulate worker loss between the last checkpoint commit and final reconciliation.
+    expect(Product::count())->toBe(1);
     app(ImportStatusService::class)->updateRowsProgress($run, $run->total_rows);
     $run->forceFill(['errors_count' => $rowError ? 1 : 0])->save();
     app()->call([new CatalogImportChunkJob($run->id), 'handle']);
 
     expect($run->refresh()->status)->toBe($rowError ? ImportRunStatus::Failed : ImportRunStatus::Done)
-        ->and($previous->refresh()->status)->toBe($rowError ? ProductStatus::Active : ProductStatus::Archived)
-        ->and($staged->refresh()->status)->toBe($rowError ? ProductStatus::Archived : ProductStatus::Active)
-        ->and(Product::count())->toBe(2);
+        ->and($previous->refresh()->status)->toBe(ProductStatus::Active)
+        ->and($previous->variants()->orderBy('id')->pluck('id')->all())->toBe($variantIds)
+        ->and(Product::count())->toBe(1);
 })->with([false, true]);
 
 test('absent values archive a card and one restores its identity and variants without duplicates', function (mixed $value): void {
-    $headers = ['Порог', 'Контрольная деталь'];
+    $headers = ['Порог', 'Лонжерон'];
     assertSnapshotSuccess(completeModernCatalogImport(snapshotFile($headers, [[1, 1]])));
     $product = Product::whereHas('partType', fn ($q) => $q->where('full_slug', 'porog'))->firstOrFail();
     $identity = $product->only(['id', 'slug', 'import_key']);
@@ -544,33 +532,32 @@ test('absent values archive a card and one restores its identity and variants wi
         ->and($product->only(['id', 'slug', 'import_key']))->toBe($identity)
         ->and($product->variants()->orderBy('id')->get()->toArray())->toBe($variants)
         ->and(Product::count())->toBe(2);
-})->with([0, '0', null, '', '   ', 'maver', 'abc', 'да', 2, -1, 1.5, true, 'https://example.test/image.jpg']);
+})->with([0, '0', null, '', '   ', 'maver', 'abc', 'да', 2, -1, 1.5, 'https://example.test/image.jpg']);
 
-test('database base prices survive snapshot reactivation repeats and apply to new cars with 24 variants', function (): void {
-    $this->seed(PartTypeSeeder::class);
+test('CSV prices and variants survive reactivation and restore manual price changes on later imports', function (): void {
     $first = modernCatalogFile([modernCatalogRow(), modernCatalogRow([2 => 'TSX'])]);
     assertSnapshotSuccess(completeModernCatalogImport($first));
     $p = Product::where('title', 'like', '%MDX%')->firstOrFail();
     $manual = Product::where('title', 'like', '%TSX%')->firstOrFail();
-    $manual->update(['price' => 9876]);
+    $matrix = app(CatalogConfigurations::class);
+    $csvPrice = $manual->defaultVariant()->firstOrFail()->price;
     $ids = $p->variants()->orderBy('id')->pluck('id')->all();
     $slug = $p->slug;
+    DB::table('products')->where('id', $manual->id)->update(['price' => '9876.00']);
     assertSnapshotSuccess(completeModernCatalogImport(modernCatalogFile([modernCatalogRow([2 => 'TSX'])])));
     expect($p->refresh()->status)->toBe(ProductStatus::Archived);
-    $prices = app(CatalogBulkPrices::class);
-    $admin = User::factory()->superAdmin()->create();
-    $operation = $prices->confirm($admin, $prices->preview($p->part_type_id, false, '3123.45'));
-    while (! $prices->batch($operation)) {
-    }
     $next = modernCatalogFile([modernCatalogRow(), modernCatalogRow([2 => 'TSX']), modernCatalogRow([2 => 'RL'])]);
     assertSnapshotSuccess(completeModernCatalogImport($next));
+    $before = Product::orderBy('id')->pluck('id')->all();
     assertSnapshotSuccess(completeModernCatalogImport($next));
-    expect($p->refresh()->price)->toBe('3123.45')->and($p->price_mode)->toBe('inherited')
-        ->and($p->status)->toBe(ProductStatus::Active)->and($p->slug)->toBe($slug)
+    expect($p->refresh()->status)->toBe(ProductStatus::Active)
+        ->and($p->slug)->toBe($slug)
         ->and($p->variants()->orderBy('id')->pluck('id')->all())->toBe($ids)
-        ->and($p->variants()->where('price', '3123.45')->count())->toBe(24)
-        ->and($manual->refresh()->price)->toBe('9876.00')->and($manual->price_mode)->toBe('individual');
-    $new = Product::where('title', 'like', '% RL %')->firstOrFail();
-    expect($new->price)->toBe('3123.45')->and($new->variants()->where('price', '3123.45')->count())->toBe(24)
+        ->and($p->variants()->count())->toBe($matrix->rows($p->part_type_id)->count())
+        ->and($manual->refresh()->price)->toBe($csvPrice)
+        ->and(Product::orderBy('id')->pluck('id')->all())->toBe($before)
         ->and(Product::count())->toBe(3);
+    $new = Product::where('title', 'like', '% RL %')->firstOrFail();
+    expect($new->price)->toBe($csvPrice)
+        ->and($new->variants()->count())->toBe($matrix->rows($new->part_type_id)->count());
 });

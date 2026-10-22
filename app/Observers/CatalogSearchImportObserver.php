@@ -11,7 +11,7 @@ final class CatalogSearchImportObserver
 {
     public function updated(ImportRun $run): void
     {
-        if (! $run->isSnapshotCatalogImport() && config('scout.driver') === 'meilisearch' && $run->type === 'catalog'
+        if (! $run->isSnapshotCatalogImport() && $run->import_mode !== 'safe_partial' && config('scout.driver') === 'meilisearch' && $run->type === 'catalog'
             && $run->wasChanged('status') && $run->status === ImportRunStatus::Done && $run->errors_count === 0) {
             DB::afterCommit(fn () => RefreshCatalogSearchDependencies::dispatch());
         }

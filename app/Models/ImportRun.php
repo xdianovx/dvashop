@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\ImportRunStatus;
 use App\Services\Catalog\CatalogPriceGuard;
+use App\Services\Import\ImportImageTasks;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -18,6 +19,9 @@ class ImportRun extends Model
         'status',
         'original_name',
         'stored_path',
+        'configuration_path',
+        'configuration_hash',
+        'import_mode',
         'file_hash',
         'file_size',
         'mime_type',
@@ -73,6 +77,9 @@ class ImportRun extends Model
             'processed_rows' => 'integer',
             'current_row' => 'integer',
             'chunk_size' => 'integer',
+            'configuration_review' => 'array',
+            'configuration_confirmed_by' => 'integer',
+            'configuration_confirmed_at' => 'datetime',
             'detail_columns' => 'array',
             'prepared_rows' => 'array',
             'initialized_at' => 'datetime',
@@ -135,12 +142,13 @@ class ImportRun extends Model
 
     public function hasPendingImages(): bool
     {
-        return $this->queued_images > 0 && ($this->processed_images + $this->failed_images) < $this->queued_images;
+        return ($this->queued_images > 0 && ($this->processed_images + $this->failed_images) < $this->queued_images)
+            || app(ImportImageTasks::class)->hasUnfinished($this);
     }
 
     public function imagesFinished(): bool
     {
-        return $this->queued_images <= 0 || ($this->processed_images + $this->failed_images) >= $this->queued_images;
+        return ! $this->hasPendingImages();
     }
 
     public function isActive(): bool

@@ -23,26 +23,33 @@ final class CatalogActions
 
     public function parameters(array $input): array
     {
+        if (($input['kind'] ?? null) === 'configuration_price') {
+            throw ValidationException::withMessages(['parameters' => 'Устаревшая операция изменения цены отключена. Используйте действие «Изменить цену конфигурации».']);
+        }
         $p = Validator::make($input, [
-            'kind' => 'required|in:status,configurations,configuration_price', 'type_id' => 'required|integer|exists:part_types,id',
+            'kind' => 'required|in:status,configurations,price', 'type_id' => 'required|integer|exists:part_types,id',
             'descendants' => 'required|boolean', 'source_status' => 'required|in:all,draft,active,archived',
             'target_status' => 'required_if:kind,status|in:draft,active,archived', 'force' => 'required|boolean',
-            'configuration_id' => 'required_if:kind,configuration_price|nullable|integer|exists:catalog_configurations,id',
-            'price' => 'required_if:kind,configuration_price|nullable',
+            'configuration_id' => 'required_if:kind,price|nullable|integer', 'price' => 'required_if:kind,price|nullable|string',
+            'search' => 'nullable|string|max:200',
         ])->validate();
         $p['type_id'] = (int) $p['type_id'];
+        $p['search'] = trim((string) ($p['search'] ?? ''));
+        if ($p['kind'] === 'price') {
+            if ($p['descendants']) {
+                throw ValidationException::withMessages(['parameters' => 'Для изменения цены выберите один конкретный тип детали.']);
+            }
+            $p['configuration_id'] = (int) $p['configuration_id'];
+            $configuration = CatalogConfiguration::whereKey($p['configuration_id'])
+                ->where('part_type_id', $p['type_id'])->where('is_active', true)->first();
+            if (! $configuration) {
+                throw ValidationException::withMessages(['configuration_id' => 'Выбранная конфигурация не принадлежит этому типу или отключена.']);
+            }
+            $p['price'] = app(CatalogBulkPrices::class)->price(str_replace(',', '.', (string) $p['price']));
+        }
         $p['descendants'] = (bool) $p['descendants'];
         $p['force'] = (bool) $p['force'];
         $p['type_ids'] = app(CatalogBulkPrices::class)->scope($p['type_id'], $p['descendants']);
-        if ($p['kind'] === 'configuration_price') {
-            $row = CatalogConfiguration::findOrFail($p['configuration_id']);
-            if ($row->part_type_id !== $p['type_id'] || $p['descendants'] || $p['source_status'] !== 'all') {
-                throw ValidationException::withMessages(['parameters' => 'Выберите конкретный тип конфигурации, без подтипов, и все статусы.']);
-            }
-            $p['configuration_id'] = (int) $row->id;
-            $p['price'] = app(CatalogBulkPrices::class)->price($p['price']);
-            $p['configuration_version'] = hash('sha256', json_encode($row->only(['signature', 'price', 'is_active']), JSON_THROW_ON_ERROR));
-        }
         ksort($p);
 
         return $p;
@@ -51,23 +58,59 @@ final class CatalogActions
     private function override(array $parameters): ?string
     {
         return $parameters['target_status'] === 'active'
-            ? ($parameters['force'] ? 'force_active' : null)
+            ? null
             : $parameters['target_status'];
     }
 
     public function query(array $p)
     {
         return Product::where('product_type', 'auto_part')->whereIn('part_type_id', $p['type_ids'])
-            ->when($p['source_status'] !== 'all', fn ($q) => $q->where('status', $p['source_status']));
+            ->when($p['source_status'] !== 'all', fn ($q) => $q->where('status', $p['source_status']))
+            ->when(($p['search'] ?? '') !== '', function ($q) use ($p) {
+                $term = $p['search'];
+                if (ctype_digit($term)) {
+                    $q->whereKey((int) $term); // Numeric input is an exact ID, never title substring.
+                } else {
+                    $q->where('title', 'like', '%'.addcslashes($term, '%_\\').'%');
+                }
+            });
     }
 
     public function reason(Product $product, array $p): ?string
     {
+        if (app(CatalogImportProtections::class)->protects($product->id)) {
+            return 'Постоянная защита safe_partial.';
+        }
         if ($p['kind'] === 'status') {
-            return $p['target_status'] === 'active' && ! $p['force'] && ! app(CatalogPublicationPolicy::class)->present($product)
-                ? 'Отсутствует в актуальном Excel; требуется явная принудительная публикация.' : null;
+            return $p['target_status'] === 'active' && ! app(CatalogPublicationPolicy::class)->present($product)
+                ? 'Отсутствует в актуальном Excel. Публикация возможна только после возвращения в источник.' : null;
+        }
+        if ($p['kind'] === 'price') {
+            $template = $product->optionTemplate?->slug;
+            if ($product->import_source !== 'catalog' && ! $product->configuration_managed
+                && ! str_starts_with((string) $template, 'matrix_')) {
+                return 'Это не товар с конфигурациями CSV.';
+            }
+            $expectedTemplate = app(CatalogConfigurations::class)->template($product->part_type_id);
+            if (! $expectedTemplate || ($product->product_option_template_id !== null
+                && ! in_array($template, ['default_auto_part', $expectedTemplate->slug], true))) {
+                return 'Товар использует нестандартный шаблон. Проверьте его отдельно.';
+            }
+            $configuration = app(CatalogConfigurations::class)->rows($product->part_type_id)
+                ->firstWhere('id', $p['configuration_id']);
+            $matches = $product->variants->where('catalog_configuration_id', $p['configuration_id']);
+            if (! $configuration || $matches->count() !== 1 || ! $matches->first()->is_active
+                || app(CatalogConfigurations::class)->signature($matches->first()) !== $configuration->signature) {
+                return 'Вариант не соответствует CSV. Сначала выполните корректный импорт.';
+            }
+            return null;
         }
         if ($p['kind'] === 'configurations') {
+            $chosenTemplate = $product->optionTemplate?->slug;
+            if ($product->import_source !== 'catalog' && ! $product->configuration_managed
+                && ! str_starts_with((string) $chosenTemplate, 'matrix_')) {
+                return 'Товар не относится к импортируемому/матричному каталогу.';
+            }
             $template = app(CatalogConfigurations::class)->template($product->part_type_id);
             if (! $template) {
                 // All combinations can be removed from a type, but its already managed offers
@@ -109,12 +152,18 @@ final class CatalogActions
         app(CatalogBulkPrices::class)->authorize($user);
         $p = $this->parameters($input);
         app(CatalogConfigurations::class)->clear();
-        if ($p['kind'] === 'configurations') {
+        if (in_array($p['kind'], ['configurations', 'price'], true)) {
             app(CatalogConfigurations::class)->prime($p['type_ids']);
         }
-        $counts = array_fill_keys(['products', 'active', 'archived', 'draft', 'changed', 'same', 'protected', 'variants_to_update', 'variants_to_create', 'variants_to_retire'], 0);
+        $counts = array_fill_keys(['products', 'active', 'archived', 'draft', 'changed', 'same', 'protected', 'variants_to_update', 'variants_to_create', 'variants_to_retire', 'price_exceptions', 'prices_to_change', 'product_prices_to_change'], 0);
         $hash = hash_init('sha256');
         hash_update($hash, json_encode($p, JSON_THROW_ON_ERROR));
+        if (in_array($p['kind'], ['configurations', 'price'], true)) {
+            hash_update($hash, app(CatalogMatrixPriceHistory::class)->sourceSha256());
+        }
+        if ($p['kind'] === 'price') {
+            hash_update($hash, CatalogConfiguration::whereKey($p['configuration_id'])->firstOrFail()->toJson());
+        }
         if ($p['kind'] === 'configurations') {
             hash_update($hash, CatalogConfiguration::whereIn('part_type_id', $p['type_ids'])->orderBy('id')->get()->toJson());
         }
@@ -129,16 +178,22 @@ final class CatalogActions
                     $counts['protected']++;
                 } elseif ($p['kind'] === 'status' && $product->status->value === $p['target_status'] && $product->publication_override === $this->override($p)) {
                     $counts['same']++;
-                } elseif ($p['kind'] === 'configuration_price') {
-                    $changed = $product->variants->filter(fn ($v) => (int) $v->catalog_configuration_id === $p['configuration_id'] && $v->price_mode === 'inherited' && $v->price !== $p['price'])->count();
-                    $counts['variants_to_update'] += $changed;
-                    $counts[$changed > 0 ? 'changed' : 'same']++;
-                    $counts['protected'] += $product->variants->contains(fn ($v) => (int) $v->catalog_configuration_id === $p['configuration_id'] && $v->price_mode !== 'inherited') ? 1 : 0;
+                } elseif ($p['kind'] === 'price') {
+                    $variant = $product->variants->firstWhere('catalog_configuration_id', $p['configuration_id']);
+                    $variantChanged = $variant->price !== $p['price'] || $variant->price_mode !== 'individual';
+                    $baseChanged = $variant->is_default
+                        && ($product->price !== $p['price'] || $product->price_mode !== 'individual');
+                    $counts['prices_to_change'] += $variantChanged ? 1 : 0;
+                    $counts['product_prices_to_change'] += $baseChanged ? 1 : 0;
+                    $counts[$variantChanged || $baseChanged ? 'changed' : 'same']++;
                 } elseif ($p['kind'] === 'configurations') {
                     $difference = app(CatalogConfigurations::class)->changes($product);
                     $counts['variants_to_create'] += $difference['created_variants'];
                     $counts['variants_to_update'] += $difference['updated_variants'];
                     $counts['variants_to_retire'] += $difference['retired_variants'];
+                    $counts['price_exceptions'] += $difference['price_exceptions'];
+                    $counts['prices_to_change'] += $difference['prices_to_change'];
+                    $counts['product_prices_to_change'] += $difference['product_prices_to_change'];
                     $counts[$difference['changed'] ? 'changed' : 'same']++;
                 } else {
                     $counts['changed']++;
@@ -195,9 +250,17 @@ final class CatalogActions
                 throw new \LogicException('Lost catalog reservation');
             }
             $p = json_decode($op->parameters, true);
+            if (! in_array($p['kind'], ['status', 'configurations', 'price'], true)) {
+                throw ValidationException::withMessages(['parameters' => 'Устаревшая операция не поддерживается. Отмените её остаток.']);
+            }
             app(CatalogConfigurations::class)->clear();
-            if ($p['kind'] === 'configurations') {
+            if (in_array($p['kind'], ['configurations', 'price'], true)) {
                 app(CatalogConfigurations::class)->prime($p['type_ids']);
+                app(CatalogMatrixPriceHistory::class)->sourceSha256();
+            }
+            if ($p['kind'] === 'price' && ! CatalogConfiguration::whereKey($p['configuration_id'])
+                ->where('part_type_id', $p['type_id'])->where('is_active', true)->exists()) {
+                throw ValidationException::withMessages(['configuration_id' => 'Конфигурация изменилась. Остановите остаток операции.']);
             }
             $report = json_decode($op->report, true);
             $items = DB::table('catalog_action_items')->where('catalog_action_id', $id)->where('product_id', '>', $cursor)->orderBy('product_id')->limit(self::BATCH)->get();
@@ -207,13 +270,6 @@ final class CatalogActions
                 if (! $product || ! hash_equals($item->fingerprint, hash('sha256', json_encode($this->state($product, $p), JSON_THROW_ON_ERROR)))) {
                     throw ValidationException::withMessages(['parameters' => 'Товар изменён после подтверждения: #'.$item->product_id]);
                 }
-            }
-            if ($p['kind'] === 'configuration_price' && $cursor === 0) {
-                $row = CatalogConfiguration::whereKey($p['configuration_id'])->lockForUpdate()->firstOrFail();
-                if (! hash_equals($p['configuration_version'], hash('sha256', json_encode($row->only(['signature', 'price', 'is_active']), JSON_THROW_ON_ERROR)))) {
-                    throw ValidationException::withMessages(['parameters' => 'Цена конфигурации изменилась.']);
-                }
-                DB::table('catalog_configurations')->where('id', $row->id)->update(['price' => $p['price'], 'updated_at' => now()]);
             }
             foreach ($items as $item) {
                 $product = $products[$item->product_id];
@@ -227,19 +283,31 @@ final class CatalogActions
                     $result = ['status' => $p['target_status'], 'publication_override' => $override];
                     $report['changed'] += $product->status->value !== $p['target_status'] || $product->publication_override !== $override ? 1 : 0;
                 } elseif ($p['kind'] === 'configurations') {
-                    $result = app(CatalogConfigurations::class)->synchronize($product);
+                    $result = app(CatalogConfigurations::class)->synchronize($product, 'catalog_action:'.$id);
                     $report['changed'] += ! empty($result['changed']) ? 1 : 0;
-                } else {
-                    $changed = DB::table('product_variants')->where('product_id', $product->id)->where('catalog_configuration_id', $p['configuration_id'])
-                        ->where('price_mode', 'inherited')->where('price', '!=', $p['price'])->update(['price' => $p['price'], 'updated_at' => now()]);
-                    if ($product->price_mode === 'inherited') {
-                        $default = DB::table('product_variants')->where('product_id', $product->id)->where('is_default', true)->where('is_active', true)->first();
-                        if ($default) {
-                            DB::table('products')->where('id', $product->id)->update(['price' => $default->price, 'updated_at' => now()]);
-                        }
+                } elseif ($p['kind'] === 'price') {
+                    $variant = $product->variants->firstWhere('catalog_configuration_id', $p['configuration_id']);
+                    if (! $variant || ! $variant->is_active) {
+                        throw ValidationException::withMessages(['configuration_id' => 'Вариант изменился после подтверждения.']);
                     }
-                    $result = ['changed_variants' => $changed];
-                    $report['changed'] += $changed > 0 ? 1 : 0;
+                    $history = app(CatalogMatrixPriceHistory::class);
+                    $source = $history->sourceSha256();
+                    $changed = $variant->price !== $p['price'] || $variant->price_mode !== 'individual';
+                    $baseChanged = $variant->is_default && ($product->price !== $p['price'] || $product->price_mode !== 'individual');
+                    if ($changed) {
+                        $history->record($product->id, $variant->id, $p['configuration_id'], $variant->price,
+                            $variant->price_mode, $p['price'], 'individual', 'catalog_action:'.$id, $source);
+                        DB::table('product_variants')->where('id', $variant->id)
+                            ->update(['price' => $p['price'], 'price_mode' => 'individual', 'updated_at' => now()]);
+                    }
+                    if ($baseChanged) {
+                        $history->record($product->id, null, $p['configuration_id'], $product->price,
+                            $product->price_mode, $p['price'], 'individual', 'catalog_action:'.$id, $source);
+                        DB::table('products')->where('id', $product->id)
+                            ->update(['price' => $p['price'], 'price_mode' => 'individual', 'updated_at' => now()]);
+                    }
+                    $result = ['price' => $p['price'], 'variant_id' => $variant->id, 'changed' => $changed || $baseChanged];
+                    $report['changed'] += $result['changed'] ? 1 : 0;
                 }
                 $report['processed']++;
                 DB::table('catalog_action_items')->where('catalog_action_id', $id)->where('product_id', $product->id)->update(['result' => json_encode($result)]);

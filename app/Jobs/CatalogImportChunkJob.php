@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\ImportRunStatus;
 use App\Models\ImportRun;
 use App\Services\Catalog\CatalogConfigurations;
+use App\Services\Import\CatalogImportProductDefaults;
 use App\Services\Import\CatalogImportSnapshot;
 use App\Services\Import\ImportProductFactory;
 use App\Services\Import\ImportRowProcessor;
@@ -20,7 +21,6 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Throwable;
 
@@ -68,12 +68,21 @@ class CatalogImportChunkJob implements ShouldQueue
         ImportProductFactory $products,
     ): void {
         $run = ImportRun::query()->findOrFail($this->importRunId);
+        if ($run->import_mode === 'safe_partial') {
+            app(CatalogSafePartialJob::class, ['importRunId' => $run->id,
+                'cursor' => $run->prepared_rows['last_item_id'] ?? 0])->handle();
+
+            return;
+        }
 
         if (! $run->status?->isRowsRunning()) {
             return;
         }
 
-        if (isset($run->prepared_rows['catalog_mode']) || ($run->initialized_at !== null && ! $run->isSnapshotCatalogImport())) {
+        if (($run->prepared_rows['format_version'] ?? null) !== 2
+            || ($run->prepared_rows['identity_version'] ?? null) !== 1
+            || ! is_string($run->prepared_rows['sheet'] ?? null) || $run->prepared_rows['sheet'] === ''
+            || isset($run->prepared_rows['catalog_mode']) || ! $run->isSnapshotCatalogImport()) {
             $statusService->fail($run, 'Подготовка выполнена старой версией импорта. Загрузите файл заново для полной проверки.');
 
             return;
@@ -81,33 +90,22 @@ class CatalogImportChunkJob implements ShouldQueue
         $catalogMutated = false;
 
         try {
-            $absolutePath = Storage::disk('local')->path($run->stored_path);
+            if ($run->import_mode === 'full') {
+                app(CatalogImportSnapshot::class)->validateFullScope($run);
+            }
             $offset = (int) $run->current_row;
             $limit = (int) $run->chunk_size;
-            $rows = $run->prepared_rows !== null
-                ? $reader->readPreparedChunk($run->prepared_rows, $offset, $limit)
-                : $reader->readChunk($absolutePath, $offset, $limit, 2);
+            $rows = $reader->readPreparedChunk($run->prepared_rows, $offset, $limit);
             $processed = count($rows);
 
             if ($processed === 0 && $run->isSnapshotCatalogImport() && $offset < $run->total_rows) {
                 throw new RuntimeException('Подготовленные строки закончились до завершения импорта.');
             }
 
-            // A retry after the final progress checkpoint must still publish the snapshot.
-            if ($processed === 0 && ! $run->isSnapshotCatalogImport()) {
-                $statusService->markRowsDone($run);
-                $logger->info($run, 'Строки импорта завершены', [
-                    'queued_images' => $run->fresh()->queued_images,
-                ]);
-
-                return;
-            }
-
             $processedInChunk = 0;
 
-            if (app(CatalogConfigurations::class)->ready()) {
-                app(CatalogConfigurations::class)->prime(array_column($run->detail_columns ?? [], 'part_type_id'));
-            }
+            app(CatalogImportProductDefaults::class)->assertHeadersReady($run->detail_columns ?? []);
+            app(CatalogConfigurations::class)->prime(array_column($run->detail_columns ?? [], 'part_type_id'));
             foreach ($rows as $index => $row) {
                 $rowNumber = $row['_row_number'] ?? ($offset + $index + 3);
 
@@ -171,9 +169,7 @@ class CatalogImportChunkJob implements ShouldQueue
                 }
 
                 if ($run->status?->isRowsRunning()) {
-                    $archived = $run->isSnapshotCatalogImport()
-                        ? app(CatalogImportSnapshot::class)->finalize($run, fn (): int => $products->archiveMissingProducts($run))
-                        : $products->archiveMissingProducts($run);
+                    $archived = app(CatalogImportSnapshot::class)->finalize($run, fn (): int => $products->archiveMissingProducts($run));
                     $catalogMutated = true;
                 }
 

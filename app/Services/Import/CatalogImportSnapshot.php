@@ -8,6 +8,8 @@ use App\Models\ImportRun;
 use App\Models\Product;
 use App\Models\VehicleGeneration;
 use App\Services\Catalog\CatalogConfigurations;
+use App\Services\Catalog\CatalogImportDatabaseGuards;
+use App\Services\Catalog\CatalogImportProtections;
 use App\Services\Catalog\CatalogPriceGuard;
 use App\Services\Catalog\CatalogPublicationPolicy;
 use App\Services\ImportLogger;
@@ -15,56 +17,38 @@ use App\Services\Search\CatalogSearchPublication;
 use App\Services\SpreadsheetReader;
 use App\Support\CatalogText;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 
 final class CatalogImportSnapshot
 {
-    public function prepare(ImportRun $run, array $prepared, array $headers, SpreadsheetReader $reader): int
+    public function prepare(ImportRun $run, array $prepared, array $headers, SpreadsheetReader $reader, ?array $fullPlan = null): int
     {
-        $identity = app(CatalogImportIdentity::class);
-        $identity->loadExisting();
-        $expected = [];
-        $vehicles = [];
-        $duplicates = 0;
-        $vehicleRows = [];
-        $duplicateVehicles = 0;
-        for ($offset = 0; $offset < count($prepared['offsets']); $offset += 200) {
-            foreach ($reader->readPreparedChunk($prepared, $offset, 200) as $row) {
-                $vehicleFingerprint = implode('|', array_slice($row, 1, 5));
-                $duplicateVehicles += isset($vehicleRows[$vehicleFingerprint]) ? 1 : 0;
-                $vehicleRows[$vehicleFingerprint] = true;
-                foreach ($headers as $column => $header) {
-                    $cell = CatalogImportCell::parse($row['_details'][$column] ?? null);
-                    if ($cell === null) {
-                        continue;
-                    }
-                    $key = $identity->key($row, $header['part_type_full_slug'], CatalogText::normKey($run->type ?: 'catalog', 'catalog', 60));
-                    $fingerprint = mb_strtolower(preg_replace('/\s*([-()])\s*/u', '$1', implode('|', array_slice($row, 1, 5))));
-                    if (isset($vehicles[$key]) && $vehicles[$key] !== $fingerprint) {
-                        throw new RuntimeException('Коллизия нормализованных автомобилей в строке '.$row['_row_number'].': '.$key);
-                    }
-                    $vehicles[$key] = $fingerprint;
-                    $price = $cell['price'];
-                    if (isset($expected[$key]) && $price !== null && $expected[$key]['price'] !== null && $price !== $expected[$key]['price']) {
-                        throw new RuntimeException('Противоречивые цены для '.$key.' в строке '.$row['_row_number']);
-                    }
-                    $duplicates += isset($expected[$key]) ? 1 : 0;
-                    $expected[$key] = ['import_run_id' => $run->id, 'import_key' => $key, 'price' => $price ?? ($expected[$key]['price'] ?? null)];
-                }
+        if ($run->import_mode === 'safe_partial') {
+            throw new RuntimeException('safe_partial не использует глобальный снимок публикации.');
+        }
+        $rows = (function () use ($prepared, $reader): iterable {
+            for ($offset = 0; $offset < count($prepared['offsets']); $offset += 200) {
+                yield from $reader->readPreparedChunk($prepared, $offset, 200);
             }
+        })();
+        $calculation = $fullPlan !== null ? ['products' => $fullPlan['snapshot_products'], 'duplicate_positive_cells' => 0, 'duplicate_vehicle_rows' => 0]
+            : app(CatalogImportExpectedProducts::class)->collect($rows, $headers, $run->type ?: 'catalog');
+        if ($fullPlan !== null && collect($fullPlan['full_scope']['archives'])->contains(fn ($a) => app(CatalogImportProtections::class)->protects($a['product_id']))
+            && ! app(CatalogImportDatabaseGuards::class)->fullArchiveReady()) {
+            throw new RuntimeException('Сначала разверните миграцию ограниченной архивации полного импорта.');
         }
-        if ($duplicates > 0 || $duplicateVehicles > 0) {
-            app(ImportLogger::class)->info($run, 'Повторные отметки наличия объединены по правилу OR', ['duplicate_vehicle_rows' => $duplicateVehicles, 'duplicate_positive_cells' => $duplicates]);
+        if ($calculation['duplicate_positive_cells'] > 0 || $calculation['duplicate_vehicle_rows'] > 0) {
+            app(ImportLogger::class)->info($run, 'Повторные отметки наличия объединены по правилу OR', [
+                'duplicate_vehicle_rows' => $calculation['duplicate_vehicle_rows'],
+                'duplicate_positive_cells' => $calculation['duplicate_positive_cells'],
+            ]);
         }
-        if ($expected === []) {
-            throw new RuntimeException('В файле нет ни одного товара. Пустой снимок не применяется автоматически.');
-        }
-        $source = CatalogText::normKey($run->type ?: 'catalog', 'catalog', 60);
-        foreach (array_chunk(array_keys($expected), 500) as $keys) {
-            if (Product::withTrashed()->whereIn('import_key', $keys)->where(fn ($query) => $query->whereNull('import_source')->orWhere('import_source', '!=', $source))->exists()) {
-                throw new RuntimeException('Ожидаемый импортный ключ уже занят товаром другого источника или ручным товаром.');
-            }
-        }
+        $readonly = $fullPlan['full_scope']['readonly_present'] ?? [];
+        $expected = array_map(static fn (array $product): array => [
+            'import_run_id' => $run->id, 'import_key' => $product['import_key'], 'price' => null,
+            'product_id' => in_array($product['product_id'] ?? null, $readonly, true) ? $product['product_id'] : null,
+        ], $calculation['products']);
         DB::table('catalog_import_snapshot_items')->where('import_run_id', $run->id)->delete();
         foreach (array_chunk(array_values($expected), 500) as $items) {
             DB::table('catalog_import_snapshot_items')->insert($items);
@@ -85,6 +69,10 @@ final class CatalogImportSnapshot
     /** Publish assortment atomically. A failed or interrupted run never publishes its snapshot. */
     public function finalize(ImportRun $run, callable $archive): int
     {
+        if ($run->import_mode === 'safe_partial') {
+            throw new RuntimeException('Глобальная финализация safe_partial запрещена.');
+        }
+
         return DB::transaction(function () use ($run, $archive): int {
             app(CatalogPriceGuard::class)->assertWritable();
             $locked = ImportRun::whereKey($run->id)->lockForUpdate()->firstOrFail();
@@ -96,8 +84,13 @@ final class CatalogImportSnapshot
                 throw new RuntimeException('Обработанные товары не соответствуют ожидаемому снимку.');
             }
             $source = CatalogText::normKey($run->type ?: 'catalog', 'catalog', 60);
+            if ($run->import_mode === 'full') {
+                $this->validateFullScope($locked);
+            }
             Product::where('import_source', $source)->whereIn('id', (clone $items)->select('product_id'))
-                ->when(app(CatalogConfigurations::class)->ready(), fn ($q) => $q->where(fn ($q) => $q->whereNull('publication_override')->orWhere('publication_override', 'force_active')))
+                ->when($run->import_mode === 'full', fn ($q) => $q->whereNotIn('id', array_keys($locked->prepared_rows['full_scope']['preserve'])))
+                ->whereNotIn('id', app(CatalogImportProtections::class)->ids())
+                ->where(fn ($q) => $q->whereNull('publication_override')->orWhere('publication_override', 'force_active'))
                 ->update(['status' => ProductStatus::Active->value]);
             VehicleGeneration::where('last_import_run_id', $run->id)->update(['is_active' => true]);
             $archived = $archive();
@@ -111,5 +104,23 @@ final class CatalogImportSnapshot
 
             return $archived;
         });
+    }
+
+    public function validateFullScope(ImportRun $run): void
+    {
+        $scope = $run->prepared_rows['full_scope'] ?? null;
+        if (! is_array($scope) || ($scope['version'] ?? null) !== 1
+            || ! hash_equals(CatalogImportAssortmentPolicy::seal($run->id, $scope), $scope['seal'] ?? '')) {
+            throw new RuntimeException('Нет полного проверенного плана с исключениями. Загрузите и подтвердите файлы заново.');
+        }
+        foreach ([$run->stored_path => $scope['excel_sha256'], $run->configuration_path => $scope['csv_sha256']] as $path => $hash) {
+            $file = Storage::disk('local')->path($path);
+            if (! is_file($file) || ! hash_equals($hash, (string) hash_file('sha256', $file))) {
+                throw new RuntimeException('Файлы полного импорта изменились.');
+            }
+        }
+        if (! hash_equals($scope['matrix_version'], app(CatalogImportProtections::class)->matrixFingerprint())) {
+            throw new RuntimeException('Матрица изменилась после начала полного импорта.');
+        }
     }
 }

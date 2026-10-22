@@ -5,7 +5,11 @@ namespace App\Services;
 use App\Enums\ImportLogLevel;
 use App\Enums\ImportRunStatus;
 use App\Models\ImportRun;
+use App\Services\Catalog\CatalogPriceGuard;
+use App\Services\Import\CatalogSafePartialImport;
+use App\Services\Import\ImportImageRecovery;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -119,6 +123,9 @@ class ImportStatusService
 
     public function start(ImportRun $run): ImportRun
     {
+        if ($run->import_mode === 'safe_partial') {
+            return app(CatalogSafePartialImport::class)->start($run);
+        }
         $run->refresh();
 
         if ($run->isTerminal() || in_array($run->status, [ImportRunStatus::RunningRows, ImportRunStatus::Running, ImportRunStatus::ProcessingImages, ImportRunStatus::Paused], true)) {
@@ -142,47 +149,71 @@ class ImportStatusService
 
     public function pause(ImportRun $run): ImportRun
     {
-        $run->refresh();
+        return DB::transaction(function () use ($run): ImportRun {
+            $run = ImportRun::whereKey($run->id)->lockForUpdate()->firstOrFail();
+            $run->refresh();
 
-        if ($run->isActive() && $run->status !== ImportRunStatus::Paused) {
-            $run->forceFill([
-                'status' => ImportRunStatus::Paused,
-                'heartbeat_at' => now(),
-            ])->save();
+            if ($run->isActive() && $run->status !== ImportRunStatus::Paused) {
+                $run->forceFill([
+                    'status' => ImportRunStatus::Paused,
+                    'prepared_rows' => array_replace($run->prepared_rows ?? [], ['paused_from_status' => $run->status->value]),
+                    'heartbeat_at' => now(),
+                ])->save();
 
-            $this->logger->info($run, 'Импорт поставлен на паузу');
-        }
+                $this->logger->info($run, 'Импорт поставлен на паузу');
+            }
 
-        return $run->refresh();
+            return $run->refresh();
+        });
     }
 
     public function resume(ImportRun $run): ImportRun
     {
-        $run->refresh();
-
-        if ($run->status === ImportRunStatus::Paused) {
-            if ($run->processed_rows >= $run->total_rows && $run->hasPendingImages()) {
-                $run->forceFill([
-                    'status' => ImportRunStatus::ProcessingImages,
-                    'heartbeat_at' => now(),
-                ])->save();
-            } else {
-                $run->forceFill([
-                    'status' => ImportRunStatus::RunningRows,
-                    'started_at' => $run->started_at ?? now(),
-                    'finished_at' => null,
-                    'heartbeat_at' => now(),
-                ])->save();
-            }
-
-            $this->logger->info($run->fresh(), 'Импорт продолжен');
+        if ($run->import_mode === 'safe_partial') {
+            return app(CatalogSafePartialImport::class)->start($run);
         }
 
-        return $run->refresh();
+        return DB::transaction(function () use ($run): ImportRun {
+            // Same lock order as row import: catalogue singleton, then the owning run.
+            app(CatalogPriceGuard::class)->assertWritable();
+            $run = ImportRun::whereKey($run->id)->lockForUpdate()->firstOrFail();
+            $run->refresh();
+
+            if ($run->status === ImportRunStatus::Paused) {
+                if (($run->prepared_rows['paused_from_status'] ?? null) === ImportRunStatus::ProcessingImages->value
+                    || ($run->processed_rows >= $run->total_rows && $run->hasPendingImages())) {
+                    $run->forceFill([
+                        'status' => ImportRunStatus::ProcessingImages,
+                        'heartbeat_at' => now(),
+                    ])->save();
+                } else {
+                    $run->forceFill([
+                        'status' => ImportRunStatus::RunningRows,
+                        'started_at' => $run->started_at ?? now(),
+                        'finished_at' => null,
+                        'heartbeat_at' => now(),
+                    ])->save();
+                }
+
+                $this->logger->info($run->fresh(), 'Импорт продолжен');
+                if ($run->status === ImportRunStatus::ProcessingImages) {
+                    if (($run->queued_vehicle_image_keys ?? []) !== [] || $run->logs()->whereNotNull('context->image_task')->exists()) {
+                        app(ImportImageRecovery::class)->recover($run);
+                    } else {
+                        $this->finishImagesIfComplete($run);
+                    }
+                }
+            }
+
+            return $run->refresh();
+        });
     }
 
     public function cancel(ImportRun $run): ImportRun
     {
+        if ($run->import_mode === 'safe_partial') {
+            return app(CatalogSafePartialImport::class)->cancel($run);
+        }
         if (! $run->isTerminal()) {
             $run->forceFill([
                 'status' => ImportRunStatus::Canceled,
@@ -198,21 +229,24 @@ class ImportStatusService
 
     public function markRowsDone(ImportRun $run): ImportRun
     {
-        $run->refresh();
+        return DB::transaction(function () use ($run): ImportRun {
+            $run = ImportRun::whereKey($run->id)->lockForUpdate()->firstOrFail();
+            $run->refresh();
 
-        if (in_array($run->status, [ImportRunStatus::Paused, ImportRunStatus::Failed, ImportRunStatus::Canceled], true)) {
-            return $run;
-        }
+            if ($run->isTerminal() || $run->status === ImportRunStatus::Paused) {
+                return $run;
+            }
 
-        $run->forceFill([
-            'processed_rows' => $run->total_rows,
-            'current_row' => $run->total_rows,
-            'status' => $run->hasPendingImages() ? ImportRunStatus::ProcessingImages : ImportRunStatus::Done,
-            'finished_at' => $run->hasPendingImages() ? null : now(),
-            'heartbeat_at' => now(),
-        ])->save();
+            $run->forceFill([
+                'processed_rows' => $run->total_rows,
+                'current_row' => $run->total_rows,
+                'status' => $run->hasPendingImages() ? ImportRunStatus::ProcessingImages : ImportRunStatus::Done,
+                'finished_at' => $run->hasPendingImages() ? null : now(),
+                'heartbeat_at' => now(),
+            ])->save();
 
-        return $run->refresh();
+            return $run->refresh();
+        });
     }
 
     public function markDone(ImportRun $run): ImportRun
@@ -310,7 +344,7 @@ class ImportStatusService
     {
         $run->refresh();
 
-        if (in_array($run->status, [ImportRunStatus::Paused, ImportRunStatus::Failed, ImportRunStatus::Canceled], true)) {
+        if ($run->isTerminal()) {
             return $run;
         }
 
@@ -323,7 +357,7 @@ class ImportStatusService
     {
         $run->refresh();
 
-        if (in_array($run->status, [ImportRunStatus::Paused, ImportRunStatus::Failed, ImportRunStatus::Canceled], true)) {
+        if ($run->isTerminal()) {
             return $run;
         }
 
@@ -334,20 +368,23 @@ class ImportStatusService
 
     public function finishImagesIfComplete(ImportRun $run): ImportRun
     {
-        $run->refresh();
+        return DB::transaction(function () use ($run): ImportRun {
+            $run = ImportRun::whereKey($run->id)->lockForUpdate()->firstOrFail();
+            $run->refresh();
 
-        if ($run->status === ImportRunStatus::ProcessingImages && $run->imagesFinished()) {
-            $this->logger->info($run, 'Обработка изображений завершена', [
-                'processed_images' => $run->processed_images,
-                'failed_images' => $run->failed_images,
-                'queued_images' => $run->queued_images,
-            ]);
+            if ($run->status === ImportRunStatus::ProcessingImages && $run->imagesFinished()) {
+                $this->logger->info($run, 'Обработка изображений завершена', [
+                    'processed_images' => $run->processed_images,
+                    'failed_images' => $run->failed_images,
+                    'queued_images' => $run->queued_images,
+                ]);
 
-            return $this->markDone($run);
-        }
+                return $this->markDone($run);
+            }
 
-        $run->forceFill(['heartbeat_at' => now()])->save();
+            $run->forceFill(['heartbeat_at' => now()])->save();
 
-        return $run->refresh();
+            return $run->refresh();
+        });
     }
 }

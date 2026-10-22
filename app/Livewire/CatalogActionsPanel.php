@@ -17,10 +17,17 @@ class CatalogActionsPanel extends Component
 {
     use WithPagination;
 
-    public array $parameters = ['kind' => 'status', 'type_id' => '', 'descendants' => false, 'source_status' => 'all',
-        'target_status' => 'archived', 'force' => false, 'configuration_id' => null, 'price' => null];
-
-    public string $search = '';
+    public array $parameters = [
+        'kind' => 'status',
+        'type_id' => '',
+        'descendants' => false,
+        'source_status' => 'all',
+        'target_status' => 'archived',
+        'force' => false,
+        'configuration_id' => '',
+        'price' => '',
+        'search' => '',
+    ];
 
     #[Locked]
     public ?array $preview = null;
@@ -28,15 +35,22 @@ class CatalogActionsPanel extends Component
     #[Locked]
     public ?int $operationId = null;
 
-    public function updatedParameters(): void
+    public function mount(): void
     {
-        $this->preview = null;
-        $this->resetValidation();
-        $this->resetPage();
+        app(CatalogBulkPrices::class)->authorize(Filament::auth()->user());
     }
 
-    public function updatedSearch(): void
+    public function updatedParameters($value = null, $key = null): void
     {
+        // A price always addresses one concrete part type and CSV combination.
+        if (($this->parameters['kind'] ?? null) === 'price') {
+            $this->parameters['descendants'] = false;
+        }
+        if ($key === 'type_id' || $key === 'kind') {
+            $this->parameters['configuration_id'] = '';
+        }
+        $this->preview = null;
+        $this->resetValidation();
         $this->resetPage();
     }
 
@@ -66,12 +80,21 @@ class CatalogActionsPanel extends Component
     public function render()
     {
         app(CatalogBulkPrices::class)->authorize(Filament::auth()->user());
-        $query = $this->preview ? app(CatalogActions::class)->query($this->preview['parameters']) : Product::whereRaw('1 = 0');
-        $products = $query->when($this->search !== '', fn ($q) => $q->where(fn ($q) => $q->where('title', 'like', '%'.$this->search.'%')->orWhere('id', $this->search)))
-            ->with('optionTemplate')->orderBy('id')->paginate(20);
+        $query = $this->preview
+            ? app(CatalogActions::class)->query($this->preview['parameters'])
+            : Product::whereRaw('1 = 0');
+        $products = $query->with('optionTemplate')->orderBy('id')->paginate(20);
+        $typeId = (int) ($this->parameters['type_id'] ?? 0);
+        $configurations = ($this->parameters['kind'] ?? 'status') === 'price' && $typeId > 0
+            ? CatalogConfiguration::query()->where('part_type_id', $typeId)->where('is_active', true)
+                ->orderBy('position')->orderBy('id')->get()
+            : collect();
 
-        return view('livewire.catalog-actions-panel', ['types' => PartType::orderBy('full_title')->pluck('full_title', 'id'),
-            'configurations' => CatalogConfiguration::where('part_type_id', $this->parameters['type_id'] ?: 0)->orderBy('position')->get(),
-            'products' => $products, 'operations' => DB::table('catalog_actions')->latest('id')->limit(10)->get()]);
+        return view('livewire.catalog-actions-panel', [
+            'types' => PartType::orderBy('full_title')->pluck('full_title', 'id'),
+            'configurations' => $configurations,
+            'products' => $products,
+            'operations' => DB::table('catalog_actions')->latest('id')->limit(10)->get(),
+        ]);
     }
 }

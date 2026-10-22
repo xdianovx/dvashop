@@ -29,8 +29,22 @@ final class CatalogPriceGuard
     public function assertWritable(): void
     {
         $lock = $this->lock();
+        if (($lock->safe_partial_run_id ?? null) !== null
+            && (int) $lock->safe_partial_run_id !== CatalogImportContext::owner()) {
+            throw ValidationException::withMessages(['price' => 'Каталог зарезервирован подтверждённым safe_partial.']);
+        }
         if ($lock?->operation_id !== null || ($lock->catalog_action_id ?? null) !== null) {
             throw ValidationException::withMessages(['price' => 'Выполняется массовое изменение каталога. Дождитесь завершения или продолжите прерванную операцию.']);
+        }
+    }
+
+    /** Existing catalog actions already validate their own reservation owner. */
+    public function assertImportWritable(): void
+    {
+        $lock = $this->lock();
+        if (($lock->safe_partial_run_id ?? null) !== null
+            && (int) $lock->safe_partial_run_id !== CatalogImportContext::owner()) {
+            throw ValidationException::withMessages(['price' => 'Каталог зарезервирован подтверждённым safe_partial.']);
         }
     }
 

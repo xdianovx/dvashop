@@ -4,9 +4,13 @@ namespace App\Jobs;
 
 use App\Enums\ImportRunStatus;
 use App\Models\ImportRun;
+use App\Services\Catalog\CatalogConfigurations;
+use App\Services\Catalog\CatalogImportProtections;
 use App\Services\Catalog\CatalogPriceGuard;
+use App\Services\Import\CatalogImportAssortmentPolicy;
 use App\Services\Import\CatalogImportProductDefaults;
 use App\Services\Import\CatalogImportSnapshot;
+use App\Services\Import\CatalogSourceContract;
 use App\Services\Import\ImportRowProcessor;
 use App\Services\ImportLogger;
 use App\Services\ImportStatusService;
@@ -49,6 +53,11 @@ class CatalogImportStartJob implements ShouldQueue
     ): void {
         $productDefaults ??= app(CatalogImportProductDefaults::class);
         $run = ImportRun::query()->findOrFail($this->importRunId);
+        if ($run->import_mode === 'safe_partial') {
+            app(CatalogSafePartialJob::class, ['importRunId' => $run->id, 'cursor' => null])->handle();
+
+            return;
+        }
 
         if ($run->isTerminal()) {
             return;
@@ -91,12 +100,6 @@ class CatalogImportStartJob implements ShouldQueue
                     return;
                 }
 
-                if ($locked->type === 'catalog') {
-                    // Global import prerequisites must be valid before header
-                    // resolution or any row-level catalog mutation starts.
-                    $productDefaults->canonicalTemplate();
-                }
-
                 $absolutePath = Storage::disk('local')->path($locked->stored_path);
 
                 $preparedRows = $reader->prepareRows($absolutePath);
@@ -104,9 +107,34 @@ class CatalogImportStartJob implements ShouldQueue
                 if ($headers === []) {
                     throw new RuntimeException('Не найдены колонки деталей. Проверьте заголовки файла.');
                 }
+                // A paired CSV is authoritative. Validate again at execution time and
+                // install within the enclosing transaction, so a failed preflight
+                // cannot partially change configurations or catalog entities.
+                if ($locked->import_mode === 'full' && $locked->configuration_path === null) {
+                    throw new RuntimeException('Для полного импорта обязательно загрузить CSV конфигураций.');
+                }
+                if ($locked->import_mode === 'full') {
+                    $csvPath = Storage::disk('local')->path($locked->configuration_path);
+                    $actualHash = is_file($csvPath) ? hash_file('sha256', $csvPath) : false;
+                    if (! is_string($actualHash) || ! hash_equals((string) $locked->configuration_hash, $actualHash)) {
+                        throw new RuntimeException('Загруженный CSV изменился или недоступен. Импорт остановлен.');
+                    }
+                    $fullPlan = app(CatalogSourceContract::class)->validate($absolutePath, $csvPath)['assortment'];
+                    app(CatalogConfigurations::class)->install($csvPath, authorizedImportId: $locked->id);
+                    $preparedRows['full_scope'] = $fullPlan['full_scope'] + ['csv_sha256' => $locked->configuration_hash,
+                        'matrix_version' => app(CatalogImportProtections::class)->matrixFingerprint()];
+                    $preparedRows['full_scope']['seal'] = CatalogImportAssortmentPolicy::seal($locked->id, $preparedRows['full_scope']);
+                    foreach ($fullPlan['exceptions'] as $exception) {
+                        $logger->warning($locked, 'Исключение полного импорта: '.$exception['code'], $exception);
+                    }
+                }
+                $productDefaults->assertHeadersReady($headers);
+                foreach ($preparedRows['skipped_rows'] as $skipped) {
+                    $logger->warning($locked, 'Строка пропущена: '.$skipped['reason'], ['row' => $skipped['row']]);
+                }
                 $headers = $rowProcessor->prepareDetailColumns($locked, $headers);
                 $totalRows = count($preparedRows['offsets']);
-                $preparedRows['expected_products'] = app(CatalogImportSnapshot::class)->prepare($locked, $preparedRows, $headers, $reader);
+                $preparedRows['expected_products'] = app(CatalogImportSnapshot::class)->prepare($locked, $preparedRows, $headers, $reader, $fullPlan ?? null);
 
                 $locked->forceFill([
                     'total_rows' => $totalRows,

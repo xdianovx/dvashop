@@ -64,7 +64,12 @@ class ImportRunReportExporter
         yield ['Дата загрузки', $run->created_at?->toDateTimeString()];
         yield ['Дата запуска', $run->started_at?->toDateTimeString()];
         yield ['Дата завершения', $run->finished_at?->toDateTimeString()];
-        yield ['Всего строк', $run->total_rows];
+        yield ['Лист Excel', $run->prepared_rows['sheet'] ?? ''];
+        yield ['Всего принятых строк', $run->total_rows];
+        yield ['Пропущено неполных строк', count($run->prepared_rows['skipped_rows'] ?? [])];
+        foreach ($run->prepared_rows['skipped_rows'] ?? [] as $skipped) {
+            yield ['Пропущена строка '.$skipped['row'], $skipped['reason']];
+        }
         yield ['Обработано строк', $run->processed_rows];
         yield ['Создано марок', $run->created_makes];
         yield ['Обновлено марок', $run->updated_makes];

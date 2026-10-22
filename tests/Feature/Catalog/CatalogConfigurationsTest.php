@@ -80,39 +80,49 @@ test('all 106 CSV rows retain exact options and decimal prices without Cartesian
     expect($this->matrix->rows(PartType::where('full_slug', 'arka/karman-zadniaia')->value('id')))->toBeEmpty();
 });
 
-test('matrix synchronization preserves matching IDs custom amounts and deactivates legacy variants without deleting', function () {
+test('matrix synchronization preserves matching IDs but replaces individual amounts from CSV and retires legacy variants', function () {
     $product = matrixProduct('porog');
     $legacy = ProductVariant::factory()->create(['product_id' => $product->id, 'price' => 999, 'price_mode' => 'individual']);
     DB::transaction(fn () => $this->matrix->synchronize($product));
     $ids = $product->variants()->where('is_active', true)->pluck('id')->all();
     $custom = ProductVariant::findOrFail($ids[0]);
-    $custom->update(['price' => '777.00']);
+    $authoritative = CatalogConfiguration::findOrFail($custom->catalog_configuration_id)->price;
+    // Simulates legacy damage directly in the DB: ordinary Eloquent price edits are now forbidden.
+    DB::table('product_variants')->where('id', $custom->id)->update(['price' => '777.00', 'price_mode' => 'individual']);
     DB::transaction(fn () => $this->matrix->synchronize($product->refresh()));
     expect($legacy->refresh()->is_active)->toBeFalse()->and($legacy->price)->toBe('999.00')
-        ->and($custom->refresh()->price)->toBe('777.00')->and($product->variants()->where('is_active', true)->pluck('id')->all())->toBe($ids);
+        ->and($custom->refresh()->price)->toBe($authoritative)
+        ->and($custom->price_mode)->toBe('inherited')
+        ->and($product->variants()->where('is_active', true)->pluck('id')->all())->toBe($ids)
+        ->and(DB::table('catalog_matrix_price_history')->where('product_variant_id', $custom->id)->where('old_price', '777.00')->count())->toBe(1);
     expect(app(StorefrontProductAvailability::class)->isPurchasable($legacy))->toBeFalse();
     $this->post(route('cart.items.store'), ['product_variant_id' => $legacy->id, 'quantity' => 1])->assertSessionHasErrors('product_variant_id');
 });
 
-test('single configuration price updates inherited variants only and repeated installation preserves administrative prices', function () {
+test('CSV restores every current variant price after confirmation, including legacy individual mode', function () {
     $product = matrixProduct('usilitel');
     DB::transaction(fn () => $this->matrix->synchronize($product));
-    $variant = $product->variants()->where('is_active', true)->firstOrFail();
-    $action = app(CatalogActions::class);
-    $preview = $action->preview($this->admin, matrixParameters($product, 'configuration_price', ['configuration_id' => $variant->catalog_configuration_id, 'price' => '1234.50']));
-    $id = $action->confirm($this->admin, $preview);
-    finishCatalogAction($id);
-    expect($variant->refresh()->price)->toBe('1234.50');
+    $variants = $product->variants()->orderBy('id')->get();
+    $manual = $variants[0];
+    $inherited = $variants[1];
+    $originalPrice = $inherited->price;
+    DB::table('product_variants')->where('id', $manual->id)->update(['price' => '999.00', 'price_mode' => 'individual']);
+    CatalogConfiguration::whereKey($inherited->catalog_configuration_id)->update(['price' => '1234.50']);
+    DB::transaction(fn () => $this->matrix->synchronize($product->fresh()));
+    expect($inherited->fresh()->price)->toBe('1234.50');
     $source = base_path('tests/Fixtures/catalog-configurations.csv');
     expect(fn () => $this->matrix->install($source))->toThrow(ValidationException::class);
     $review = app(\App\Services\Catalog\CatalogConfigurationInstallation::class)->preview(app(CatalogConfigurationSource::class)->read($source));
     $this->matrix->install($source, $review['confirmation']);
-    expect(CatalogConfiguration::find($variant->catalog_configuration_id)->price)->toBe('1234.50');
+    DB::transaction(fn () => $this->matrix->synchronize($product->fresh()));
+    expect($inherited->fresh()->price)->toBe($originalPrice)
+        ->and($manual->fresh()->price)->toBe(CatalogConfiguration::findOrFail($manual->catalog_configuration_id)->price)
+        ->and($manual->fresh()->price_mode)->toBe('inherited')
+        ->and($product->variants()->orderBy('id')->pluck('id')->all())->toBe($variants->modelKeys())
+        ->and($this->matrix->changes($product->fresh())['changed'])->toBeFalse();
+    expect(fn () => app(CatalogActions::class)->preview($this->admin, matrixParameters($product, 'configuration_price', ['configuration_id' => $inherited->catalog_configuration_id, 'price' => '2000'])))
+        ->toThrow(ValidationException::class);
     expect(fn () => app(CatalogBulkPrices::class)->preview($product->part_type_id, false, '100'))->toThrow(ValidationException::class);
-    $variant->update(['price' => '999.00']);
-    $id = $action->confirm($this->admin, $action->preview($this->admin, matrixParameters($product, 'configuration_price', ['configuration_id' => $variant->catalog_configuration_id, 'price' => '2000'])));
-    finishCatalogAction($id);
-    expect($variant->refresh()->price)->toBe('999.00');
 });
 
 test('statuses are authorized idempotent and preserve prices variants and publication exclusions', function () {
@@ -136,7 +146,7 @@ test('statuses are authorized idempotent and preserve prices variants and public
     $p['force'] = true;
     $id = $action->confirm($this->admin, $action->preview($this->admin, $p));
     finishCatalogAction($id);
-    expect($product->refresh()->status->value)->toBe('active')->and($product->publication_override)->toBe('force_active');
+    expect($product->refresh()->status->value)->toBe('archived')->and($product->publication_override)->toBe('archived');
 });
 
 test('concurrent edits and a failed batch never advance cursor and can be resumed without duplicate effects', function () {
@@ -172,7 +182,8 @@ test('livewire status workflow retains filters on pagination authorizes and uses
     Product::factory()->forPartType($product->partType)->count(22)->create(['status' => 'active']);
     $page = Livewire::test(CatalogActionsPanel::class)->set('parameters', matrixParameters($product))
         ->call('calculate')->assertHasNoErrors()->assertSet('preview.counts.products', 23)->call('gotoPage', 2)
-        ->set('search', $product->title)->assertSet('paginators.page', 1);
+        ->set('parameters.search', $product->title)->assertSet('paginators.page', 1)->assertSet('preview', null)
+        ->set('parameters.search', '')->call('calculate')->assertSet('preview.counts.products', 23);
     expect(DB::table('catalog_actions')->count())->toBe(0);
     $page->call('confirm')->assertHasNoErrors();
     finishCatalogAction($page->get('operationId'));
@@ -210,16 +221,21 @@ test('configuration prices and allowed choices reach product page cart and immut
     expect($order->refresh()->subtotal)->toBe('8800.00')->and($order->items()->firstOrFail()->product_variant_id)->toBe($variant->id);
 });
 
-test('historical JSON combination retains its variant ID individual price and order-compatible snapshot', function () {
+test('historical JSON combination retains its matching variant ID while CSV replaces individual price', function () {
     $product = matrixProduct('soedinitel');
     $variant = ProductVariant::factory()->create(['product_id' => $product->id, 'price' => '777.00', 'price_mode' => 'individual',
         'options' => ['position' => ['group' => 'Положение', 'value' => 'Левый'], 'material' => ['group' => 'Материал', 'value' => 'ХКС'], 'thickness' => ['group' => 'Толщина', 'value' => '1 мм']]]);
     DB::transaction(fn () => $this->matrix->synchronize($product));
-    expect($variant->refresh()->is_active)->toBeTrue()->and($variant->price)->toBe('777.00')->and($variant->optionValues()->count())->toBe(3);
+    expect($variant->refresh()->is_active)->toBeTrue()
+        ->and($variant->price)->toBe(CatalogConfiguration::findOrFail($variant->catalog_configuration_id)->price)
+        ->and($variant->price_mode)->toBe('inherited')
+        ->and($variant->optionValues()->count())->toBe(3);
     expect($product->variants()->count())->toBe(12);
     expect(app(StorefrontProductAvailability::class)->isPurchasable($variant->fresh()))->toBeTrue();
     DB::transaction(fn () => $this->matrix->synchronize($product->fresh()));
-    expect($product->variants()->count())->toBe(12)->and($variant->fresh()->price)->toBe('777.00');
+    expect($product->variants()->count())->toBe(12)
+        ->and($variant->fresh()->price)->toBe(CatalogConfiguration::findOrFail($variant->catalog_configuration_id)->price)
+        ->and(DB::table('catalog_matrix_price_history')->where('product_variant_id', $variant->id)->count())->toBe(1);
 });
 
 test('canceling a partially applied operation preserves committed batches and publishes only them', function () {
@@ -289,7 +305,7 @@ test('search publication retries unacknowledged documents without losing status 
         ->and($documents[0]['is_active'])->toBeFalse();
 });
 
-test('explicit matrix application aligns inherited prices and preserves unknown prices with matching IDs', function () {
+test('explicit matrix application aligns inherited and unknown prices with matching IDs', function () {
     $product = matrixProduct('soedinitel');
     DB::transaction(fn () => $this->matrix->synchronize($product));
     $variants = $product->variants()->orderBy('id')->get();
@@ -299,7 +315,8 @@ test('explicit matrix application aligns inherited prices and preserves unknown 
     DB::table('product_variants')->where('id', $historical->id)->update(['price' => '777.00', 'price_mode' => 'unknown']);
     DB::transaction(fn () => $this->matrix->synchronize($product->fresh()));
     expect($inherited->fresh()->price)->toBe(CatalogConfiguration::findOrFail($inherited->catalog_configuration_id)->price)
-        ->and($historical->fresh()->price)->toBe('777.00')
+        ->and($historical->fresh()->price)->toBe(CatalogConfiguration::findOrFail($historical->catalog_configuration_id)->price)
+        ->and($historical->fresh()->price_mode)->toBe('inherited')
         ->and($product->variants()->orderBy('id')->pluck('id')->all())->toBe($variants->modelKeys());
 });
 
@@ -388,7 +405,7 @@ test('a default variant after historical offers is not repeatedly marked as chan
     expect($product->variants()->orderBy('id')->get()->toArray())->toBe($before);
 });
 
-test('changed CSV requires a current explicit confirmation retires removed combinations and preserves administrative prices', function () {
+test('changed CSV requires current confirmation retires removed combinations and replaces matrix prices', function () {
     $source=base_path('tests/Fixtures/catalog-configurations.csv');
     $file=fopen($source,'rb');$lines=[];while(($line=fgetcsv($file,escape:''))!==false){$lines[]=$line;}fclose($file);
     $lines=array_values(array_filter($lines,fn($line)=>trim($line[0]??'')!=='Ремкомплект пола'));
@@ -409,14 +426,14 @@ test('changed CSV requires a current explicit confirmation retires removed combi
         $priceRow=CatalogConfiguration::findOrFail($review['price_conflicts'][0]['id']);$priceRow->update(['price'=>'888.00']);
         expect(fn()=> $this->matrix->install($path,$review['confirmation']))->toThrow(ValidationException::class);
         $review=$reviewer->preview($rows);$this->matrix->install($path,$review['confirmation']);
-        expect($priceRow->fresh()->price)->toBe('888.00')->and($this->matrix->rows($product->part_type_id))->toBeEmpty()
+        expect($priceRow->fresh()->price)->toBe($review['price_conflicts'][0]['csv_price'])->and($this->matrix->rows($product->part_type_id))->toBeEmpty()
             ->and($product->variants()->pluck('id')->all())->toBe($oldIds)
             ->and(app(StorefrontProductAvailability::class)->isPurchasable($product->variants()->firstOrFail()))->toBeFalse();
         $return=$reviewer->preview(app(CatalogConfigurationSource::class)->read($source));
         expect($return['reactivated'])->not->toBeEmpty();
         $this->matrix->install($source,$return['confirmation']);
         expect($product->variants()->pluck('id')->all())->toBe($oldIds)->and($this->matrix->rows($product->part_type_id))->toHaveCount(2)
-            ->and($priceRow->fresh()->price)->toBe('888.00');
+            ->and($priceRow->fresh()->price)->toBe(collect(app(CatalogConfigurationSource::class)->read($source))->where('type', $priceRow->partType->full_slug)->firstWhere('signature', $priceRow->signature)['price']);
     } finally {unlink($path);}
 });
 
@@ -594,4 +611,77 @@ test('administrator can explicitly keep a matrix-retired offer disabled without 
     } finally {
         unlink($path);
     }
+});
+
+test('both independent inner arch types inherit the same six source combinations without universal arch mixing', function () {
+    $rows = collect(app(CatalogConfigurationSource::class)->read(base_path('tests/Fixtures/catalog-configurations.csv')))
+        ->where('group', 'Арка внутренняя')->values();
+    expect($rows)->toHaveCount(6);
+    $productIds = [];
+    $variantIds = [];
+    foreach (['arka/vnutrenniaia-zadniaia', 'arka/vnutrenniaia-peredniaia'] as $path) {
+        $product = matrixProduct($path);
+        DB::transaction(fn () => $this->matrix->synchronize($product));
+        $productIds[] = $product->id;
+        $variants = $product->variants()->with('optionValues.group')->get();
+        expect($variants)->toHaveCount(6);
+        foreach ($rows as $row) {
+            $variant = $variants->first(fn ($v) => $this->matrix->signature($v) === $row['signature']);
+            expect($variant)->not->toBeNull()->and($variant->price)->toBe($row['price']);
+            $variantIds[] = $variant->id;
+        }
+        expect($this->matrix->changes($product->fresh())['changed'])->toBeFalse();
+    }
+    expect(array_unique($productIds))->toHaveCount(2)->and(array_unique($variantIds))->toHaveCount(12);
+    expect(CatalogConfigurationSource::TYPES['Барабан'])->toBe('arka/vnutrenniaia-universalnaia');
+});
+
+
+test('legacy imported prices get CSV prices, auditable history and safe idempotent background action', function () {
+    $product = matrixProduct('usilitel');
+    $product->forceFill(['import_source' => 'catalog'])->save();
+    DB::transaction(fn () => $this->matrix->synchronize($product));
+    $variants = $product->variants()->orderBy('id')->get();
+    $first = $variants->first();
+    $second = $variants->skip(1)->first();
+    $oldOrderItemCount = \App\Models\OrderItem::count();
+    $earlierHistory = DB::table('catalog_matrix_price_history')->where('product_id', $product->id)->count();
+    $orderItem = \App\Models\OrderItem::factory()->create([
+        'product_id' => $product->id,
+        'product_variant_id' => $first->id,
+        'price_snapshot' => '321.00',
+        'price' => '321.00',
+        'total_snapshot' => '321.00',
+        'total' => '321.00',
+        'quantity' => 1,
+    ]);
+    $orderSnapshot = $orderItem->fresh()->toArray();
+    ksort($orderSnapshot);
+    DB::table('product_variants')->where('id', $first->id)->update(['price' => '321.00', 'price_mode' => 'individual']);
+    DB::table('product_variants')->where('id', $second->id)->update(['price' => '0.00', 'price_mode' => 'unknown']);
+    DB::table('products')->where('id', $product->id)->update(['price' => '0.00', 'price_mode' => 'unknown']);
+    expect(fn () => $first->fresh()->update(['price' => '888.00']))->toThrow(ValidationException::class);
+    $p = matrixParameters($product, 'configurations');
+    $preview = app(CatalogActions::class)->preview($this->admin, $p);
+    expect($preview['counts']['prices_to_change'])->toBeGreaterThanOrEqual(2);
+    $id = app(CatalogActions::class)->confirm($this->admin, $preview);
+    finishCatalogAction($id);
+    $first->refresh(); $second->refresh(); $product->refresh();
+    $orderAfter = $orderItem->fresh()->toArray();
+    ksort($orderAfter);
+    expect($first->price)->toBe(CatalogConfiguration::findOrFail($first->catalog_configuration_id)->price)
+        ->and($second->price)->toBe(CatalogConfiguration::findOrFail($second->catalog_configuration_id)->price)
+        ->and($first->price_mode)->toBe('inherited')
+        ->and($second->price_mode)->toBe('inherited')
+        ->and($product->price_mode)->toBe('inherited')
+        ->and($product->variants()->orderBy('id')->pluck('id')->all())->toBe($variants->modelKeys())
+        ->and(\App\Models\OrderItem::count())->toBe($oldOrderItemCount + 1)
+        ->and($orderAfter)->toBe($orderSnapshot);
+    $history = DB::table('catalog_matrix_price_history')->where('product_id', $product->id)
+        ->where('operation_ref', 'catalog_action:'.$id)->get();
+    expect($history->count())->toBe(3)
+        ->and($history->every(fn ($h) => strlen($h->source_sha256) === 64))->toBeTrue();
+    DB::transaction(fn () => $this->matrix->synchronize($product->fresh(), 'catalog_action:'.$id));
+    expect(DB::table('catalog_matrix_price_history')->where('product_id', $product->id)->count())->toBe($earlierHistory + 3)
+        ->and($this->matrix->changes($product->fresh())['changed'])->toBeFalse();
 });

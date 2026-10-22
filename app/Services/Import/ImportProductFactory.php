@@ -6,7 +6,6 @@ use App\Enums\ImportLogLevel;
 use App\Enums\ProductStatus;
 use App\Enums\ProductType;
 use App\Enums\StockStatus;
-use App\Jobs\DownloadProductImageJob;
 use App\Models\ImportLog;
 use App\Models\ImportRun;
 use App\Models\PartType;
@@ -17,6 +16,9 @@ use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\VehicleGeneration;
 use App\Services\Catalog\CatalogConfigurations;
+use App\Services\Catalog\CatalogImportContext;
+use App\Services\Catalog\CatalogImportProtections;
+use App\Services\Catalog\CatalogPriceGuard;
 use App\Services\ImportLogger;
 use App\Services\ImportRunStats;
 use App\Services\ImportStatusService;
@@ -28,6 +30,50 @@ use Illuminate\Support\Str;
 
 class ImportProductFactory
 {
+    use PreparesStructuralArchive;
+
+    /** Existing cards keep their user data; the shared matrix synchronizer owns offers/prices. */
+    public function applySafePartial(ImportRun $run, array $item): Product
+    {
+        app(CatalogSafePartialImport::class)->assertItemOwner($run);
+        $expected = $item['expected'];
+        if ($expected['product_id']) {
+            $product = Product::whereKey($expected['product_id'])->firstOrFail();
+            app(CatalogConfigurations::class)->synchronize($product, 'import:'.$run->id);
+            $changes = ['last_import_run_id' => $run->id];
+            if ($expected['action'] === 'reactivate' && ! in_array($product->publication_override, ['archived', 'draft'], true)) {
+                $changes['status'] = ProductStatus::Active->value;
+                $changes['import_present'] = true;
+            }
+            DB::table('products')->where('id', $product->id)->update($changes);
+            $this->stats->increment($run, 'updated_products');
+
+            return $product->refresh();
+        }
+        $headers = [];
+        foreach ($run->detail_columns as $column => $header) {
+            if (app(ImportPartTypeResolver::class)->structuralPath($header) === $expected['part_type_full_slug']) {
+                $headers[$column] = $header;
+            }
+        }
+        if (count($headers) !== 1) {
+            throw new \RuntimeException('Не найдена единственная разрешённая колонка нового товара.');
+        }
+        $part = PartType::where('full_slug', $expected['part_type_full_slug'])->firstOrFail();
+        $category = $part->productCategory()->firstOrFail();
+        foreach ($headers as &$header) {
+            $header += ['part_type_id' => $part->id, 'part_type_full_slug' => $part->full_slug,
+                'product_category_id' => $category->id];
+        }
+        unset($header);
+        $row = $item['row'];
+        $row[0] = '';
+        $row['_photo_urls'] = [];
+        app(ImportRowProcessor::class)->process($run, $row, $headers, $row['_row_number']);
+
+        return Product::where('import_key', $expected['import_key'])->firstOrFail();
+    }
+
     public function __construct(
         private readonly ImportRunStats $stats,
         private readonly ImportStatusService $statusService,
@@ -36,6 +82,7 @@ class ImportProductFactory
         private readonly CatalogImportPriceResolver $priceResolver,
         private readonly CatalogImportProductDefaults $productDefaults,
         private readonly CatalogImportVehiclePruner $vehiclePruner,
+        private readonly CatalogImportIdentity $identity,
     ) {}
 
     /** @var array<string, bool> */
@@ -58,27 +105,37 @@ class ImportProductFactory
         array $detailHeader,
         string $cellValue,
         ?string $imageUrl = null,
+        ?array $identityRow = null,
     ): Product {
+        if ($run->import_mode === 'safe_partial') {
+            app(CatalogSafePartialImport::class)->assertItemOwner($run);
+        }
         $vehicle = $generation->loadMissing('model.make');
         $source = $this->sourceFor($run);
         $productTitle = $this->productTitle($partType, $vehicle);
-        $importKey = $this->importKey($vehicle, $partType, $source);
+        $resolved = $identityRow !== null ? $this->identity->resolve($identityRow, $partType->full_slug, $source, $run) : null;
+        if (($resolved['error'] ?? null) !== null) {
+            throw new \RuntimeException($resolved['error']);
+        }
+        $importKey = $resolved['import_key'] ?? $this->importKey($vehicle, $partType, $source);
         $slug = $this->stableSlug($vehicle, $partType, $source, $productTitle);
         $referencePrice = $this->priceResolver->resolve($partType);
-        $explicitPrice = CatalogImportCell::parse($cellValue)['price'] ?? null;
-        if ($explicitPrice !== null) {
-            $referencePrice = ['price' => $explicitPrice, 'old_price' => null];
-        }
 
         if ($referencePrice === null) {
             $this->warnMissingReferencePriceOnce($run, $partType);
         }
 
         /** @var Product $product */
-        $product = Product::query()->withTrashed()->firstOrNew(['import_key' => $importKey]);
+        $product = ($resolved['approved_identity'] ?? false)
+            ? Product::query()->withTrashed()->find($resolved['product_id'])
+            : Product::query()->withTrashed()->firstOrNew(['import_key' => $importKey]);
+        if (! $product instanceof Product || $product->import_key !== $importKey
+            || (($resolved['approved_identity'] ?? false) && $vehicle->id !== $resolved['generation_id'])) {
+            throw new \RuntimeException('Утверждённый исторический товар или его автомобиль изменились; создание замены запрещено.');
+        }
         $wasCreated = ! $product->exists;
         $initializeDefaults = $wasCreated && $source === 'catalog';
-        $canonicalTemplate = $initializeDefaults ? $this->productDefaults->templateFor($partType) : null;
+        $matrixTemplate = $source === 'catalog' ? $this->productDefaults->templateFor($partType) : null;
 
         $productAttributes = [
             'product_type' => ProductType::AutoPart,
@@ -86,7 +143,9 @@ class ImportProductFactory
             'product_category_id' => $storeCategory->getKey(),
             'title' => $productTitle,
             'slug' => $product->exists ? $product->slug : $slug,
-            'status' => $run->isSnapshotCatalogImport() ? ($product->exists && ! $product->trashed() ? $product->status : ProductStatus::Archived) : ProductStatus::Active,
+            'status' => in_array($product->publication_override, ['archived', 'draft'], true)
+                ? ProductStatus::from($product->publication_override)
+                : ($run->isSnapshotCatalogImport() ? ($product->exists && ! $product->trashed() ? $product->status : ProductStatus::Archived) : ProductStatus::Active),
             'import_source' => $source,
             'last_import_run_id' => (string) $run->getKey(),
         ];
@@ -100,7 +159,7 @@ class ImportProductFactory
         }
 
         if ($initializeDefaults) {
-            $productAttributes['product_option_template_id'] = $canonicalTemplate?->getKey();
+            $productAttributes['product_option_template_id'] = $matrixTemplate?->getKey();
             $productAttributes['description'] = $this->productDefaults->description($partType, $vehicle);
         }
 
@@ -111,7 +170,7 @@ class ImportProductFactory
             $initializeDefaults,
             $run,
             $referencePrice,
-            $canonicalTemplate,
+            $matrixTemplate,
             $partType,
             $storeCategory,
             $generation,
@@ -130,35 +189,24 @@ class ImportProductFactory
                 $this->stats->increment($run, 'updated_products');
             }
 
-            if ($initializeDefaults && app(CatalogConfigurations::class)->rows($partType->id)->isNotEmpty()) {
-                $this->productDefaults->initialize($product, $canonicalTemplate);
-                $variant = $product->defaultVariant()->firstOrFail();
-            } elseif ($product->configuration_managed && $product->variants()->exists()) {
-                // A repeat import must not replace an administrator's inactive variants with a technical offer.
+            if ($run->type === 'catalog') {
+                if ($initializeDefaults) {
+                    $this->productDefaults->initialize($product, $matrixTemplate, (int) $run->getKey());
+                } else {
+                    app(CatalogConfigurations::class)->synchronize($product, 'import:'.$run->getKey());
+                }
+                // A manually excluded matrix may have no active default. Never create a technical offer.
                 $variant = $product->defaultVariant()->first()
                     ?? $product->variants()->orderByDesc('is_active')->orderBy('id')->firstOrFail();
             } else {
-                $variant = ProductVariant::query()->firstOrNew([
-                    'product_id' => $product->getKey(),
-                    'is_default' => true,
+                $variant = ProductVariant::query()->firstOrCreate([
+                    'product_id' => $product->getKey(), 'is_default' => true,
+                ], [
+                    'title' => 'Основной', 'price' => $referencePrice['price'] ?? 0,
+                    'price_mode' => $referencePrice === null ? 'unknown' : 'inherited',
+                    'old_price' => $referencePrice['old_price'] ?? null,
+                    'stock_status' => StockStatus::InStock, 'is_active' => true,
                 ]);
-
-                if (! $variant->exists) {
-                    $variant->fill([
-                        'title' => 'Основной',
-                        'price' => $referencePrice['price'] ?? 0,
-                        'price_mode' => $referencePrice === null ? 'unknown' : 'inherited',
-                        'old_price' => $referencePrice['old_price'] ?? null,
-                        'stock_status' => StockStatus::InStock,
-                        'is_active' => true,
-                    ])->save();
-                }
-
-                if ($initializeDefaults && $canonicalTemplate !== null) {
-                    $this->productDefaults->initialize($product, $canonicalTemplate);
-                    $variant = $product->defaultVariant()->firstOrFail();
-                }
-
             }
 
             $product->setRelation('partType', $partType);
@@ -188,14 +236,16 @@ class ImportProductFactory
             return [$product, $variant];
         });
 
-        $imageUrl ??= $this->isUrl($cellValue) ? trim($cellValue) : null;
+        if ($run->import_mode === 'safe_partial') {
+            return $product->refresh();
+        }
+        $imageUrl = $source === 'catalog' ? null : ($imageUrl ?? ($this->isUrl($cellValue) ? trim($cellValue) : null));
 
         if ($imageUrl !== null) {
             $this->promoteExistingImportImageIfPresent($product, $imageUrl);
 
             if ($this->shouldQueueProductImage($product, $imageUrl, $run)) {
-                $this->statusService->imageQueued($run);
-                DownloadProductImageJob::dispatch($product->getKey(), $imageUrl, $run->getKey())->onQueue('imports-images');
+                app(ImportImageTasks::class)->enqueue($run, 'product', $product->id, $imageUrl);
             }
         } elseif ($this->isPositiveAvailabilityCell($cellValue)) {
             $this->warnImportImageUrlDisappearedOnce($product, $run, $partType, $storeCategory);
@@ -211,14 +261,22 @@ class ImportProductFactory
 
     public function archiveMissingProducts(ImportRun $run): int
     {
+        if ($run->import_mode === 'safe_partial') {
+            return 0;
+        }
         if ($run->total_rows <= 0 || ! $run->status?->isRowsRunning() || $run->errors_count > 0) {
             return 0;
+        }
+
+        if ($run->import_mode === 'full') {
+            return $this->archiveProvedMissing($run);
         }
 
         return DB::transaction(function () use ($run): int {
             $archived = Product::query()
                 ->where('import_source', $this->sourceFor($run))
                 ->whereNotNull('import_key')
+                ->whereNotIn('id', app(CatalogImportProtections::class)->ids())
                 ->where(function ($query) use ($run): void {
                     if ($run->isSnapshotCatalogImport()) {
                         $query->whereNotIn('import_key', DB::table('catalog_import_snapshot_items')->where('import_run_id', $run->id)->select('import_key'));
@@ -227,9 +285,55 @@ class ImportProductFactory
                     }
                 })
                 ->where('status', '!=', ProductStatus::Archived->value)
-                ->when(app(CatalogConfigurations::class)->ready(), fn ($q) => $q->where(fn ($q) => $q->whereNull('publication_override')->orWhere('publication_override', 'archived')))
+                ->where(fn ($q) => $q->whereNull('publication_override')->orWhere('publication_override', 'force_active'))
                 ->update(['status' => ProductStatus::Archived->value]);
 
+            $this->stats->increment($run, 'archived_products', $archived);
+            $this->vehiclePruner->prune($run);
+
+            return $archived;
+        });
+    }
+
+    private function archiveProvedMissing(ImportRun $run): int
+    {
+        return DB::transaction(function () use ($run): int {
+            app(CatalogPriceGuard::class)->assertWritable();
+            app(CatalogImportSnapshot::class)->validateFullScope($run);
+            $scope = $run->prepared_rows['full_scope'];
+            $file = Storage::disk('local')->path($run->stored_path);
+            $current = app(CatalogImportProductPlan::class)->full($file, $run->type, materialized: true);
+            $ids = array_keys($scope['archives']);
+            $products = Product::withTrashed()->with(['fitments' => fn ($q) => $q->lockForUpdate()])
+                ->whereIn('id', $ids)->lockForUpdate()->get()->keyBy('id');
+            $present = DB::table('catalog_import_snapshot_items')->where('import_run_id', $run->id)->whereIn('product_id', $ids)->exists();
+            if ($present || array_intersect($ids, array_keys($current['full_scope']['preserve']))) {
+                throw new \RuntimeException('Архивация пересекается с присутствующей или неопределённой областью.');
+            }
+            foreach ($scope['archives'] as $id => $proof) {
+                if (! isset($current['full_scope']['archives'][$id]) || ! isset($products[$id])
+                    || ! hash_equals($proof['fingerprint'], CatalogImportAssortmentPolicy::fingerprint($products[$id]))) {
+                    throw new \RuntimeException('Доказательство отсутствия товара #'.$id.' устарело.');
+                }
+                if (($proof['evidence']['code'] ?? null) === 'structural_generic_retired'
+                    && ! $this->structuralEvidenceMatches($proof['evidence'], $current['full_scope']['archives'][$id]['evidence'])) {
+                    throw new \RuntimeException('Доказательство отдельных структурных позиций #'.$id.' устарело.');
+                }
+            }
+            $nonce = bin2hex(random_bytes(32));
+            $prepared = $run->prepared_rows;
+            $run->forceFill(['prepared_rows' => $prepared + ['full_archive_nonce' => $nonce]])->save();
+            $archived = 0;
+            try {
+                CatalogImportContext::archive($run->id, $nonce, function () use ($scope, &$archived): void {
+                    foreach ($scope['archives'] as $id => $proof) {
+                        DB::table('products')->where('id', $id)->update(['status' => 'archived', 'import_present' => false, 'updated_at' => now()]);
+                        $archived += $proof['status'] !== 'archived' ? 1 : 0;
+                    }
+                });
+            } finally {
+                $run->forceFill(['prepared_rows' => $prepared])->save();
+            }
             $this->stats->increment($run, 'archived_products', $archived);
             $this->vehiclePruner->prune($run);
 
@@ -258,8 +362,7 @@ class ImportProductFactory
     {
         $generation->loadMissing('model.make');
 
-        return CatalogImportIdentity::fromSegments($source, $generation->model->make->norm_key,
-            $generation->model->norm_key, $generation->norm_key, implode('/', $this->partTypeImportKeySegments($partType)));
+        return $this->identity->forGeneration($generation, implode('/', $this->partTypeImportKeySegments($partType)), $source);
     }
 
     /** @return array<int, string> */

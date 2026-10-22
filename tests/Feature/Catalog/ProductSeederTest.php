@@ -36,6 +36,6 @@ test('product seeder creates a valid auto part demo product with a real default 
         ->and($defaultImage)->toBeInstanceOf(ProductImage::class)
         ->and($defaultImage?->is_default)->toBeTrue()
         ->and($defaultImage?->is_visible)->toBeTrue()
-        ->and(is_file(public_path((string) $defaultImage?->path)))->toBeTrue()
-        ->and(str_starts_with((string) $defaultImage?->path, DefaultProductImageService::DIRECTORY.'/'))->toBeTrue();
+        ->and(\Illuminate\Support\Facades\Storage::disk('public')->exists((string) $defaultImage?->path))->toBeTrue()
+        ->and(str_starts_with((string) $defaultImage?->path, DefaultProductImageService::STORAGE_DIRECTORY.'/'))->toBeTrue();
 });

@@ -1,6 +1,8 @@
 <?php
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /*
@@ -47,6 +49,28 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/** Explicit fake visual oracle; solid test rasters are not real vehicle photographs. */
+function test_vehicle_verdict(Request $request, array $overrides = []): array
+{
+    $checks = array_fill_keys(['vehicle_exterior_photo', 'whole_vehicle', 'not_advertisement', 'not_logo', 'not_screenshot',
+        'matches_make', 'matches_model', 'matches_generation', 'matches_years', 'matches_body', 'matches_platform', 'matches_restyling'], true);
+
+    return array_replace_recursive(['schema_version' => 1, 'revision' => $request['revision'],
+        'image_sha256' => $request['image_sha256'], 'vehicle_sha256' => $request['vehicle_sha256'],
+        'verdict' => 'accept', 'confidence' => 0.99, 'checks' => $checks], $overrides);
+}
+
+function fake_vehicle_photo_verifier(?callable $answer = null, bool $smallFixtures = false): void
+{
+    config(['vehicle_images.verifier_url' => 'https://vision.example.test/check']);
+    if ($smallFixtures) {
+        config(['vehicle_images.min_width' => 1, 'vehicle_images.min_height' => 1]);
+    }
+    Http::fake(['https://vision.example.test/check' => function ($request) use ($answer) {
+        return Http::response($answer ? $answer($request) : test_vehicle_verdict($request));
+    }]);
 }
 
 function test_image_binary(string $format = 'jpeg', int $width = 32, int $height = 24): string

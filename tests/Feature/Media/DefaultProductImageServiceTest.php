@@ -44,8 +44,8 @@ test('DefaultProductImageService keeps legacy category fallback for products wit
 
     expect($default)->not->toBeNull()
         ->and($default['key'])->toBe($expectedKey)
-        ->and($default['path'])->toStartWith('img/products_default/'.$expectedKey.'.')
-        ->and($default['url'])->toContain('img/products_default/'.$expectedKey.'.')
+        ->and($default['path'])->toStartWith('catalog/defaults/'.$expectedKey.'.')
+        ->and($default['url'])->toContain('catalog/defaults/'.$expectedKey.'.')
         ->and(is_file($default['absolute_path']))->toBeTrue();
 })->with([
     'porog' => ['', 'Порог', 'porog'],
@@ -54,11 +54,18 @@ test('DefaultProductImageService keeps legacy category fallback for products wit
     'lonzeron' => ['', 'Лонжерон', 'lonzeron'],
 ]);
 
-test('DefaultProductImageService returns null when mapped file is absent or category is unknown', function () {
+test('DefaultProductImageService provisions persistent placeholders only for explicit keys', function () {
     $category = defaultImageTestCategory('Неизвестная деталь');
+    $service = app(DefaultProductImageService::class);
+    $first = $service->findByKey('missing-default-file');
+    $repeat = $service->findByKey('missing-default-file');
 
-    expect(app(DefaultProductImageService::class)->forCategory($category))->toBeNull()
-        ->and(app(DefaultProductImageService::class)->findByKey('missing-default-file'))->toBeNull();
+    expect($service->forCategory($category))->toBeNull()
+        ->and($service->findByKey('../unsafe-file'))->toBeNull()
+        ->and($first)->not->toBeNull()
+        ->and($first['path'])->toBe('catalog/defaults/missing-default-file.png')
+        ->and(is_file($first['absolute_path']))->toBeTrue()
+        ->and($repeat['path'])->toBe($first['path']);
 });
 
 test('default ProductImage reference does not delete physical default file', function () {
@@ -85,7 +92,7 @@ test('DefaultProductImageService resolves default images from PartType keys', fu
 
     expect($default)->not->toBeNull()
         ->and($default['key'])->toBe($expectedKey)
-        ->and($default['path'])->toStartWith('img/products_default/'.$expectedKey.'.');
+        ->and($default['path'])->toStartWith('catalog/defaults/'.$expectedKey.'.');
 })->with([
     'arka vnutrenniaia universalnaia' => ['Арка', 'Внутренняя универсальная', 'arka-vnutrenniaia-universalnaia'],
     'penka bagazhnika' => ['Пенка', 'Багажника', 'penka-bagaznika'],

@@ -3,7 +3,9 @@
 namespace App\Services\Import;
 
 use App\Models\PartType;
+use App\Services\Catalog\CatalogConfigurationSource;
 use App\Services\Catalog\CatalogConfigurations;
+use Illuminate\Validation\ValidationException;
 
 final class CatalogImportPriceResolver
 {
@@ -16,6 +18,10 @@ final class CatalogImportPriceResolver
             $price = app(CatalogConfigurations::class)->basePrice($typeId);
 
             return ['price' => $price, 'old_price' => null];
+        }
+        $path = $partType instanceof PartType ? $partType->full_slug : $partType;
+        if (in_array($path, CatalogConfigurationSource::managedPaths(), true)) {
+            throw ValidationException::withMessages(['configuration' => 'Не установлены цены CSV для типа '.$path.'. Общая цена типа не используется вместо матрицы.']);
         }
         // Query current persisted values: callers may hold a cached PartType.
         $query = PartType::query();

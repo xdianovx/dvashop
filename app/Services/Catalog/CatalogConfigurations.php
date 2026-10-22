@@ -3,6 +3,7 @@
 namespace App\Services\Catalog;
 
 use App\Models\CatalogConfiguration;
+use App\Models\ImportRun;
 use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductOptionGroup;
@@ -15,6 +16,8 @@ use Illuminate\Validation\ValidationException;
 
 final class CatalogConfigurations
 {
+    private const REQUIRED_TABLES = ['catalog_configurations', 'catalog_actions', 'catalog_action_items', 'catalog_price_locks', 'catalog_matrix_sources', 'catalog_matrix_price_history'];
+
     private ?Collection $loadedRows = null;
 
     private array $loadedTypeIds = [];
@@ -37,6 +40,15 @@ final class CatalogConfigurations
     public function ready(): bool
     {
         return app(CatalogPricingSchema::class)->has('catalog_configurations');
+    }
+
+    public function assertReady(): void
+    {
+        foreach (self::REQUIRED_TABLES as $table) {
+            if (! app(CatalogPricingSchema::class)->has($table)) {
+                throw ValidationException::withMessages(['configuration' => 'Отсутствует таблица '.$table.'. Сначала отдельно примените миграции и установите исходный CSV. Импорт остановлен.']);
+            }
+        }
     }
 
     public function rows(?int $typeId): Collection
@@ -87,78 +99,111 @@ final class CatalogConfigurations
         return $this->rows($typeId)->first()?->template;
     }
 
-    /** Explicit installation, separate from migrations. Existing administrative prices are never overwritten. */
-    public function install(string $path, ?string $confirmation = null): array
+    /** Explicit, reviewed CSV installation, separate from migrations and product synchronization. */
+    public function install(string $path, ?string $confirmation = null, ?int $authorizedImportId = null): array
     {
+        $this->assertReady();
         $this->clear();
+        $sourceSha256 = is_file($path) ? hash_file('sha256', $path) : false;
         $rows = app(CatalogConfigurationSource::class)->read($path);
+        if (! is_string($sourceSha256) || ! hash_equals($sourceSha256, (string) hash_file('sha256', $path))) {
+            throw ValidationException::withMessages(['configuration' => 'Невозможно проверить SHA-256 исходного CSV.']);
+        }
 
-        return DB::transaction(function () use ($rows, $confirmation): array {
+        return DB::transaction(function () use ($rows, $confirmation, $sourceSha256, $authorizedImportId): array {
             app(CatalogPriceGuard::class)->assertWritable();
-            if (DB::table('import_runs')->whereIn('status', ['running', 'running_rows', 'paused'])->exists()) {
+            if (DB::table('import_runs')->whereIn('status', ['running', 'running_rows', 'paused'])
+                ->when($authorizedImportId !== null, fn ($q) => $q->where('id', '!=', $authorizedImportId))->exists()) {
                 throw ValidationException::withMessages(['configuration' => 'Сначала завершите импорт.']);
             }
-            $review = app(CatalogConfigurationInstallation::class)->preview($rows);
+            $installation = app(CatalogConfigurationInstallation::class);
+            $review = $installation->preview($rows);
+            $isolation = app(CatalogImportProtections::class)->assertInstallation($rows);
+            if ($authorizedImportId !== null) {
+                $run = ImportRun::whereKey($authorizedImportId)->lockForUpdate()->firstOrFail();
+                $expectedHash = in_array($run->import_mode, ['full', 'safe_partial'], true) ? $run->configuration_hash : $run->file_hash;
+                if (! is_string($expectedHash) || ! hash_equals($expectedHash, $sourceSha256)) {
+                    throw ValidationException::withMessages(['configurationReview' => 'CSV изменился после загрузки.']);
+                }
+                $confirmation = $run->import_mode === 'safe_partial'
+                    ? $review['confirmation']
+                    : $installation->assertImportConfirmation($run, $installation->bindReview($run, $review, $sourceSha256));
+                if ($run->import_mode === 'safe_partial') {
+                    app(\App\Services\Import\CatalogSafePartialImport::class)->assertInstallationOwner($run);
+                }
+            }
             if (($review['requires_confirmation'] && $confirmation === null)
                 || ($confirmation !== null && ! hash_equals($review['confirmation'], $confirmation))) {
-                throw ValidationException::withMessages(['configuration' => 'Изменён состав или цены CSV. Проверьте предпросмотр и подтвердите его актуальным кодом. Существующие цены будут сохранены.']);
+                throw ValidationException::withMessages(['configuration' => 'Изменён состав или цены CSV. Проверьте предпросмотр и подтвердите его актуальным кодом. После установки отдельная синхронизация приведёт ВСЕ текущие цены импортных товаров к CSV, с сохранением истории.']);
+            }
+            if ($isolation['equivalent']) {
+                DB::table('catalog_matrix_sources')->updateOrInsert(['id' => 1], [
+                    'sha256' => $sourceSha256, 'source_rows' => count($rows), 'installed_at' => now(),
+                ]);
+                $this->clear();
+                return ['review' => $review, 'source_rows' => count($rows), 'source_sha256' => $sourceSha256,
+                    'created_configurations' => 0, 'warnings' => [], 'structures_unchanged' => true];
             }
             $tree = app(PartTypeTreeService::class);
             $definitions = app(PartTypeDefinitionRegistry::class)->flattened($tree);
             $created = 0;
-            foreach (collect($rows)->groupBy('type') as $path => $groupRows) {
-                $paths = [$path];
-                if ($path === 'porog') {
-                    $paths = ['porog', 'porog/standartnyi', 'porog/uvelichennyi'];
+            $targets = [];
+            foreach ($rows as $row) {
+                foreach (CatalogConfigurationSource::targetPaths($row) as $target) {
+                    $targets[$target][] = $row;
                 }
-                foreach ($paths as $target) {
-                    $type = PartType::where('full_slug', $target)->first();
-                    if (! $type) {
-                        $def = $definitions[$target];
-                        $type = new PartType;
-                        $type->forceFill(['title' => $def['title'], 'parent_id' => $def['parent_full_slug'] ? PartType::where('full_slug', $def['parent_full_slug'])->firstOrFail()->id : null,
-                            'position' => $def['position'], 'is_active' => true]);
-                        $tree->save($type);
+            }
+            foreach ($targets as $target => $groupRows) {
+                $type = PartType::where('full_slug', $target)->first();
+                if (! $type) {
+                    $def = $definitions[$target];
+                    $type = new PartType;
+                    $type->forceFill(['title' => $def['title'], 'parent_id' => $def['parent_full_slug'] ? PartType::where('full_slug', $def['parent_full_slug'])->firstOrFail()->id : null,
+                        'position' => $def['position'], 'is_active' => true]);
+                    $tree->save($type);
+                }
+                $slug = 'matrix_'.str_replace('/', '_', $target);
+                if (ProductOptionTemplate::where('part_type_id', $type->id)->where('is_default', true)->where('slug', '!=', $slug)->exists()) {
+                    throw ValidationException::withMessages(['configuration' => 'У типа '.$target.' уже есть пользовательский шаблон. Требуется отдельное решение.']);
+                }
+                $template = ProductOptionTemplate::firstOrCreate(['slug' => $slug], ['title' => 'Конфигурации: '.$type->full_title,
+                    'part_type_id' => $type->id, 'applies_to' => 'auto_part', 'is_active' => true, 'is_default' => true, 'position' => 0]);
+                foreach ($groupRows as $position => $row) {
+                    foreach ($row['options'] as $code => $valueCode) {
+                        $group = ProductOptionGroup::where('code', $code)->firstOrFail();
+                        $title = array_search($valueCode, CatalogConfigurationSource::VALUES[$code], true);
+                        $value = ProductOptionValue::firstOrCreate(['product_option_group_id' => $group->id, 'code' => $valueCode],
+                            ['slug' => $valueCode, 'title' => $title, 'position' => array_search($valueCode, array_values(CatalogConfigurationSource::VALUES[$code]), true) * 10, 'is_active' => true, 'is_default' => false]);
+                        $template->items()->firstOrCreate(['product_option_group_id' => $group->id, 'product_option_value_id' => $value->id], ['position' => $group->position]);
                     }
-                    $slug = 'matrix_'.str_replace('/', '_', $target);
-                    if (ProductOptionTemplate::where('part_type_id', $type->id)->where('is_default', true)->where('slug', '!=', $slug)->exists()) {
-                        throw ValidationException::withMessages(['configuration' => 'У типа '.$target.' уже есть пользовательский шаблон. Требуется отдельное решение.']);
-                    }
-                    $template = ProductOptionTemplate::firstOrCreate(['slug' => $slug], ['title' => 'Конфигурации: '.$type->full_title,
-                        'part_type_id' => $type->id, 'applies_to' => 'auto_part', 'is_active' => true, 'is_default' => true, 'position' => 0]);
-                    foreach ($groupRows as $position => $row) {
-                        if ($target === 'porog/standartnyi' && $row['options']['profile'] !== 'standard') {
-                            continue;
-                        }
-                        if ($target === 'porog/uvelichennyi' && $row['options']['profile'] !== 'increased') {
-                            continue;
-                        }
-                        foreach ($row['options'] as $code => $valueCode) {
-                            $group = ProductOptionGroup::where('code', $code)->firstOrFail();
-                            $title = array_search($valueCode, CatalogConfigurationSource::VALUES[$code], true);
-                            $value = ProductOptionValue::firstOrCreate(['product_option_group_id' => $group->id, 'code' => $valueCode],
-                                ['slug' => $valueCode, 'title' => $title, 'position' => array_search($valueCode, array_values(CatalogConfigurationSource::VALUES[$code]), true) * 10, 'is_active' => true, 'is_default' => false]);
-                            $template->items()->firstOrCreate(['product_option_group_id' => $group->id, 'product_option_value_id' => $value->id], ['position' => $group->position]);
-                        }
-                        $configuration = CatalogConfiguration::firstOrCreate(['part_type_id' => $type->id, 'signature' => $row['signature']],
-                            ['product_option_template_id' => $template->id, 'options' => $row['options'], 'price' => $row['price'], 'position' => $position]);
-                        $created += $configuration->wasRecentlyCreated ? 1 : 0;
-                        if (! $configuration->is_active) { $configuration->update(['is_active' => true]); }
+                    $configuration = CatalogConfiguration::firstOrCreate(['part_type_id' => $type->id, 'signature' => $row['signature']],
+                        ['product_option_template_id' => $template->id, 'options' => $row['options'], 'price' => $row['price'], 'position' => $position]);
+                    $created += $configuration->wasRecentlyCreated ? 1 : 0;
+                    $configuration->fill(['is_active' => true, 'price' => $row['price'], 'options' => $row['options'],
+                        'position' => $position, 'product_option_template_id' => $template->id]);
+                    if ($configuration->isDirty()) {
+                        $configuration->save();
                     }
                 }
             }
 
             CatalogConfiguration::whereIn('id', array_column($review['retired'], 'id'))->update(['is_active' => false, 'updated_at' => now()]);
+            DB::table('catalog_matrix_sources')->updateOrInsert(['id' => 1], [
+                'sha256' => $sourceSha256, 'source_rows' => count($rows), 'installed_at' => now(),
+            ]);
             $this->clear();
-            return ['review' => $review, 'source_rows' => count($rows), 'created_configurations' => $created, 'warnings' => ['Арка / Карман задняя: нового набора конфигураций нет; сохранено прежнее поведение.']];
+            return ['review' => $review, 'source_rows' => count($rows), 'source_sha256' => $sourceSha256,
+                'created_configurations' => $created,
+                'warnings' => ['Все управляемые CSV цены будут применены при синхронизации товаров с сохранением истории.']];
         });
     }
 
     public function combinations(ProductOptionTemplate $template): ?array
     {
-        if (! str_starts_with((string) $template->slug, 'matrix_') || ! $this->ready()) {
+        if (! str_starts_with((string) $template->slug, 'matrix_')) {
             return null;
         }
+        $this->assertReady();
         $rows = CatalogConfiguration::where('product_option_template_id', $template->id)->where('is_active', true)->orderBy('position')->get();
         if ($rows->isEmpty()) {
             return [];
@@ -181,86 +226,41 @@ final class CatalogConfigurations
 
     public function signature(ProductVariant $variant): string
     {
-        if ($variant->optionValues->isEmpty()) {
-            $snapshot = ProductVariant::optionsWithoutManagementMetadata($variant->options) ?? [];
-            if ($snapshot === []) {
-                return '';
-            }
-            $options = [];
-            foreach ($snapshot as $group => $value) {
-                if (! isset(CatalogConfigurationSource::VALUES[$group])) {
-                    return '';
-                }
-                $value = is_array($value) ? ($value['value'] ?? null) : $value;
-                $allowed = CatalogConfigurationSource::VALUES[$group];
-                $code = $allowed[$value ?? ''] ?? (in_array($value, $allowed, true) ? $value : null);
-                if ($code === null) {
-                    return '';
-                }
-                $options[$group] = $code;
-            }
-
-            return CatalogConfigurationSource::signature($options);
-        }
-
-        return CatalogConfigurationSource::signature($variant->optionValues->mapWithKeys(fn ($v) => [$v->group->code => $v->code])->all());
+        return app(CatalogVariantDifference::class)->signature($variant);
     }
 
-    /** Same comparison used by preview and application; ignores timestamps and historical order snapshots. */
+    /** Installed-matrix adapter; synchronize continues to use the same comparison. */
     public function changes(Product $product): array
     {
         $rows = $this->rows($product->part_type_id);
-        $result = ['changed' => false, 'created_variants' => 0, 'updated_variants' => 0, 'retired_variants' => 0];
-        if ($rows->isEmpty()) {
-            // Last CSV combination was removed. Existing managed offers must leave sale as well.
-            if ($this->canRetireManagedProduct($product)) {
-                $variants = $product->variants;
-                $result['retired_variants'] = $variants->where('is_active', true)->count();
-                $result['changed'] = $result['retired_variants'] > 0
-                    || $variants->contains('is_default', true);
-            }
 
-            return $result;
-        }
-        $variants = $product->variants;
-        $signatures = $variants->groupBy(fn ($v) => $this->signature($v));
-        $candidates = collect();
-        foreach ($rows as $row) {
-            $matches = $signatures->get($row->signature, collect());
-            if ($matches->count() > 1) { throw ValidationException::withMessages(['configuration' => 'Несколько вариантов соответствуют одной конфигурации товара #'.$product->id]); }
-            $variant = $matches->first();
-            if (! $variant) {
-                $result['created_variants']++;
-                $candidates->push(['id' => null, 'default' => false, 'price' => $row->price]);
-                continue;
-            }
-            $price = $variant->price_mode === 'inherited' ? $row->price : $variant->price;
-            if ((int) $variant->catalog_configuration_id !== (int) $row->id || $variant->price !== $price
-                || $variant->configuration_auto_retired || blank($variant->title)
-                || empty($variant->options) || $variant->optionValues->isEmpty()) {
-                $result['updated_variants']++;
-            }
-            if ($variant->is_active) { $candidates->push(['id' => $variant->id, 'default' => $variant->is_default, 'price' => $price]); }
-        }
-        $result['retired_variants'] = $variants->filter(fn ($v) => $v->is_active && ! $rows->contains('signature', $this->signature($v)))->count();
-        $default = $candidates->sort(fn ($a, $b) => ($b['default'] <=> $a['default'])
-            ?: ((int) str_replace('.', '', (string) $a['price']) <=> (int) str_replace('.', '', (string) $b['price']))
-            ?: (($a['id'] ?? PHP_INT_MAX) <=> ($b['id'] ?? PHP_INT_MAX)))->first();
-        // Eloquent's modelKeys() can preserve the original collection offsets.
-        // A valid default after retired legacy offers might be keyed [24 => id],
-        // while the expected list is [0 => id]. Compare IDs, not collection keys.
-        $currentDefaults = $variants->where('is_default', true)->values()->modelKeys();
-        $desiredDefaults = $default && $default['id'] !== null ? [$default['id']] : [];
-        $result['changed'] = $result['created_variants'] + $result['updated_variants'] + $result['retired_variants'] > 0
-            || $currentDefaults !== $desiredDefaults || ! $product->configuration_managed
-            || (int) $product->product_option_template_id !== (int) $rows->first()->product_option_template_id
-            || ($product->price_mode === 'inherited' && $default && $product->price !== $default['price']);
-        return $result;
+        return app(CatalogVariantDifference::class)->compare(
+            $product, $rows, $rows->isEmpty() && $this->canRetireManagedProduct($product),
+        );
     }
 
     /** Called inside a product transaction by import or the reserved, resumable operation. */
-    public function synchronize(Product $product): array
+    public function synchronize(Product $product, string $operationRef = 'manual'): array
     {
+        // Savepoints are used if a caller already holds a product/action transaction.
+        // The audit and every price update must roll back together on any failure.
+        return DB::transaction(fn (): array => $this->synchronizeWithinTransaction($product, $operationRef));
+    }
+
+    private function synchronizeWithinTransaction(Product $product, string $operationRef): array
+    {
+        app(CatalogPriceGuard::class)->assertImportWritable();
+        if (app(CatalogImportProtections::class)->protects($product->id, lock: true)) {
+            return ['changed' => false, 'protected' => 'Постоянная защита safe_partial', 'created_variants' => 0];
+        }
+        $this->assertReady();
+        $selectedTemplate = $product->optionTemplate?->slug;
+        if ($product->import_source !== 'catalog' && ! $product->configuration_managed
+            && ! str_starts_with((string) $selectedTemplate, 'matrix_')) {
+            return ['changed' => false, 'protected' => 'Товар не управляется CSV-матрицей.'];
+        }
+        $history = app(CatalogMatrixPriceHistory::class);
+        $sourceSha256 = $history->sourceSha256();
         $rows = $this->rows($product->part_type_id);
         if ($rows->isEmpty()) {
             // A type with no remaining active CSV combinations must retire its managed offers.
@@ -285,7 +285,8 @@ final class CatalogConfigurations
         if ($product->product_option_template_id !== null && ! in_array($product->optionTemplate?->slug, ['default_auto_part', $template->slug], true)) {
             return ['protected' => 1];
         }
-        $variants = $product->relationLoaded('variants') ? $product->variants : $product->variants()->with('optionValues.group')->orderBy('id')->lockForUpdate()->get();
+        // Always lock fresh rows: relation caches from preview must not drive writes.
+        $variants = $product->variants()->with('optionValues.group')->orderBy('id')->lockForUpdate()->get();
         $product->setRelation('variants', $variants);
         $difference = $this->changes($product);
         if (! $difference['changed']) { return $difference + ['retained_variants' => $rows->count()]; }
@@ -293,6 +294,11 @@ final class CatalogConfigurations
         foreach ($rows as $row) {
             if (($bySignature->get($row->signature)?->count() ?? 0) > 1) {
                 throw ValidationException::withMessages(['configuration' => 'Несколько вариантов соответствуют одной конфигурации товара #'.$product->id]);
+            }
+            $match = $bySignature->get($row->signature)?->first();
+            if ($match && $match->catalog_configuration_id !== null
+                && (int) $match->catalog_configuration_id !== (int) $row->id) {
+                throw ValidationException::withMessages(['configuration' => 'Вариант #'.$match->id.' уже связан с другой конфигурацией. Товар #'.$product->id.' требует ручной проверки.']);
             }
         }
         $values = $template->loadMissing('items.group', 'items.value')->items->mapWithKeys(fn ($i) => [$i->group->code.':'.$i->value->code => [$i->product_option_group_id, $i->product_option_value_id]]);
@@ -319,10 +325,27 @@ final class CatalogConfigurations
                 }
                 if (blank($variant->title)) { $changes['title'] = $row->label(); }
                 if (empty($variant->options)) { $changes['options'] = json_encode($row->snapshot(), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR); }
-                if ($variant->price_mode === 'inherited') {
+                if ($variant->price !== $row->price || $variant->price_mode !== 'inherited') {
+                    $history->record($product->id, $variant->id, $row->id, $variant->price,
+                        $variant->price_mode, $row->price, 'inherited', $operationRef, $sourceSha256);
                     $changes['price'] = $row->price;
+                    $changes['price_mode'] = 'inherited';
                 }
-                DB::table('product_variants')->where('id', $variant->id)->update($changes);
+                // Never update untouched rows (important for retry/idempotence).
+                $changedFields = array_filter($changes, fn ($value, $key) => match ($key) {
+                    'catalog_configuration_id' => (int) $variant->catalog_configuration_id !== (int) $value,
+                    'is_active' => (bool) $variant->is_active !== (bool) $value,
+                    'configuration_auto_retired' => (bool) $variant->configuration_auto_retired !== (bool) $value,
+                    'title' => $variant->title !== $value,
+                    'options' => true,
+                    'price' => $variant->price !== $value,
+                    'price_mode' => $variant->price_mode !== $value,
+                    default => true,
+                }, ARRAY_FILTER_USE_BOTH);
+                if ($changedFields !== []) {
+                    $changedFields['updated_at'] = now();
+                    DB::table('product_variants')->where('id', $variant->id)->update($changedFields);
+                }
                 $id = $variant->id;
                 if ($variant->optionValues->isEmpty()) {
                     foreach ($row->options as $group => $code) {
@@ -351,16 +374,31 @@ final class CatalogConfigurations
                 'updated_at' => now(),
             ]);
         $default = DB::table('product_variants')->where('product_id', $product->id)->whereIn('id', $keep)->where('is_active', true)->orderByDesc('is_default')->orderBy('price')->orderBy('id')->first();
-        DB::table('product_variants')->where('product_id', $product->id)->update(['is_default' => false]);
+        DB::table('product_variants')->where('product_id', $product->id)
+            ->where('is_default', true)->when($default, fn ($q) => $q->where('id', '!=', $default->id))
+            ->update(['is_default' => false, 'updated_at' => now()]);
         if ($default) {
-            DB::table('product_variants')->where('id', $default->id)->update(['is_default' => true]);
+            DB::table('product_variants')->where('id', $default->id)->where('is_default', false)
+                ->update(['is_default' => true, 'updated_at' => now()]);
         }
-        $changes = ['configuration_managed' => true, 'product_option_template_id' => $template->id];
-        if ($product->price_mode === 'inherited' && $default) {
-            $changes['price'] = $default->price;
+        $changes = [];
+        if (! $product->configuration_managed) { $changes['configuration_managed'] = true; }
+        if ((int) $product->product_option_template_id !== (int) $template->id) { $changes['product_option_template_id'] = $template->id; }
+        if ($default) {
+            if ($product->price !== $default->price || $product->price_mode !== 'inherited') {
+                $history->record($product->id, null, $default->catalog_configuration_id, $product->price,
+                    $product->price_mode, $default->price, 'inherited', $operationRef, $sourceSha256);
+                $changes['price'] = $default->price;
+                $changes['price_mode'] = 'inherited';
+            }
         }
-        DB::table('products')->where('id', $product->id)->update($changes);
+        if ($changes !== []) {
+            $changes['updated_at'] = now();
+            DB::table('products')->where('id', $product->id)->update($changes);
+        }
 
-        return ['changed' => true, 'updated_variants' => $difference['updated_variants'], 'created_variants' => $created, 'retired_variants' => $retired, 'retained_variants' => count($keep) - $created];
+        return ['changed' => true, 'price_exceptions' => $difference['price_exceptions'], 'prices_to_change' => $difference['prices_to_change'], 'product_prices_to_change' => $difference['product_prices_to_change'],
+            'updated_variants' => $difference['updated_variants'], 'created_variants' => $created,
+            'retired_variants' => $retired, 'retained_variants' => count($keep) - $created];
     }
 }

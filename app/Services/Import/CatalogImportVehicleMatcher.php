@@ -5,6 +5,7 @@ namespace App\Services\Import;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleModel;
 use App\Support\CatalogText;
+use RuntimeException;
 
 final class CatalogImportVehicleMatcher
 {
@@ -23,8 +24,12 @@ final class CatalogImportVehicleMatcher
         }
         $matches = $this->generations[$modelId][$this->key($title, $years, $body)] ?? [];
 
-        // Ambiguous old records must never be merged by guessing.
-        return count($matches) === 1 ? $matches[0]->fresh() : null;
+        // Do not create another generation when the old database has conflicting identities.
+        if (count($matches) > 1) {
+            throw new RuntimeException('Неоднозначное поколение автомобиля в БД (модель #'.$modelId.'): '.$title.' / '.$years.' / '.$body.'. Требуется устранить дубли до импорта.');
+        }
+
+        return $matches === [] ? null : $matches[0]->fresh();
     }
 
     private function key(string $title, ?string $years, ?string $body): string

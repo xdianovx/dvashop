@@ -2,6 +2,7 @@
 
 use App\Enums\ImportRunStatus;
 use App\Jobs\CatalogImportChunkJob;
+use App\Jobs\CatalogImportStartJob;
 use App\Jobs\RefreshCatalogSearchDependencies;
 use App\Models\ImportRun;
 use App\Models\Product;
@@ -9,8 +10,11 @@ use App\Models\ProductOptionValue;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Models\VehicleModel;
+use App\Services\Catalog\CatalogConfigurations;
+use App\Services\ImportStatusService;
 use App\Services\Search\CatalogSearchIndexer;
 use App\Services\Search\CatalogSearchSync;
+use Database\Seeders\PartTypeSeeder;
 use Database\Seeders\ProductCatalogSeeder;
 use Database\Seeders\ProductOptionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -66,34 +70,53 @@ test('failed or canceled imports do not refresh and a successful terminal transi
     Queue::assertPushed(RefreshCatalogSearchDependencies::class, 1);
 });
 
-test('real import chunk suppresses row jobs and preserves manual aliases on repeat import', function (): void {
-    $this->seed(ProductCatalogSeeder::class);
-    $this->seed(ProductOptionSeeder::class);
+test('real prepared XLSX import preserves manual search aliases on repeat without row-level Scout jobs', function (): void {
+    $this->seed([ProductCatalogSeeder::class, PartTypeSeeder::class, ProductOptionSeeder::class]);
+    app(CatalogConfigurations::class)->install(base_path('tests/Fixtures/catalog-configurations.csv'));
     Storage::fake('local');
-    Storage::disk('local')->put('imports/search.csv', ";;;;;;Порог\n;Марка;Модель;Поколение;Годы;Кузов;Порог\n;Toyota;Camry;XV70;2017-2023;седан;1\n");
+    $path = Storage::disk('local')->path('imports/search.xlsx');
+    if (! is_dir(dirname($path))) {
+        mkdir(dirname($path), 0777, true);
+    }
+    $writer = new \OpenSpout\Writer\XLSX\Writer;
+    $writer->openToFile($path);
+    $writer->getCurrentSheet()->setName('Каталог (new)');
+    $writer->addRow(\OpenSpout\Common\Entity\Row::fromValues([null, null, null, null, null, null, 'Порог']));
+    $writer->addRow(\OpenSpout\Common\Entity\Row::fromValues([
+        'Фото', 'Марка', 'Модель', 'Поколение', 'Годы выпуска', 'Кузов', 'Порог',
+    ]));
+    $writer->addRow(\OpenSpout\Common\Entity\Row::fromValues([
+        null, 'Toyota', 'Camry', 'XV70', '2017-2023', 'седан', 1,
+    ]));
+    $writer->close();
     Queue::fake();
     config(['scout.driver' => 'meilisearch', 'scout.queue' => ['connection' => 'redis', 'queue' => 'catalog-search']]);
-    $state = [
-        'type' => 'catalog', 'status' => ImportRunStatus::RunningRows, 'stored_path' => 'imports/search.csv',
-        'total_rows' => 1, 'current_row' => 0, 'processed_rows' => 0, 'chunk_size' => 10, 'errors_count' => 0,
-        'detail_columns' => [6 => ['index' => 6, 'group' => null, 'parent_title' => null, 'title' => 'Порог', 'detail_title' => 'Порог', 'full_detail_title' => 'Порог', 'category_title' => 'Порог']],
-    ];
-    $run = ImportRun::factory()->create($state);
-    app()->call([new CatalogImportChunkJob($run->id), 'handle']);
-    expect($run->fresh()->errors_count)->toBe(0);
+    $import = static function (): ImportRun {
+        $run = app(ImportStatusService::class)->createFromStoredPath(
+            'catalog', 'search.xlsx', 'imports/search.xlsx', chunkSize: 10,
+        );
+        app()->call([new CatalogImportStartJob($run->id), 'handle']);
+        app()->call([new CatalogImportChunkJob($run->id), 'handle']);
+        return $run->refresh();
+    };
+    $run = $import();
+    expect($run->errors_count)->toBe(0);
     $make = VehicleMake::where('title', 'Toyota')->firstOrFail();
     $model = $make->models()->firstOrFail();
     CatalogSearchSync::withoutSyncing(function () use ($make, $model): void {
         $make->update(['search_aliases' => ['тойота']]);
         $model->update(['search_aliases' => ['камри']]);
     });
-    $again = ImportRun::factory()->create($state);
-    app()->call([new CatalogImportChunkJob($again->id), 'handle']);
-    expect($again->fresh()->errors_count)->toBe(0)
+    $again = $import();
+    expect($again->errors_count)->toBe(0)
         ->and($make->fresh()->search_aliases)->toBe(['тойота'])
         ->and($model->fresh()->search_aliases)->toBe(['камри']);
     Queue::assertNotPushed(MakeSearchable::class);
-    Queue::assertPushed(RefreshCatalogSearchDependencies::class, 2);
+    // Snapshot imports write an outbox publication; individual model events are
+    // suppressed while the snapshot is being assembled.
+    Queue::assertNotPushed(RefreshCatalogSearchDependencies::class);
+    expect(DB::table('catalog_search_publications')->where('import_run_id', $run->id)->exists())->toBeTrue()
+        ->and(DB::table('catalog_search_publications')->where('import_run_id', $again->id)->exists())->toBeTrue();
 });
 
 test('batched dependency job rebuilds inherited data without jobs per descendant', function (): void {

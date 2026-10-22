@@ -61,8 +61,13 @@ final class ProductVariantOptionGenerator
                 return 0;
             }
 
-            if (app(CatalogConfigurations::class)->rows($lockedProduct->part_type_id)->isNotEmpty()
-                && str_starts_with($template->slug, 'matrix_')) {
+            // CSV owns variants of imported or explicitly matrix-managed products.
+            // A manually created product may still use its own option template.
+            if (str_starts_with($template->slug, 'matrix_')
+                || $lockedProduct->import_source === 'catalog'
+                || $lockedProduct->configuration_managed) {
+                app(CatalogConfigurations::class)->assertReady();
+                app(\App\Services\Import\CatalogImportProductDefaults::class)->templateFor($lockedProduct->partType);
                 return app(CatalogConfigurations::class)->synchronize($lockedProduct)['created_variants'] ?? 0;
             }
 

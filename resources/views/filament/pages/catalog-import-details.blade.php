@@ -32,6 +32,17 @@
         @endif
     </dl>
 
+    @if (! empty($run->prepared_rows['skipped_rows']))
+        <details>
+            <summary>Пропущено неполных строк: {{ count($run->prepared_rows['skipped_rows']) }}</summary>
+            <ul>
+                @foreach ($run->prepared_rows['skipped_rows'] as $skipped)
+                    <li>Строка {{ $skipped['row'] }}: {{ $skipped['reason'] }}</li>
+                @endforeach
+            </ul>
+        </details>
+    @endif
+
     @if ($run->last_error)
         <div class="flex items-start gap-3 rounded-xl border border-danger-200 bg-danger-50 p-4 text-danger-800 dark:border-danger-500/30 dark:bg-danger-500/10 dark:text-danger-200" role="alert">
             <x-filament::icon icon="heroicon-o-x-circle" class="mt-0.5 size-5 shrink-0" aria-hidden="true" />

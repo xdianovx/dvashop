@@ -7,7 +7,7 @@ use ZipArchive;
 
 class CatalogImportHeaderParser
 {
-    public const CATALOG_SHEET_NAME = 'Каталог';
+    public const CATALOG_SHEET_NAME = CatalogImportFormat::SHEET_NAME;
 
     /**
      * @param  array<int, array<int, mixed>>  $headerRows
@@ -15,9 +15,11 @@ class CatalogImportHeaderParser
      */
     public function parse(string $path, int $detailStartColumn, array $headerRows, string $extension): array
     {
-        return $extension === 'xlsx'
-            ? $this->parseXlsx($path, $detailStartColumn, $headerRows)
-            : $this->parseCsvFallback($detailStartColumn, $headerRows);
+        if ($extension !== 'xlsx') {
+            throw new \InvalidArgumentException('Каталог принимается только в XLSX с одним рабочим листом.');
+        }
+
+        return $this->parseXlsx($path, $detailStartColumn, $headerRows);
     }
 
     /**
@@ -78,52 +80,6 @@ class CatalogImportHeaderParser
                 index: $index,
                 parentTitle: null,
                 detailTitle: $categoryTitle,
-                categoryTitle: $categoryTitle,
-            );
-        }
-
-        return $this->validateDetailHeaders($headers);
-    }
-
-    /**
-     * CSV does not have real merged ranges, so keep previous compatibility behaviour:
-     * a non-empty group cell is carried until the next non-empty group cell.
-     *
-     * @param  array<int, array<int, mixed>>  $headerRows
-     * @return array<int, array{index:int, group:string|null, parent_title:string|null, title:string, detail_title:string, full_detail_title:string, category_title:string}>
-     */
-    private function parseCsvFallback(int $detailStartColumn, array $headerRows): array
-    {
-        $groups = $headerRows[1] ?? [];
-        $titles = $headerRows[2] ?? [];
-        $maxColumn = max(array_key_last($groups) ?? 0, array_key_last($titles) ?? 0);
-        $headers = [];
-        $currentGroup = null;
-
-        for ($index = 0; $index <= $maxColumn; $index++) {
-            $groupCell = $this->cellString($groups[$index] ?? null);
-            $title = $this->cellString($titles[$index] ?? null);
-
-            if (CatalogImportFormat::isMetadata($title) || CatalogImportFormat::isMetadata($groupCell)) {
-                $currentGroup = null;
-
-                continue;
-            }
-
-            if ($groupCell !== '') {
-                $currentGroup = $groupCell;
-            }
-
-            if ($groupCell === '' && $title === '') {
-                continue;
-            }
-
-            $categoryTitle = $title !== '' ? $title : ($groupCell ?: (string) $currentGroup);
-
-            $headers[$index] = $this->detailHeader(
-                index: $index,
-                parentTitle: $currentGroup,
-                detailTitle: $title !== '' ? $title : $categoryTitle,
                 categoryTitle: $categoryTitle,
             );
         }
@@ -220,17 +176,17 @@ class CatalogImportHeaderParser
         }
 
         if (! is_string($workbookXml) || ! is_string($relsXml)) {
-            return 'xl/worksheets/sheet1.xml';
+            throw new \InvalidArgumentException('Повреждена структура книги Excel; рабочий лист не может быть прочитан.');
         }
 
         $rels = $this->workbookRelationships($relsXml);
         $sheets = $this->workbookSheets($workbookXml);
 
         if ($sheets === []) {
-            return 'xl/worksheets/sheet1.xml';
+            throw new \InvalidArgumentException('Повреждена структура книги Excel; рабочий лист не может быть прочитан.');
         }
 
-        $selected = $sheets[0];
+        $selected = null;
 
         $sheetName = CatalogImportFormat::sheetName(array_column($sheets, 'name'));
         foreach ($sheets as $sheet) {
@@ -243,7 +199,7 @@ class CatalogImportHeaderParser
         $target = $rels[$selected['relationship_id'] ?? ''] ?? null;
 
         if (! is_string($target) || $target === '') {
-            return 'xl/worksheets/sheet1.xml';
+            throw new \InvalidArgumentException('Повреждена структура книги Excel; рабочий лист не может быть прочитан.');
         }
 
         $target = str_replace('\\', '/', ltrim($target, '/'));

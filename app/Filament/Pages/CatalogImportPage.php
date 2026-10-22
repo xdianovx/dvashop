@@ -9,6 +9,7 @@ use App\Jobs\CatalogImportStartJob;
 use App\Models\ImportLog;
 use App\Models\ImportRun;
 use App\Models\User;
+use App\Services\Catalog\CatalogConfigurationInstallation;
 use App\Services\Import\ImportProgress;
 use App\Services\Import\ImportProgressService;
 use App\Services\ImportLogger;
@@ -30,6 +31,9 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
+use League\Flysystem\UnableToRetrieveMetadata;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Livewire\Attributes\Locked;
 use Livewire\WithFileUploads;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -49,6 +53,10 @@ class CatalogImportPage extends Page implements HasTable
 
     public mixed $file = null;
 
+    public mixed $configurationFile = null;
+
+    public string $importMode = 'full';
+
     public string $type = 'catalog';
 
     public int $chunkSize = 10;
@@ -56,6 +64,10 @@ class CatalogImportPage extends Page implements HasTable
     public bool $startAfterUpload = true;
 
     public bool $uploadInProgress = false;
+
+    #[Locked]
+    public ?array $configurationReview = null;
+
 
     public static function getNavigationGroup(): ?string
     {
@@ -199,7 +211,7 @@ class CatalogImportPage extends Page implements HasTable
                         ->modalSubmitAction(false)
                         ->modalCancelActionLabel('Закрыть'),
                     Action::make('start')
-                        ->label('Старт')
+                        ->label(fn (ImportRun $record): string => in_array($record->import_mode, ['full', 'csv'], true) ? 'Проверить CSV и запустить' : 'Старт')
                         ->icon('heroicon-o-play')
                         ->authorize(fn (): bool => static::canAccess())
                         ->visible(fn (ImportRun $record): bool => $record->status === ImportRunStatus::Ready)
@@ -248,7 +260,7 @@ class CatalogImportPage extends Page implements HasTable
                     ->button(),
             ])
             ->emptyStateHeading('Импортов пока нет')
-            ->emptyStateDescription('Загрузите первый CSV или XLSX через форму выше.')
+            ->emptyStateDescription('Загрузите XLSX с одним рабочим листом через форму выше.')
             ->emptyStateIcon('heroicon-o-document-arrow-up')
             ->paginated([10, 25, 50]);
     }
@@ -259,9 +271,20 @@ class CatalogImportPage extends Page implements HasTable
         $this->resetValidation('file');
     }
 
+    public function updatedImportMode(): void
+    {
+        abort_unless(in_array($this->importMode, ['excel', 'full', 'csv', 'images', 'safe_partial'], true), 422);
+        $this->reset('file', 'configurationFile');
+        $this->resetValidation();
+    }
+
     public function submitImport(): void
     {
         $this->authorizeImportAction();
+
+        if ($this->discardMissingTemporaryUploads()) {
+            return;
+        }
 
         if ($this->uploadInProgress) {
             return;
@@ -272,16 +295,23 @@ class CatalogImportPage extends Page implements HasTable
         try {
             $this->validate(
                 [
-                    'file' => ['required', 'file', 'mimes:csv,xlsx', 'max:51200'],
+                    'importMode' => ['required', 'in:excel,full,csv,images,safe_partial'],
+                    'file' => ['required_unless:importMode,csv', 'nullable', 'file', 'mimes:xlsx', 'max:51200'],
+                    'configurationFile' => ['required_if:importMode,full,csv,safe_partial', 'nullable', 'file', 'mimes:csv,txt', 'max:10240'],
                     'type' => ['required', 'string', 'max:64', 'regex:/^[a-z0-9][a-z0-9_-]{0,63}$/'],
                     'chunkSize' => ['required', 'integer', 'in:10,20,30'],
                     'startAfterUpload' => ['boolean'],
                 ],
                 [
                     'file.required' => 'Выберите файл импорта.',
+                    'file.required_unless' => 'Выберите файл XLSX для выбранного режима.',
                     'file.file' => 'Выберите файл импорта.',
-                    'file.mimes' => 'Файл должен быть в формате CSV или XLSX.',
+                    'file.mimes' => 'Нужен файл XLSX с одним рабочим листом.',
                     'file.max' => 'Файл импорта слишком большой.',
+                    'configurationFile.required_if' => 'Выберите CSV с конфигурациями и ценами для выбранного режима.',
+                    'configurationFile.file' => 'Выберите файл CSV с конфигурациями и ценами.',
+                    'configurationFile.mimes' => 'Нужен файл CSV с конфигурациями и ценами.',
+                    'configurationFile.max' => 'Файл CSV с конфигурациями и ценами слишком большой.',
                     'type.required' => 'Укажите корректный источник импорта.',
                     'type.regex' => 'Укажите корректный источник импорта.',
                     'type.max' => 'Укажите корректный источник импорта.',
@@ -291,6 +321,7 @@ class CatalogImportPage extends Page implements HasTable
                 ],
                 [
                     'file' => 'файл импорта',
+                    'configurationFile' => 'файл конфигураций CSV',
                     'type' => 'источник импорта',
                     'chunkSize' => 'размер чанка',
                     'startAfterUpload' => 'запуск после загрузки',
@@ -298,11 +329,42 @@ class CatalogImportPage extends Page implements HasTable
             );
 
             $statusService = app(ImportStatusService::class);
+            // Check both source structures before registering a runnable import.
+            $configPath = null;
+            $configHash = null;
+            if (in_array($this->importMode, ['full', 'csv', 'safe_partial'], true)) {
+                if ($this->importMode === 'full') {
+                    app(\App\Services\Import\CatalogSourceContract::class)->validate(
+                        $this->file->getRealPath(), $this->configurationFile->getRealPath(),
+                    );
+                } else {
+                    app(\App\Services\Catalog\CatalogConfigurationSource::class)->read($this->configurationFile->getRealPath());
+                }
+                if (in_array($this->importMode, ['full', 'safe_partial'], true)) {
+                    $configPath = $this->configurationFile->storeAs(
+                        'imports/catalog/configurations', \Illuminate\Support\Str::uuid()->toString().'.csv', 'local',
+                    );
+                    if (! is_string($configPath)) {
+                        throw new \RuntimeException('Не удалось сохранить загруженный CSV.');
+                    }
+                    $configHash = hash_file('sha256', \Illuminate\Support\Facades\Storage::disk('local')->path($configPath));
+                }
+            }
+            $primaryFile = $this->importMode === 'csv' ? $this->configurationFile : $this->file;
+            $run = $statusService->createFromUpload($primaryFile, $this->type, $this->chunkSize);
+            $run->forceFill(['import_mode' => $this->importMode])->save();
+            if ($this->importMode === 'csv') {
+                $configPath = $run->stored_path;
+                $configHash = $run->file_hash;
+            }
+            if ($configPath !== null) {
+                $run->forceFill(['configuration_path' => $configPath, 'configuration_hash' => $configHash])->save();
+            }
+            $this->reset('file', 'configurationFile');
 
-            $run = $statusService->createFromUpload($this->file, $this->type, $this->chunkSize);
-            $this->reset('file');
-
-            if ($this->startAfterUpload) {
+            if (in_array($run->import_mode, ['full', 'csv', 'safe_partial'], true)) {
+                $this->previewConfigurationImport($run->getKey());
+            } elseif ($this->startAfterUpload) {
                 $this->start($run->getKey(), $statusService, false);
             }
 
@@ -314,6 +376,28 @@ class CatalogImportPage extends Page implements HasTable
         } finally {
             $this->uploadInProgress = false;
         }
+    }
+
+    public function previewConfigurationImport(int $runId): void
+    {
+        $this->authorizeImportAction();
+        $this->configurationReview = null;
+        $this->resetValidation('configurationReview');
+        $run = ImportRun::findOrFail($runId);
+        abort_unless($run->status === ImportRunStatus::Ready && $run->initialized_at === null, 422);
+        $this->configurationReview = app(CatalogConfigurationInstallation::class)->previewImport($run);
+    }
+
+    public function confirmConfigurationImport(): void
+    {
+        $this->authorizeImportAction();
+        abort_unless($this->configurationReview !== null, 422);
+        $run = ImportRun::findOrFail($this->configurationReview['run_id']);
+        app(CatalogConfigurationInstallation::class)->confirmImport(
+            $run, Filament::auth()->user(), $this->configurationReview['confirmation'],
+        );
+        $this->start($run->id);
+        $this->configurationReview = null;
     }
 
     public function start(int $runId, ?ImportStatusService $statusService = null, bool $notify = true): mixed
@@ -330,10 +414,28 @@ class CatalogImportPage extends Page implements HasTable
             return null;
         }
 
+        if (in_array($run->import_mode, ['full', 'csv'], true)) {
+            if ($run->configuration_confirmed_at === null) {
+                $this->previewConfigurationImport($run->id);
+                return null;
+            }
+            $installation = app(CatalogConfigurationInstallation::class);
+            $installation->assertImportConfirmation($run, $installation->previewImport($run));
+        }
+        if ($run->import_mode === 'safe_partial' && $run->configuration_confirmed_at === null) {
+            $this->previewConfigurationImport($run->id);
+            return null;
+        }
+
         $run = ($statusService ?? app(ImportStatusService::class))->start($run);
 
         if ($run->status?->isRowsRunning()) {
-            CatalogImportStartJob::dispatch($run->getKey())->onQueue('imports');
+            match ($run->import_mode ?? 'excel') {
+                'safe_partial' => \App\Jobs\CatalogSafePartialJob::dispatch($run->id)->onQueue('imports'),
+                'csv' => \App\Jobs\CatalogImportCsvStartJob::dispatch($run->getKey())->onQueue('imports'),
+                'images' => \App\Jobs\CatalogImportImagesJob::dispatch($run->getKey())->onQueue('imports'),
+                default => CatalogImportStartJob::dispatch($run->getKey())->onQueue('imports'),
+            };
         }
 
         if ($notify) {
@@ -363,7 +465,16 @@ class CatalogImportPage extends Page implements HasTable
         $run = ($statusService ?? app(ImportStatusService::class))->resume($existingRun);
 
         if ($wasPaused && $run->status?->isRowsRunning()) {
-            CatalogImportChunkJob::dispatch($run->getKey())->onQueue('imports');
+            match ($run->import_mode ?? 'excel') {
+                'safe_partial' => \App\Jobs\CatalogSafePartialJob::dispatch($run->id, $run->prepared_rows['last_item_id'] ?? null)->onQueue('imports'),
+                'csv' => ($run->initialized_at === null
+                    ? \App\Jobs\CatalogImportCsvStartJob::dispatch($run->getKey())->onQueue('imports')
+                    : \App\Jobs\CatalogImportCsvChunkJob::dispatch($run->getKey())->onQueue('imports')),
+                'images' => \App\Jobs\CatalogImportImagesJob::dispatch($run->getKey())->onQueue('imports'),
+                default => ($run->initialized_at === null
+                    ? CatalogImportStartJob::dispatch($run->getKey())->onQueue('imports')
+                    : CatalogImportChunkJob::dispatch($run->getKey())->onQueue('imports')),
+            };
         }
 
         Notification::make()->title('Импорт продолжен')->success()->send();
@@ -411,7 +522,32 @@ class CatalogImportPage extends Page implements HasTable
 
     public function refreshImportSnapshot(): void
     {
-        // Livewire polling hook. Data is re-read through focused computed methods.
+        // Polls may arrive with a stale Livewire upload snapshot after the file
+        // has been moved or cleaned up. Never let those snapshots crash rendering.
+        $this->discardMissingTemporaryUploads();
+    }
+
+    private function discardMissingTemporaryUploads(): bool
+    {
+        $missing = false;
+
+        foreach (['file', 'configurationFile'] as $property) {
+            $upload = $this->{$property};
+
+            if (! $upload instanceof TemporaryUploadedFile) {
+                continue;
+            }
+
+            try {
+                $upload->getSize();
+            } catch (UnableToRetrieveMetadata) {
+                $this->reset($property);
+                $this->addError($property, 'Временный файл больше недоступен. Выберите файл заново.');
+                $missing = true;
+            }
+        }
+
+        return $missing;
     }
 
     public function hasActiveImport(): bool

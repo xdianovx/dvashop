@@ -117,6 +117,7 @@ services:
 
   mysql:
     image: mysql:8.4
+    command: [mysqld, --skip-log-bin]
     container_name: dvashop_mysql
     restart: unless-stopped
     environment:

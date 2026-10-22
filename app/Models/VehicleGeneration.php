@@ -154,6 +154,8 @@ class VehicleGeneration extends Model
 
         $this->forceFill([
             'image' => $processed->path,
+            // A manual upload must not inherit the previous automatic source URL.
+            'image_source_url' => null,
             'image_checksum' => $processed->checksum,
             'image_conversions' => $processed->conversions,
         ])->saveQuietly();

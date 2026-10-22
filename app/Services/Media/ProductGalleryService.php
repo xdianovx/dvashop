@@ -203,7 +203,8 @@ class ProductGalleryService
             ->where('product_id', $product->getKey())
             ->where('source_type', ProductImage::SOURCE_DEFAULT)
             ->where('is_default', true)
-            ->where('path', $default['path'])
+            ->where(fn ($q) => $q->where('path', $default['path'])
+                ->orWhere('path', DefaultProductImageService::DIRECTORY.'/'.basename($default['path'])))
             ->first();
 
         $hasMain = $this->productHasMainImage($product);
@@ -216,7 +217,7 @@ class ProductGalleryService
                 'source_type' => ProductImage::SOURCE_DEFAULT,
                 'is_default' => true,
                 'is_visible' => true,
-                'is_main' => $makeMain || (! $hasMain && ! $image->is_main),
+                'is_main' => $makeMain || $image->is_main || ! $hasMain,
                 'alt' => $image->alt ?: $product->title,
             ])->save();
 

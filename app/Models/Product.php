@@ -266,6 +266,7 @@ class Product extends Model
             'old_price' => 'decimal:2',
             'position' => 'integer',
             'is_featured' => 'boolean',
+            'configuration_managed' => 'boolean',
             'noindex' => 'boolean',
         ];
     }

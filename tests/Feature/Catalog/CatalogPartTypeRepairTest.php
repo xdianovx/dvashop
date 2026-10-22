@@ -262,8 +262,12 @@ test('imported product keeps import metadata and related records', function () {
         'import_key' => 'catalog:lonzheron:1',
         'import_source' => 'catalog',
         'last_import_run_id' => 'run-20260717',
+        // This offer represents a legacy historical row and predates CSV ownership.
+        'import_source' => null,
+        'import_key' => null,
     ]);
     $variant = ProductVariant::factory()->forProduct($product)->create();
+    $product->forceFill(['import_source' => 'catalog', 'import_key' => 'catalog:lonzheron:1'])->saveQuietly();
     $fitment = ProductFitment::withoutEvents(fn () => ProductFitment::factory()->forProduct($product)->create());
     $image = ProductImage::factory()->forProduct($product)->create(['source_type' => ProductImage::SOURCE_IMPORT]);
 

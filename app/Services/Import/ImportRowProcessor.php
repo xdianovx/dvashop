@@ -7,17 +7,18 @@ use App\Jobs\DownloadVehicleGenerationImageJob;
 use App\Models\ImportLog;
 use App\Models\ImportRun;
 use App\Models\PartType;
+use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\VehicleGeneration;
 use App\Models\VehicleMake;
 use App\Models\VehicleModel;
+use App\Services\Catalog\CatalogImportProtections;
 use App\Services\ImportLogger;
 use App\Services\ImportRunStats;
 use App\Services\ImportStatusService;
 use App\Support\CatalogText;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use InvalidArgumentException;
 
 class ImportRowProcessor
 {
@@ -40,6 +41,7 @@ class ImportRowProcessor
         private readonly ImportStatusService $statusService,
         private readonly VehicleGenerationImageDispatchGuard $vehicleImageDispatches,
         private readonly CatalogImportVehicleMatcher $vehicleMatcher,
+        private readonly CatalogImportIdentity $identity,
     ) {}
 
     /**
@@ -83,6 +85,27 @@ class ImportRowProcessor
      */
     public function process(ImportRun $run, array $row, array $detailColumns, int $rowNumber): void
     {
+        if ($run->import_mode === 'full' && isset($run->prepared_rows['full_scope'])) {
+            $allowed = $run->prepared_rows['full_scope']['rows'][$rowNumber] ?? [];
+            $detailColumns = array_filter($detailColumns, fn ($header) => isset($allowed[$header['part_type_full_slug'] ?? $this->partTypes->structuralPath($header)]));
+            if ($detailColumns === []) {
+                return;
+            }
+            foreach ($detailColumns as $header) {
+                $path = $header['part_type_full_slug'];
+                $actual = $this->identity->resolve($row, $path, $run->type, $run);
+                $expected = $allowed[$path];
+                $createdInThisRun = $expected['product_id'] === null && $actual['product_id'] !== null
+                    && Product::whereKey($actual['product_id'])->where('last_import_run_id', $run->id)->exists();
+                if ($actual['error'] !== null || $actual['import_key'] !== $expected['key']
+                    || ($actual['product_id'] !== $expected['product_id'] && ! $createdInThisRun)) {
+                    throw new \RuntimeException('Подтверждённая идентичность строки полного импорта изменилась.');
+                }
+            }
+        }
+        if ($run->import_mode === 'safe_partial') {
+            app(CatalogSafePartialImport::class)->assertItemOwner($run);
+        }
         $vehicleImageCell = $this->cell($row[0] ?? null);
         $makeTitle = $this->cell($row[1] ?? null);
         $modelTitle = $this->cell($row[2] ?? null);
@@ -90,8 +113,21 @@ class ImportRowProcessor
         $years = $this->cell($row[4] ?? null);
         $body = $this->cell($row[5] ?? null);
 
-        if ($makeTitle === '' || $modelTitle === '' || $generationTitle === '') {
-            throw new InvalidArgumentException('Не заполнены марка, модель или поколение автомобиля.');
+        if ($makeTitle === '' || $modelTitle === '' || $generationTitle === '' || $years === '' || $body === '') {
+            $this->logger->warning($run, 'Строка пропущена: не заполнены обязательные поля автомобиля.', ['row' => $rowNumber]);
+
+            return;
+        }
+
+        $approvedRow = ($row['_catalog_v2'] ?? false) && $this->identity->isApprovedVehicle($row, $run);
+        if ($approvedRow) {
+            // Validate every positive part before any vehicle/product writes.
+            foreach ($detailColumns as $columnIndex => $detailHeader) {
+                if ($this->availableCell(($row['_details'] ?? $row)[$columnIndex] ?? null) !== null) {
+                    $this->identity->key($row, $detailHeader['part_type_full_slug'] ?? $this->partTypes->structuralPath($detailHeader),
+                        CatalogText::normKey($run->type ?: 'catalog', 'catalog', 60), $run);
+                }
+            }
         }
 
         $generation = $this->vehicleGeneration(
@@ -99,6 +135,7 @@ class ImportRowProcessor
             modern: (bool) ($row['_catalog_v2'] ?? false),
             platform: $row['_platform'] ?? null,
             restyling: $row['_restyling'] ?? null,
+            alternativeImageUrls: $row['_photo_urls'] ?? [],
         );
 
         foreach ($detailColumns as $columnIndex => $detailHeader) {
@@ -124,6 +161,7 @@ class ImportRowProcessor
                 detailHeader: $detailHeader,
                 cellValue: $cellValue,
                 imageUrl: $availableCell['image_url'],
+                identityRow: ($approvedRow || ($run->import_mode === 'full' && ($row['_catalog_v2'] ?? false))) ? $row : null,
             );
         }
     }
@@ -236,26 +274,53 @@ class ImportRowProcessor
         bool $modern = false,
         ?string $platform = null,
         ?string $restyling = null,
+        array $alternativeImageUrls = [],
     ): VehicleGeneration {
+        if (in_array($run?->import_mode, ['safe_partial', 'full'], true)) {
+            $resolved = $this->identity->vehicle([1 => $makeTitle, 2 => $modelTitle, 3 => $generationTitle,
+                4 => $years, 5 => $body, '_platform' => $platform ?? '', '_restyling' => $restyling ?? ''], $run);
+            if ($resolved['error'] !== null) {
+                throw new \RuntimeException($resolved['error']);
+            }
+            if ($resolved['generation_id'] !== null && ($run->import_mode === 'safe_partial'
+                || app(CatalogImportProtections::class)->protectsVehicle('generation', $resolved['generation_id']))) {
+                return VehicleGeneration::findOrFail($resolved['generation_id']);
+            }
+        }
+        if ($modern) {
+            $approved = $this->identity->approvedGeneration([1 => $makeTitle, 2 => $modelTitle, 3 => $generationTitle,
+                4 => $years, 5 => $body, '_platform' => $platform ?? '', '_restyling' => $restyling ?? ''], $run);
+            if ($approved !== null) {
+                return $approved;
+            }
+        }
         $make = $this->firstOrUpdateMake($makeTitle, $run);
         $model = $this->firstOrUpdateModel($make, $modelTitle, $run);
         $generationTitlePlain = CatalogText::plain($generationTitle, 250);
         $yearsPlain = $years !== null && $years !== '' ? CatalogText::plain($years, 250) : null;
         $bodyPlain = $body !== null && $body !== '' ? CatalogText::plain($body, 250) : null;
-        $generationNormKey = CatalogText::normKey(trim($generationTitlePlain.' '.$yearsPlain.' '.$bodyPlain), 'generation', 120);
+        $identity = $modern ? $this->identity->vehicle([1 => $makeTitle, 2 => $modelTitle, 3 => $generationTitlePlain,
+            4 => $yearsPlain, 5 => $bodyPlain, '_restyling' => $restyling ?? ''], $run) : null;
+        if (($identity['error'] ?? null) !== null) {
+            throw new \RuntimeException($identity['error']);
+        }
+        $generationNormKey = $identity['generation'] ?? CatalogText::normKey(trim($generationTitlePlain.' '.$yearsPlain.' '.$bodyPlain), 'generation', 120);
         $imageUrl = $this->vehicleImageUrl($sourceImageUrl, $run, $rowNumber);
 
         /** @var VehicleGeneration|null $generation */
-        $generation = VehicleGeneration::query()
+        $candidates = VehicleGeneration::query()
             ->where('vehicle_model_id', $model->getKey())
             ->where(function ($query) use ($generationNormKey): void {
                 $query->where('norm_key', $generationNormKey)
                     ->orWhere('slug', $generationNormKey);
-            })
-            ->first();
+            })->limit(2)->get();
+        if ($candidates->count() > 1) {
+            throw new \RuntimeException('В БД есть несколько поколений с одинаковой структурной идентичностью: '.$generationNormKey);
+        }
+        $generation = isset($identity['generation_id']) ? VehicleGeneration::findOrFail($identity['generation_id']) : $candidates->first();
 
-        if (! $generation instanceof VehicleGeneration) {
-            $generation = VehicleGeneration::query()
+        if (! $modern && ! $generation instanceof VehicleGeneration) {
+            $candidates = VehicleGeneration::query()
                 ->where('vehicle_model_id', $model->getKey())
                 ->where('title', $generationTitlePlain)
                 ->where(function ($query) use ($yearsPlain): void {
@@ -267,12 +332,11 @@ class ImportRowProcessor
                     $bodyPlain === null
                         ? $query->whereNull('body')
                         : $query->where('body', $bodyPlain);
-                })
-                ->first();
-        }
-
-        if (! $generation instanceof VehicleGeneration && $modern) {
-            $generation = $this->vehicleMatcher->find($model, $generationTitlePlain, $yearsPlain, $bodyPlain);
+                })->limit(2)->get();
+            if ($candidates->count() > 1) {
+                throw new \RuntimeException('В БД есть дубли поколения: '.$generationTitlePlain.' / '.$yearsPlain.' / '.$bodyPlain);
+            }
+            $generation = $candidates->first();
         }
 
         if (! $generation instanceof VehicleGeneration) {
@@ -281,6 +345,10 @@ class ImportRowProcessor
             ]);
         }
 
+        if (in_array($generation->image_source_url, $alternativeImageUrls, true)
+            && $generation->image && Storage::disk('public')->exists($generation->image)) {
+            $imageUrl = $generation->image_source_url;
+        }
         $wasCreated = ! $generation->exists;
         $previousImageSourceUrl = $generation->exists ? $generation->image_source_url : null;
         $previousImagePath = $generation->exists ? $generation->image : null;
@@ -329,14 +397,12 @@ class ImportRowProcessor
             }
         }
 
-        if ($imageUrl !== null
-            && $shouldQueueImage
-            && ($run === null || $this->vehicleImageDispatches->reserve($run, $generation, $imageUrl))) {
+        if ($imageUrl !== null && $shouldQueueImage) {
             if ($run !== null) {
-                $this->statusService->imageQueued($run);
+                $this->vehicleImageDispatches->queue($run, $generation, $imageUrl, $alternativeImageUrls);
+            } else {
+                DownloadVehicleGenerationImageJob::dispatch($generation->id, $imageUrl, null, $alternativeImageUrls)->onQueue('imports-images')->afterCommit();
             }
-
-            DownloadVehicleGenerationImageJob::dispatch($generation->getKey(), $imageUrl, $run?->getKey())->onQueue('imports-images');
         }
 
         return $generation->refresh();
@@ -347,6 +413,10 @@ class ImportRowProcessor
         /** @var VehicleMake $make */
         $make = VehicleMake::query()->firstOrNew(['norm_key' => CatalogText::normKey($title, 'make', 100)]);
         $wasCreated = ! $make->exists;
+        if ($make->exists && ($run?->import_mode === 'safe_partial' || ($run?->import_mode === 'full'
+            && app(CatalogImportProtections::class)->protectsVehicle('make', $make->id)))) {
+            return $make;
+        }
         $make->fill([
             'title' => CatalogText::plain($title, 250),
             'slug' => CatalogText::slug($title, 'make', 100),
@@ -374,6 +444,10 @@ class ImportRowProcessor
             'norm_key' => CatalogText::normKey($title, 'model', 100),
         ]);
         $wasCreated = ! $model->exists;
+        if ($model->exists && ($run?->import_mode === 'safe_partial' || ($run?->import_mode === 'full'
+            && app(CatalogImportProtections::class)->protectsVehicle('model', $model->id)))) {
+            return $model;
+        }
         $model->fill([
             'title' => CatalogText::plain($title, 250),
             'slug' => CatalogText::slug($title, 'model', 100),

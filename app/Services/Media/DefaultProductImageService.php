@@ -5,12 +5,19 @@ namespace App\Services\Media;
 use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductCategory;
+use App\Services\Catalog\PartTypeDefinitionRegistry;
+use App\Services\Catalog\PartTypeTreeService;
 use App\Support\CatalogText;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 
 class DefaultProductImageService
 {
     public const DISK = 'public_default';
     public const DIRECTORY = 'img/products_default';
+
+    public const STORAGE_DIRECTORY = 'catalog/defaults';
 
     /** @var array<int, string> */
     private const EXTENSIONS = ['webp', 'jpg', 'jpeg', 'png'];
@@ -46,7 +53,12 @@ class DefaultProductImageService
     {
         $key = trim((string) $partType->default_image_key);
 
-        return $key !== '' ? $key : null;
+        if ($key !== '') {
+            return $key;
+        }
+        $definitions = app(PartTypeDefinitionRegistry::class)->flattened(app(PartTypeTreeService::class));
+
+        return $definitions[$partType->full_slug]['default_image_key'] ?? null;
     }
 
     /**
@@ -85,8 +97,9 @@ class DefaultProductImageService
 
     public function keyForCategory(ProductCategory $category): ?string
     {
+        $definitions = app(PartTypeDefinitionRegistry::class)->flattened(app(PartTypeTreeService::class));
         foreach ($this->categoryKeys($category) as $categoryKey) {
-            $imageKey = self::CATEGORY_IMAGE_KEYS[$categoryKey] ?? null;
+            $imageKey = $definitions[$categoryKey]['default_image_key'] ?? self::CATEGORY_IMAGE_KEYS[$categoryKey] ?? null;
 
             if (is_string($imageKey) && $imageKey !== '') {
                 return $imageKey;
@@ -101,40 +114,91 @@ class DefaultProductImageService
      */
     public function findByKey(string $key): ?array
     {
-        $key = trim($key, " \t\n\r\0\x0B./");
-
-        if ($key === '') {
+        $key = trim($key);
+        if (! preg_match('/^[a-z0-9][a-z0-9_-]*$/D', $key)) {
             return null;
         }
-
+        $storage = Storage::disk('public');
         foreach (self::EXTENSIONS as $extension) {
-            $relativePath = self::DIRECTORY.'/'.$key.'.'.$extension;
-            $absolutePath = public_path($relativePath);
-
-            if (! is_file($absolutePath)) {
-                continue;
+            $path = self::STORAGE_DIRECTORY.'/'.$key.'.'.$extension;
+            if ($storage->exists($path)) {
+                return $this->reference($key, $path);
             }
-
-            return [
-                'key' => $key,
-                'path' => $relativePath,
-                'url' => asset($relativePath),
-                'absolute_path' => $absolutePath,
-            ];
         }
+        // Copy a shipped/previously replaced default once into persistent media storage.
+        foreach (self::EXTENSIONS as $extension) {
+            $original = public_path(self::DIRECTORY.'/'.$key.'.'.$extension);
+            if (is_file($original)) {
+                $path = self::STORAGE_DIRECTORY.'/'.$key.'.'.$extension;
+                $this->createOnce($storage->path($path), file_get_contents($original));
+                return $this->reference($key, $path);
+            }
+        }
+        $path = self::STORAGE_DIRECTORY.'/'.$key.'.png';
+        $this->createOnce($storage->path($path), $this->placeholderPng());
 
-        return null;
+        return $this->reference($key, $path);
+    }
+
+    private function reference(string $key, string $path): array
+    {
+        $storage = Storage::disk('public');
+
+        clearstatcache(true, $storage->path($path));
+        $version = $storage->lastModified($path).'-'.$storage->size($path);
+
+        return ['key' => $key, 'path' => $path, 'url' => $storage->url($path).'?v='.$version, 'absolute_path' => $storage->path($path)];
+    }
+
+    /** Atomic creation without replacing a file, even with concurrent import workers. */
+    private function createOnce(string $target, string $contents): void
+    {
+        File::ensureDirectoryExists(dirname($target));
+        $temporary = tempnam(dirname($target), '.default-');
+        if ($temporary === false) {
+            throw new RuntimeException('Не удалось создать дефолтное изображение.');
+        }
+        try {
+            if (file_put_contents($temporary, $contents) !== strlen($contents)) {
+                throw new RuntimeException('Не удалось сохранить дефолтное изображение.');
+            }
+            chmod($temporary, 0644);
+            if (! @link($temporary, $target) && ! is_file($target)) {
+                throw new RuntimeException('Не удалось опубликовать дефолтное изображение.');
+            }
+        } finally {
+            unlink($temporary);
+        }
+    }
+
+    private function placeholderPng(): string
+    {
+        $image = imagecreatetruecolor(640, 480);
+        $background = imagecolorallocate($image, 243, 244, 246);
+        $foreground = imagecolorallocate($image, 156, 163, 175);
+        imagefill($image, 0, 0, $background);
+        imagesetthickness($image, 8);
+        imagerectangle($image, 190, 150, 450, 330, $foreground);
+        imageellipse($image, 320, 240, 100, 100, $foreground);
+        imagefilledrectangle($image, 255, 125, 385, 150, $foreground);
+        ob_start();
+        try {
+            imagepng($image);
+            return (string) ob_get_contents();
+        } finally {
+            ob_end_clean();
+            imagedestroy($image);
+        }
     }
 
     public function urlForPath(?string $path): ?string
     {
         $path = $this->normalizeDefaultPath($path);
-
         if ($path === null) {
             return null;
         }
-
-        return is_file(public_path($path)) ? asset($path) : null;
+        // Old database references resolve through the same shared persistent file.
+        return $this->findByKey(pathinfo($path, PATHINFO_FILENAME))['url'] ?? null;
     }
 
     private function normalizeDefaultPath(?string $path): ?string
@@ -151,7 +215,7 @@ class DefaultProductImageService
 
         $path = ltrim($path, '/');
 
-        if (! str_starts_with($path, self::DIRECTORY.'/')) {
+        if (! str_starts_with($path, self::DIRECTORY.'/') && ! str_starts_with($path, self::STORAGE_DIRECTORY.'/')) {
             return null;
         }
 

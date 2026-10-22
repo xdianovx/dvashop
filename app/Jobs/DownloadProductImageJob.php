@@ -2,10 +2,10 @@
 
 namespace App\Jobs;
 
-use App\Enums\ImportRunStatus;
 use App\Models\ImportRun;
 use App\Models\Product;
 use App\Services\Import\ImportImageDownloader;
+use App\Services\Import\ImportImageTasks;
 use App\Services\ImportLogger;
 use App\Services\ImportStatusService;
 use App\Services\Search\CatalogSearchSync;
@@ -18,81 +18,62 @@ use Throwable;
 
 class DownloadProductImageJob implements ShouldQueue
 {
-    use Dispatchable;
-    use InteractsWithQueue;
-    use Queueable;
-    use SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 0;
+    public int $tries = 3;
 
     public int $timeout = 60;
 
-    public function __construct(
-        public int $productId,
-        public string $url,
-        public ?int $importRunId = null,
-    ) {}
+    public bool $failOnTimeout = true;
+
+    public ?string $imageTaskToken = null;
+
+    public int $imageTaskEpoch = 0;
+
+    public function __construct(public int $productId, public string $url, public ?int $importRunId = null) {}
 
     public function handle(ImportImageDownloader $downloader, ImportLogger $logger, ImportStatusService $statusService): void
     {
-        $run = $this->importRun();
-
-        if ($run?->status === ImportRunStatus::Paused) {
-            $this->release(60);
+        $tasks = app(ImportImageTasks::class);
+        $claim = $tasks->start($this, 'product');
+        if ($claim['state'] === 'parked') {
+            $this->delete();
 
             return;
         }
+        if ($claim['state'] === 'busy') {
+            $this->release(30);
 
-        if ($run?->status === ImportRunStatus::Canceled || $run?->status === ImportRunStatus::Failed) {
             return;
         }
+        if ($claim['state'] !== 'run') {
+            return;
+        }
+        $this->imageTaskToken = $claim['token'];
+        $run = $this->importRunId ? ImportRun::find($this->importRunId) : null;
+        $product = Product::find($this->productId);
+        if (! $product) {
+            $tasks->complete($this, 'product', false, ['error' => 'Товар для изображения не найден.'], $this->imageTaskToken);
 
+            return;
+        }
+        $success = false;
+        $details = [];
         try {
-            $product = Product::query()->find($this->productId);
-
-            if (! $product instanceof Product) {
-                throw new \RuntimeException('Товар для изображения не найден.');
-            }
-
-            if ($run?->isSnapshotCatalogImport()) {
-                // Search documents contain no image fields; status publication owns this sync.
-                CatalogSearchSync::withoutSyncing(fn () => $downloader->download($product, $this->url));
-            } else {
-                $downloader->download($product, $this->url);
-            }
-
-            if ($run !== null) {
-                $statusService->imageProcessed($run);
-            }
+            $download = fn () => $downloader->download($product, $this->url);
+            $run?->isSnapshotCatalogImport() ? CatalogSearchSync::withoutSyncing($download) : $download();
+            $success = true;
         } catch (Throwable $e) {
-            $this->recordFailure($logger, $statusService, $e);
+            $details = ['error' => $e->getMessage()];
         }
+        if (! $success && $tasks->retry($this, 'product', $details)) {
+            return;
+        }
+        $tasks->complete($this, 'product', $success, $details, $this->imageTaskToken);
     }
 
     public function failed(Throwable $e): void
     {
-        $this->recordFailure(app(ImportLogger::class), app(ImportStatusService::class), $e);
-    }
-
-    private function recordFailure(ImportLogger $logger, ImportStatusService $statusService, Throwable $e): void
-    {
-        $run = $this->importRun();
-
-        if ($run === null || in_array($run->status, [ImportRunStatus::Paused, ImportRunStatus::Canceled, ImportRunStatus::Failed], true)) {
-            return;
-        }
-
-        $logger->warning($run, 'Не удалось скачать изображение товара', [
-            'product_id' => $this->productId,
-            'url' => $this->url,
-            'error' => $e->getMessage(),
-        ]);
-
-        $statusService->imageFailed($run);
-    }
-
-    private function importRun(): ?ImportRun
-    {
-        return $this->importRunId === null ? null : ImportRun::query()->find($this->importRunId);
+        app(ImportImageTasks::class)->complete($this, 'product', false, ['error' => $e->getMessage(), 'attempts_exhausted' => true]);
     }
 }

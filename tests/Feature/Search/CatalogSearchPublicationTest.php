@@ -43,9 +43,10 @@ function preparedSearchPublication(int $images = 0): array
         $old = $fixture['product'];
         $old->update(['import_source' => 'catalog', 'import_key' => 'catalog:old']);
         $returned = Product::factory()->withDefaultVariant()->create([
-            'title' => 'Вернувшаяся деталь', 'import_source' => 'catalog', 'import_key' => 'catalog:returned',
-            'status' => ProductStatus::Archived,
+            'title' => 'Вернувшаяся деталь', 'status' => ProductStatus::Archived,
         ]);
+        // The existing offer predates catalog ownership. Attach source metadata only afterward.
+        $returned->forceFill(['import_source' => 'catalog', 'import_key' => 'catalog:returned'])->saveQuietly();
         $run = ImportRun::factory()->create([
             'type' => 'catalog', 'status' => ImportRunStatus::RunningRows, 'errors_count' => 0,
             'processed_rows' => 1, 'current_row' => 1, 'total_rows' => 1, 'queued_images' => $images,
@@ -227,6 +228,7 @@ test('real meilisearch publishes archive and reactivation independently of image
 })->with([0, 1]);
 
 test('snapshot image jobs save photos without per-image search jobs or another full publication', function (): void {
+    fake_vehicle_photo_verifier(smallFixtures: true);
     [$run, $old, $returned] = preparedSearchPublication(2);
     $generation = $old->fitments()->firstOrFail()->generation;
     $url = 'https://images.example.test/publication.jpg';

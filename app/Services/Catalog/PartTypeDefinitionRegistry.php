@@ -44,12 +44,12 @@ final class PartTypeDefinitionRegistry
             [
                 'title' => 'Усилитель',
                 'position' => 70,
-                'default_image_key' => null,
+                'default_image_key' => 'usilitel',
                 'children' => [
                     ['title' => 'соединитель порогов', 'position' => 10, 'default_image_key' => 'usilitel-soedinitel-porogov'],
                 ],
             ],
-            ['title' => 'Соединитель', 'position' => 80, 'default_image_key' => null],
+            ['title' => 'Соединитель', 'position' => 80, 'default_image_key' => 'soedinitel'],
         ];
     }
 

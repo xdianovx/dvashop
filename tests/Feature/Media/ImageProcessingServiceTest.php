@@ -23,7 +23,9 @@ use Illuminate\Support\Facades\Storage;
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
+    Storage::fake('local');
     Storage::fake('public');
+    fake_vehicle_photo_verifier(smallFixtures: true);
 });
 
 test('non image binary is rejected and not stored', function () {
@@ -173,7 +175,7 @@ test('import vehicle generation image updates generation image with processed we
         'https://example.test/car.png' => Http::response(test_image_binary('png', 1600, 900), 200, ['Content-Type' => 'image/png']),
     ]);
 
-    $generation = VehicleGeneration::factory()->create();
+    $generation = VehicleGeneration::factory()->create(['years_label' => '2000-2005', 'body' => 'Седан']);
 
     $generation = app(ImportImageDownloader::class)->downloadVehicleGenerationImage($generation, 'https://example.test/car.png');
 
@@ -205,13 +207,13 @@ test('repeated import of same product image does not leave orphan files', functi
         ->and($filesAfterSecond)->toEqualCanonicalizing($filesAfterFirst);
 });
 
-test('replacing vehicle generation image removes previous files and keeps same checksum without rewrite', function () {
+test('a verified good vehicle image is preserved when another URL is offered', function () {
     Http::fake([
         'https://example.test/first.jpg' => Http::response(test_image_binary('jpeg', 800, 500), 200, ['Content-Type' => 'image/jpeg']),
         'https://example.test/second.jpg' => Http::response(test_image_binary('png', 900, 500), 200, ['Content-Type' => 'image/png']),
     ]);
 
-    $generation = VehicleGeneration::factory()->create();
+    $generation = VehicleGeneration::factory()->create(['years_label' => '2000-2005', 'body' => 'Седан']);
     $downloader = app(ImportImageDownloader::class);
 
     $generation = $downloader->downloadVehicleGenerationImage($generation, 'https://example.test/first.jpg');
@@ -220,8 +222,9 @@ test('replacing vehicle generation image removes previous files and keeps same c
 
     $generation = $downloader->downloadVehicleGenerationImage($generation, 'https://example.test/second.jpg');
 
-    Storage::disk('public')->assertMissing($firstPath);
-    Storage::disk('public')->assertExists($generation->image);
+    Storage::disk('public')->assertExists($firstPath);
+    expect($generation->image)->toBe($firstPath)->and($generation->image_source_url)->toBe('https://example.test/first.jpg');
+    Http::assertNotSent(fn ($r) => $r->url() === 'https://example.test/second.jpg');
 });
 
 test('product image deletion removes file and conversions', function () {

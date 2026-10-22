@@ -8,6 +8,7 @@ use App\Models\ImportRun;
 use App\Models\PartType;
 use App\Models\Product;
 use App\Models\ProductFitment;
+use App\Models\ProductCharacteristic;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\ProductVariantOptionValue;
@@ -22,6 +23,7 @@ use Database\Seeders\ProductCatalogSeeder;
 use Database\Seeders\ProductOptionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -29,6 +31,8 @@ beforeEach(function (): void {
     $this->seed(ProductCatalogSeeder::class);
     $this->seed(PartTypeSeeder::class);
     $this->seed(ProductOptionSeeder::class);
+    app(\App\Services\Catalog\CatalogConfigurations::class)
+        ->install(base_path('tests/Fixtures/catalog-configurations.csv'));
     Queue::fake();
 });
 
@@ -101,24 +105,28 @@ test('full snapshot archives a missing imported Product and later reactivates th
     $product = p5pImportProduct($runA, $generation)->fresh();
     $productId = (int) $product->getKey();
     $importKey = $product->import_key;
-    $characteristic = $product->characteristics()->where('name', 'Материал')->firstOrFail();
+    $characteristic = ProductCharacteristic::factory()->for($product, 'product')->create(['name' => 'Материал', 'value' => 'Ручное значение', 'source_type' => ProductCharacteristic::SOURCE_MANUAL]);
     $alternateDefault = $product->variants()->where('is_default', false)->orderByDesc('id')->firstOrFail();
+    $csvPrice = $alternateDefault->configuration()->firstOrFail()->price;
 
     $product = app(ProductAdminService::class)->save($product, [
         'sku' => 'LIFECYCLE-MANUAL-SKU',
-        'price' => 12345.67,
-        'old_price' => 15000,
         'description' => 'Ручное lifecycle описание',
     ]);
     $characteristic->update(['value' => 'Ручная lifecycle характеристика']);
     $alternateDefault = app(ProductVariantAdminService::class)->save($alternateDefault, [
         'sku' => 'LIFECYCLE-VARIANT-SKU',
-        'price' => 7777.77,
-        'old_price' => 8888.88,
         'stock_quantity' => 17,
         'stock_status' => StockStatus::OutOfStock,
     ]);
     app(ProductVariantAdminService::class)->setDefault($product, $alternateDefault);
+    // Historical overrides: only the CSV importer is allowed to change managed prices.
+    DB::table('products')->where('id', $product->id)->update([
+        'price' => '12345.67', 'price_mode' => 'individual', 'old_price' => '15000.00',
+    ]);
+    DB::table('product_variants')->where('id', $alternateDefault->id)->update([
+        'price' => '7777.77', 'price_mode' => 'individual', 'old_price' => '8888.88',
+    ]);
     $manualImage = ProductImage::factory()->forProduct($product)->create([
         'path' => 'https://cdn.example.test/manual-lifecycle.jpg',
         'source_type' => ProductImage::SOURCE_MANUAL,
@@ -151,19 +159,20 @@ test('full snapshot archives a missing imported Product and later reactivates th
         ->and($reactivated->import_key)->toBe($importKey)
         ->and($reactivated->last_import_run_id)->toBe((string) $runC->getKey())
         ->and($reactivated->sku)->toBe('LIFECYCLE-MANUAL-SKU')
-        ->and($reactivated->price)->toEqual('12345.67')
+        ->and($reactivated->price)->toBe($csvPrice)
         ->and($reactivated->old_price)->toEqual('15000.00')
         ->and($reactivated->description)->toBe('Ручное lifecycle описание')
         ->and($characteristic->fresh()->value)->toBe('Ручная lifecycle характеристика')
         ->and($alternateDefault->fresh()->sku)->toBe('LIFECYCLE-VARIANT-SKU')
-        ->and($alternateDefault->fresh()->price)->toEqual('7777.77')
+        ->and($alternateDefault->fresh()->price)->toBe($csvPrice)
         ->and($alternateDefault->fresh()->old_price)->toEqual('8888.88')
+        ->and($alternateDefault->fresh()->price_mode)->toBe('inherited')
         ->and($alternateDefault->fresh()->stock_quantity)->toBe(17)
         ->and($alternateDefault->fresh()->stock_status)->toBe(StockStatus::OutOfStock)
         ->and($alternateDefault->fresh()->is_default)->toBeTrue()
         ->and(p5pRelationSnapshot($reactivated))->toBe($before)
         ->and($reactivated->variants()->count())->toBe(24)
-        ->and($reactivated->characteristics()->count())->toBe(4)
+        ->and($reactivated->characteristics()->count())->toBe(1)
         ->and($reactivated->fitments()->count())->toBe(1);
 });
 
@@ -196,11 +205,11 @@ test('soft deleted catalog Product is restored as the same existing record witho
         ->and($restored->description)->toBe('Описание до soft delete')
         ->and(p5pRelationSnapshot($restored))->toBe($before)
         ->and($restored->variants()->count())->toBe(24)
-        ->and($restored->characteristics()->count())->toBe(4)
+        ->and($restored->characteristics()->count())->toBe(0)
         ->and($restored->fitments()->count())->toBe(1);
 });
 
-test('soft deleted legacy catalog Product restores without receiving PROMPT 5O defaults', function (): void {
+test('soft deleted legacy catalog Product adopts the authorized CSV matrix and keeps its old variant archived', function (): void {
     $generation = p5pGeneration();
     $partType = PartType::query()->where('full_slug', 'porog')->firstOrFail();
     $category = $partType->productCategory()->firstOrFail();
@@ -218,24 +227,26 @@ test('soft deleted legacy catalog Product restores without receiving PROMPT 5O d
         'import_source' => 'catalog',
         'last_import_run_id' => 'legacy-run',
     ]);
-    $variant = ProductVariant::factory()->forProduct($legacy)->default()->create([
-        'price' => 0,
-        'stock_status' => StockStatus::InStock,
+    $variantId = DB::table('product_variants')->insertGetId([
+        'product_id' => $legacy->id, 'title' => 'Historical default offer',
+        'price' => '0.00', 'price_mode' => 'individual',
+        'stock_status' => StockStatus::InStock->value, 'is_active' => true,
+        'is_default' => true, 'created_at' => now(), 'updated_at' => now(),
     ]);
     ProductFitment::factory()->forProduct($legacy)->forVehicleGeneration($generation)->create();
     $legacyId = (int) $legacy->getKey();
-    $variantId = (int) $variant->getKey();
 
     $legacy->delete();
     $restored = p5pImportProduct(p5pImportRun(), $generation)->fresh();
 
     expect((int) $restored->getKey())->toBe($legacyId)
         ->and(Product::withTrashed()->where('import_key', $importKey)->count())->toBe(1)
-        ->and($restored->product_option_template_id)->toBeNull()
+        ->and($restored->optionTemplate?->slug)->toStartWith('matrix_')
         ->and($restored->description)->toBeNull()
         ->and($restored->characteristics()->count())->toBe(0)
-        ->and($restored->variants()->count())->toBe(1)
-        ->and((int) $restored->variants()->firstOrFail()->getKey())->toBe($variantId)
+        ->and($restored->variants()->where('is_active', true)->count())
+            ->toBe(app(\App\Services\Catalog\CatalogConfigurations::class)->rows($restored->part_type_id)->count())
+        ->and(ProductVariant::findOrFail($variantId)->is_active)->toBeFalse()
         ->and(ProductVariantOptionValue::query()->where('product_variant_id', $variantId)->count())->toBe(0)
         ->and($restored->fitments()->count())->toBe(1);
 });

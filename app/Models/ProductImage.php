@@ -7,6 +7,7 @@ use App\Services\Media\ImageProcessingService;
 use App\Services\Media\MediaFileCleanupService;
 use App\Services\Media\MediaUrlService;
 use App\Services\Media\ProductGalleryService;
+use App\Services\Catalog\CatalogImportProtections;
 use Database\Factories\ProductImageFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -112,6 +113,16 @@ class ProductImage extends Model
 
     public function processManualUploadIfNeeded(): void
     {
+        $process = function (): void {
+            app(CatalogImportProtections::class)->assertProductWritable((int) $this->product_id);
+            $this->processUnprotectedManualUpload();
+        };
+        // Keep the gallery's rollback callbacks on their existing transaction parent.
+        DB::transactionLevel() > 0 ? $process() : DB::transaction($process);
+    }
+
+    private function processUnprotectedManualUpload(): void
+    {
         if ($this->isDefaultImageReference()) {
             return;
         }
@@ -183,6 +194,15 @@ class ProductImage extends Model
     }
 
     public function deleteFiles(): void
+    {
+        $delete = function (): void {
+            app(CatalogImportProtections::class)->assertProductWritable((int) $this->product_id);
+            $this->deleteUnprotectedFiles();
+        };
+        DB::transactionLevel() > 0 ? $delete() : DB::transaction($delete);
+    }
+
+    private function deleteUnprotectedFiles(): void
     {
         if ($this->isDefaultImageReference()) {
             return;

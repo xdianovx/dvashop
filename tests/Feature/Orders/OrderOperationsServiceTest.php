@@ -104,12 +104,16 @@ test('order operations lock and read the order before issuing its update', funct
 
     $this->orderOperations->update($this->orderActor, $order, ['status' => OrderStatus::Processing]);
 
-    $orderSelect = collect($queries)->search(fn (string $sql): bool => str_starts_with($sql, 'select') && str_contains($sql, 'from "orders"'));
-    $orderUpdate = collect($queries)->search(fn (string $sql): bool => str_starts_with($sql, 'update "orders"'));
+    $table = DB::connection()->getQueryGrammar()->wrapTable('orders');
+    $orderSelect = collect($queries)->search(fn (string $sql): bool => str_starts_with($sql, 'select') && str_contains($sql, 'from '.$table));
+    $orderUpdate = collect($queries)->search(fn (string $sql): bool => str_starts_with($sql, 'update '.$table));
 
     expect($orderSelect)->not->toBeFalse()
         ->and($orderUpdate)->not->toBeFalse()
         ->and($orderSelect)->toBeLessThan($orderUpdate);
+    if (DB::getDriverName() === 'mysql') {
+        expect($queries[$orderSelect])->toContain('for update');
+    }
 });
 
 test('paid at is set once on first paid transition and preserved through refund and no op', function (): void {
@@ -151,8 +155,10 @@ test('forged fields transitions and validation failures preserve order finances 
         'price_snapshot' => 4200,
         'total_snapshot' => 4200,
     ]);
-    $orderBefore = $order->getAttributes();
-    $itemBefore = $item->getAttributes();
+    // Compare persisted snapshots on both sides; MySQL normalizes JSON/DECIMAL
+    // on storage, unlike the factory's still in-memory attribute representation.
+    $orderBefore = $order->refresh()->getAttributes();
+    $itemBefore = $item->refresh()->getAttributes();
 
     foreach ([
         ['paid_at' => now()],

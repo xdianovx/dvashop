@@ -180,14 +180,16 @@ test('filament editing description preserves inheritance changing price marks in
     expect($p->refresh()->price_mode)->toBe('inherited')->and($p->price)->toBe('100.00');
 });
 
-test('real bulk page requires confirmation and applies per card decisions', function () {
-    $p = pricedProduct($this->type, 'unknown', '555.00', 1);
-    $page = Livewire::test(CatalogPricesPage::class)->set('typeId', $this->type->id)->set('price', '250')
-        ->call('previewPrices')->assertHasNoErrors()->assertSee($p->title)->set('overrides.'.$p->id, true)
-        ->call('previewPrices')->call('confirmPrices')->assertHasNoErrors();
-    $id = $page->get('operationId');
+test('mass management page no longer exposes legacy historical-price overrides', function () {
+    Livewire::test(CatalogPricesPage::class)->assertSee('Массовое управление товарами')
+        ->assertSee('Изменить статус товаров')->assertSee('Изменить цены')
+        ->assertDontSee('Принять исторические цены');
+    $product = pricedProduct($this->type, 'unknown', '555.00', 1);
+    $overrides = [$product->id => true];
+    $preview = $this->prices->preview($this->type->id, false, '250', overrides: $overrides);
+    $id = $this->prices->confirm($this->admin, $preview, overrides: $overrides);
     $this->prices->batch($id);
-    expect($p->refresh()->price)->toBe('250.00')->and($p->price_mode)->toBe('inherited');
+    expect($product->refresh()->price)->toBe('250.00');
 });
 
 test('unauthorized users cannot view or apply prices', function () {
@@ -233,11 +235,17 @@ test('explicit equal price mode and variant only edits are saved by filament wit
 
 test('migration seeds bases without classifying or rewriting legacy prices', function () {
     $p = pricedProduct($this->type, 'unknown', '876.54', 1);
+    // Roll back the dependent guard migration first, as Laravel rollback does.
+    // Its triggers intentionally require catalog_price_locks to remain present.
+    $protections = require database_path('migrations/2026_10_20_000100_add_safe_partial_catalog_protections.php');
+    $protections->down();
     $migration = require database_path('migrations/2026_10_13_000100_add_catalog_pricing.php');
     $migration->down();
     $migration->up();
+    $protections->up();
     expect($p->refresh()->price)->toBe('876.54')->and($p->price_mode)->toBe('unknown')
-        ->and($p->variants()->first()->price)->toBe('876.54')->and($p->variants()->first()->price_mode)->toBe('unknown');
+        ->and($p->variants()->first()->price)->toBe('876.54')->and($p->variants()->first()->price_mode)->toBe('unknown')
+        ->and(\Illuminate\Support\Facades\Schema::hasTable('catalog_import_protections'))->toBeTrue();
 });
 
 test('job failure is recorded and retry completes once with exception audit intact', function () {
@@ -267,13 +275,13 @@ test('lost queue delivery remains recoverable from the committed operation', fun
     expect($p->refresh()->price)->toBe('200.00');
 });
 
-test('preview rejects new scoped goods and changed bases and stale livewire confirmation', function () {
+test('preview rejects newly scoped goods and changed base prices', function () {
     $preview = $this->prices->preview($this->type->id, false, '200');
     pricedProduct($this->type, variants: 1);
     expect(fn () => $this->prices->confirm($this->admin, $preview))->toThrow(ValidationException::class);
-    $page = Livewire::test(CatalogPricesPage::class)->set('typeId', $this->type->id)->set('price', '250')->call('previewPrices');
+    $current = $this->prices->preview($this->type->id, false, '250');
     $this->type->update(['base_price' => 150]);
-    $page->call('confirmPrices')->assertHasErrors('price');
+    expect(fn () => $this->prices->confirm($this->admin, $current))->toThrow(ValidationException::class);
     expect(DB::table('catalog_price_operations')->count())->toBe(0);
 });
 
@@ -346,16 +354,15 @@ test('stock and image updates remain independent while a price operation is pend
     expect($variant->refresh()->stock_quantity)->toBe(7)->and($variant->price)->toBe('200.00');
 });
 
-test('exception table is paginated searchable and keeps decisions across pages', function () {
+test('new mass page contains no obsolete historical-exceptions table', function () {
+    Livewire::test(CatalogPricesPage::class)
+        ->assertSee('Изменить цены')->assertSee('Изменить статус товаров')
+        ->assertDontSee('Принять исторические цены');
     $products = collect(range(1, 22))->map(fn () => pricedProduct($this->type, 'unknown', '101.00', 1));
-    $last = $products->last();
-    $page = Livewire::test(CatalogPricesPage::class)->set('typeId', $this->type->id)->set('price', '250')->call('previewPrices');
-    $page->assertSee($products->first()->title)->assertDontSee($last->title)
-        ->set('overrides.'.$products->first()->id, true)->set('search', $last->title)->assertSee($last->title)
-        ->set('overrides.'.$last->id, true)->call('previewPrices')->call('confirmPrices')->assertHasNoErrors();
-    $this->prices->batch($page->get('operationId'));
-    expect($products->first()->refresh()->price)->toBe('250.00')->and($last->refresh()->price)->toBe('250.00')
-        ->and($products[1]->refresh()->price)->toBe('101.00');
+    $preview = $this->prices->preview($this->type->id, false, '250');
+    expect($preview['counts']['products'])->toBe(22)
+        ->and(DB::table('catalog_price_operations')->count())->toBe(0)
+        ->and($products->first()->refresh()->price)->toBe('101.00');
 });
 
 test('repeated saving the same livewire editor cannot revert propagated prices or price modes', function () {
@@ -396,17 +403,15 @@ test('historical adoption changes ownership across the whole selection without c
     expect($first->refresh()->price)->toBe('220.50')->and($individual->refresh()->price)->toBe('100.00');
 });
 
-test('livewire classification supports preserved rows deviation decisions and abandoning preview without writes', function () {
-    $p = pricedProduct($this->type, 'unknown', '100.00', 2);
-    $d = pricedProduct($this->type, 'unknown', '130.00', 2);
-    $page = Livewire::test(CatalogPricesPage::class)->set('typeId', $this->type->id)->set('descendants', false)
-        ->set('operationMode', 'adopt')->set('price', '100')->call('previewPrices')->assertHasNoErrors()->assertSee('Изменений сумм: 0');
-    $page->call('discardPreview')->assertSet('preview', null);
-    expect(DB::table('catalog_price_operations')->count())->toBe(0)->and($p->refresh()->price_mode)->toBe('unknown');
-    $page->set('classifyDeviations', true)->set('overrides.'.$p->id, false)->call('previewPrices')->call('confirmPrices')->assertHasNoErrors();
-    $this->prices->batch($page->get('operationId'));
-    expect($p->refresh()->price_mode)->toBe('unknown')->and($d->refresh()->price_mode)->toBe('individual')
-        ->and($d->price)->toBe('130.00')->and($d->variants()->where('price_mode', 'individual')->count())->toBe(2);
+test('historical classification remains a preview-only backend operation and is absent from the customer interface', function () {
+    $unchanged = pricedProduct($this->type, 'unknown', '100.00', 2);
+    $deviation = pricedProduct($this->type, 'unknown', '130.00', 2);
+    Livewire::test(CatalogPricesPage::class)->assertDontSee('Принять исторические цены');
+    $preview = $this->prices->preview($this->type->id, false, '100', action: 'adopt', classifyDeviations: true);
+    expect(DB::table('catalog_price_operations')->count())->toBe(0)
+        ->and($unchanged->refresh()->price_mode)->toBe('unknown')
+        ->and($deviation->refresh()->price)->toBe('130.00')
+        ->and($preview)->toBeArray();
 });
 
 test('discount rendering hides invalid strike prices without destroying historical values', function () {
@@ -436,7 +441,7 @@ test('permanent failure releases reservation retains completed progress and can 
     expect(DB::table('catalog_price_operations')->find($id)->status)->toBe('failed')
         ->and(app(CatalogPriceGuard::class)->busy())->toBeFalse()->and($p->refresh()->price)->toBe('100.00');
     DB::statement('DROP TRIGGER poison_price');
-    Livewire::test(CatalogPricesPage::class)->call('resumePrices', $id)->assertHasNoErrors();
+    $this->prices->resume($this->admin, $id);
     $this->prices->batch($id);
     $this->prices->batch($id);
     expect($p->refresh()->price)->toBe('200.00')->and(DB::table('catalog_price_overrides')->count())->toBe(1);
@@ -455,7 +460,7 @@ test('application checks detect newer price variant base and membership mutation
     $this->prices->batch($id);
     expect(DB::table('catalog_price_operations')->find($id)->status)->toBe('paused')
         ->and(DB::table('catalog_price_operations')->find($id)->last_id)->toBe(0);
-    Livewire::test(CatalogPricesPage::class)->call('cancelPrices', $id)->assertHasNoErrors()->assertSee('Остаток отменён');
+    $this->prices->cancel($this->admin, $id);
     expect(app(CatalogPriceGuard::class)->busy())->toBeFalse();
     $this->prices->batch($id);
     expect(DB::table('catalog_price_operations')->find($id)->status)->toBe('canceled');
@@ -489,13 +494,13 @@ test('schema readiness is scoped and invalidated after actual schema changes wit
     expect($schema->ready())->toBeTrue();
 });
 
-test('history analysis proposes a base without approving it or changing prices', function () {
+test('the simplified page never proposes or changes a historic base price', function () {
     $this->type->update(['base_price' => null]);
-    $p = pricedProduct($this->type, 'unknown', '125.00', 1);
-    Livewire::test(CatalogPricesPage::class)->set('typeId', $this->type->id)->call('analyzeHistory')
-        ->assertHasNoErrors()->assertSet('operationMode', 'adopt')->assertSet('price', '125.00')->assertSet('descendants', false)
-        ->assertSee('только подсказка');
-    expect($this->type->refresh()->base_price)->toBeNull()->and($p->refresh()->price_mode)->toBe('unknown')
+    $product = pricedProduct($this->type, 'unknown', '125.00', 1);
+    Livewire::test(CatalogPricesPage::class)->assertSee('Изменить цены')
+        ->assertDontSee('Анализ исторических цен')->assertDontSee('Принять исторические цены');
+    expect($this->type->refresh()->base_price)->toBeNull()
+        ->and($product->refresh()->price_mode)->toBe('unknown')
         ->and(DB::table('catalog_price_operations')->count())->toBe(0);
 });
 

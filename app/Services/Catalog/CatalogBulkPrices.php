@@ -34,6 +34,17 @@ final class CatalogBulkPrices
             ->orderBy('id')->pluck('id')->all();
     }
 
+    /** Also checked by queued batches, including operations created before this release. */
+    private function assertNonMatrixTypes(array $ids): void
+    {
+        $paths = CatalogConfigurationSource::managedPaths();
+        if (PartType::whereKey($ids)->whereIn('full_slug', $paths)->exists()
+            || $this->products($ids)->where('configuration_managed', true)->exists()
+            || (app(CatalogConfigurations::class)->ready() && CatalogConfiguration::whereIn('part_type_id', $ids)->exists())) {
+            throw ValidationException::withMessages(['price' => 'В выборке есть товары с конфигурациями CSV. Общая цена и принятие общей исторической цены для них запрещены. Измените исходный CSV и примените согласованную матрицу.']);
+        }
+    }
+
     public function products(array $ids): Builder
     {
         return Product::query()->where('product_type', 'auto_part')->whereIn('part_type_id', $ids);
@@ -73,9 +84,7 @@ final class CatalogBulkPrices
         $overrides = $this->normalizeOverrides($overrides);
         $price = $this->price($price);
         $ids = $this->scope($typeId, $descendants);
-        if (app(CatalogConfigurations::class)->ready() && CatalogConfiguration::whereIn('part_type_id', $ids)->exists()) {
-            throw ValidationException::withMessages(['price' => 'В области есть ценовая матрица. Выберите изменение цены конкретной конфигурации: выравнивание всех вариантов запрещено.']);
-        }
+        $this->assertNonMatrixTypes($ids);
         $types = PartType::query()->whereKey($ids)->orderBy('id')->get(['id', 'full_title', 'base_price', 'base_old_price'])->toArray();
         $hash = hash_init('sha256');
         hash_update($hash, json_encode($types, JSON_THROW_ON_ERROR));
@@ -193,6 +202,7 @@ final class CatalogBulkPrices
             }
             $price = $this->price($op->price);
             $ids = json_decode($op->type_ids, true);
+            $this->assertNonMatrixTypes($ids);
             $overrides = json_decode($op->overrides, true);
             $report = json_decode($op->report, true);
             $plan = app(CatalogPricePlan::class);

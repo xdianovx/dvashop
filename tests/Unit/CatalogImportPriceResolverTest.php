@@ -1,39 +1,41 @@
 <?php
 
+use App\Models\PartType;
+use App\Services\Catalog\CatalogConfigurations;
 use App\Services\Import\CatalogImportPriceResolver;
 use Database\Seeders\PartTypeSeeder;
 use Database\Seeders\ProductCatalogSeeder;
+use Database\Seeders\ProductOptionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 uses(TestCase::class, RefreshDatabase::class);
 
-beforeEach(fn () => $this->seed([ProductCatalogSeeder::class, PartTypeSeeder::class]));
+beforeEach(function (): void {
+    $this->seed([ProductCatalogSeeder::class, PartTypeSeeder::class, ProductOptionSeeder::class]);
+    app(CatalogConfigurations::class)->install(base_path('tests/Fixtures/catalog-configurations.csv'));
+});
 
-test('catalog import reference price resolver contains the exact approved PartType mapping', function (): void {
-    $resolver = new CatalogImportPriceResolver;
-    $expected = [
-        'porog' => ['price' => '1790.00', 'old_price' => null],
-        'arka/zadniaia' => ['price' => '1950.00', 'old_price' => null],
-        'arka/peredniaia' => ['price' => '1950.00', 'old_price' => null],
-        'arka/vnutrenniaia' => ['price' => '2090.00', 'old_price' => null],
-        'arka/vnutrenniaia-universalnaia' => ['price' => '2090.00', 'old_price' => null],
-        'arka/karman-zadniaia' => ['price' => '1950.00', 'old_price' => null],
-        'penka/zadnei-dveri' => ['price' => '2090.00', 'old_price' => null],
-        'penka/perednei-dveri' => ['price' => '2090.00', 'old_price' => null],
-        'penka/bagazhnika' => ['price' => '2090.00', 'old_price' => '2500.00'],
-        'lonzheron' => ['price' => '1200.00', 'old_price' => null],
-        'remkomplekt-pola' => ['price' => '2190.00', 'old_price' => null],
-        'tortsevaia-zaglushka' => ['price' => '600.00', 'old_price' => null],
-        'usilitel/soedinitel-porogov' => ['price' => '900.00', 'old_price' => null],
-    ];
-
-    foreach ($expected as $fullSlug => $reference) {
-        expect($resolver->resolve($fullSlug))->toBe($reference);
+test('import reference prices are derived from installed CSV rather than hardcoded per-type amounts', function (): void {
+    $resolver = app(CatalogImportPriceResolver::class);
+    $matrix = app(CatalogConfigurations::class);
+    foreach (PartType::query()->get() as $type) {
+        $rows = $matrix->rows($type->id);
+        if ($rows->isEmpty()) {
+            continue;
+        }
+        expect($resolver->resolve($type))->toBe([
+            'price' => $matrix->basePrice($type->id),
+            'old_price' => null,
+        ]);
     }
+});
 
-    expect($resolver->resolve('arka'))->toBeNull()
-        ->and($resolver->resolve('penka'))->toBeNull()
-        ->and($resolver->resolve('usilitel'))->toBeNull()
-        ->and($resolver->resolve('unknown'))->toBeNull();
+test('a missing CSV group never falls back to a historical type price', function (): void {
+    $resolver = app(CatalogImportPriceResolver::class);
+    $type = PartType::where('full_slug', 'porog')->firstOrFail();
+    \Illuminate\Support\Facades\DB::table('catalog_configurations')->where('part_type_id', $type->id)->update(['is_active' => false]);
+    app(CatalogConfigurations::class)->clear();
+    expect(fn () => $resolver->resolve($type))->toThrow(ValidationException::class, 'Не установлены цены CSV');
 });

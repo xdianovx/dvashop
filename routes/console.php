@@ -18,7 +18,7 @@ Schedule::call(fn () => app(YandexFeedInvalidator::class)->dispatchIfNeeded())
 Schedule::call(fn () => app(CatalogSearchPublication::class)->dispatchPending())
     ->name('catalog-search-publications')->everyMinute()->withoutOverlapping();
 
-Artisan::command('import:inspect-file {path : Путь к csv/xlsx файлу}', function (ImportFileInspector $inspector): int {
+Artisan::command('import:inspect-file {path : Путь к XLSX с листом Каталог (new)}', function (ImportFileInspector $inspector): int {
     $path = (string) $this->argument('path');
 
     if (! is_file($path)) {
@@ -45,10 +45,10 @@ Artisan::command('import:inspect-file {path : Путь к csv/xlsx файлу}',
     $this->line('Поколения/кузова: '.$result['generations']);
     $this->line('Заполненные товарные ячейки: '.$result['filled_detail_cells']);
     $this->line('Уникальные товары ориентировочно: '.$result['unique_products']);
-    $this->line('URL в колонке A: '.$result['vehicle_image_urls']);
-    $this->line('Availability-значения в колонке A: '.$result['vehicle_image_availability_values']);
-    $this->line('Нестандартные значения в колонке A: '.$result['vehicle_image_non_standard_values']);
-    $this->line('URL в товарных ячейках: '.$result['product_image_urls']);
+    $this->line('Строк с URL фотографии автомобиля: '.$result['vehicle_image_urls']);
+    foreach ($result['skipped_rows'] as $skipped) {
+        $this->warn('Строка '.$skipped['row'].': '.$skipped['reason']);
+    }
 
     $this->newLine();
     $this->info('Категории из заголовков:');
@@ -124,8 +124,15 @@ Schedule::call(fn () => app(CatalogBulkPrices::class)->dispatchPending())->every
 
 Schedule::call(fn () => app(CatalogActions::class)->dispatchPending())->everyMinute()->name('catalog-actions-recovery')->withoutOverlapping();
 
-Artisan::command('catalog:configurations {csv} {--apply : Install configuration definitions without changing existing products} {--confirm= : Confirmation code from the current CSV preview}', function (): int {
-    $rows = app(CatalogConfigurationSource::class)->read($this->argument('csv'));
+Artisan::command('catalog:configurations {csv} {--apply : Install configuration definitions without changing existing products} {--confirm= : Confirmation code from the current CSV preview} {--sha256= : Required checksum of the original CSV when applying}', function (): int {
+    $path = $this->argument('csv');
+    $rows = app(CatalogConfigurationSource::class)->read($path);
+    $checksum = hash_file('sha256', $path);
+    $this->line('CSV SHA-256: '.$checksum);
+    if ($this->option('apply') && ! hash_equals($checksum, (string) $this->option('sha256'))) {
+        $this->error('Для установки укажите --sha256 с проверенной контрольной суммой исходного CSV.');
+        return 1;
+    }
     $this->table(['Тип', 'Комбинаций'], collect($rows)->countBy('type')->map(fn ($count, $type) => [$type, $count])->values()->all());
     $review = app(\App\Services\Catalog\CatalogConfigurationInstallation::class)->preview($rows);
     $this->line(json_encode($review, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
@@ -137,6 +144,19 @@ Artisan::command('catalog:configurations {csv} {--apply : Install configuration 
 
     return 0;
 });
+
+// Read-only production recovery rehearsal. Never modifies products or triggers a queue.
+Artisan::command('catalog:matrix-audit {csv : Unmodified original configurations CSV}', function (): int {
+    try {
+        $result = app(\App\Services\Catalog\CatalogMatrixAudit::class)->inspect($this->argument('csv'));
+        $this->line(json_encode($result, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+        $this->info('READ_ONLY: no changes to products, orders or configurations.');
+        return $result['safe_to_request_approval'] ? 0 : 1;
+    } catch (\Throwable $e) {
+        $this->error('MATRIX_AUDIT_REFUSED: '.$e->getMessage());
+        return 1;
+    }
+})->purpose('Read-only CSV matrix and catalog price discrepancy audit');
 
 // Run all remaining types through the same confirmed, resumable actions used by Filament.
 // Dry-run is the default; applying requires the current catalogue's preview token.
@@ -156,7 +176,8 @@ Artisan::command('catalog:configurations-remaining
     }
 
     if (! app(CatalogConfigurations::class)->ready()
-        || \Illuminate\Support\Facades\DB::table('catalog_configurations')->where('is_active', true)->count() < 106) {
+        || ! \Illuminate\Support\Facades\DB::table('catalog_configurations')->where('is_active', true)->exists()
+        || ! \Illuminate\Support\Facades\DB::table('catalog_matrix_sources')->where('id', 1)->exists()) {
         $this->error('REFUSED: Configuration matrix is not installed.');
 
         return 1;
@@ -290,3 +311,33 @@ Artisan::command('catalog:configurations-remaining
 
     return 0;
 })->purpose('Safely preview or apply all remaining catalogue matrices using durable CatalogActions');
+
+// Explicit recovery of failed vehicle images only. No catalog/product import is performed.
+Artisan::command('import:retry-vehicle-images {run} {--apply : Queue failed images after reviewing the list}', function (): int {
+    $run = \App\Models\ImportRun::findOrFail((int) $this->argument('run'));
+    if (! in_array($run->status, [\App\Enums\ImportRunStatus::Done, \App\Enums\ImportRunStatus::ProcessingImages], true)) {
+        $this->error('Повтор фотографий доступен после успешной обработки строк импорта.');
+        return 1;
+    }
+    $seen = [];
+    foreach (\App\Models\ImportLog::where('import_run_id', $run->id)
+        ->whereIn('message', ['Изображение поколения авто сохранено', 'Не удалось скачать изображение поколения авто'])
+        ->orderByDesc('id')->cursor() as $log) {
+        $context = $log->context ?? [];
+        $id = $context['vehicle_generation_id'] ?? null;
+        if (! $id || isset($seen[$id])) {
+            continue;
+        }
+        $seen[$id] = true;
+        if (($context['result'] ?? 'failed') !== 'failed' || empty($context['url'])) {
+            continue;
+        }
+        $this->line('Поколение #'.$id.'; журнал #'.$log->id.'; '.$context['url']);
+        if ($this->option('apply')) {
+            \App\Jobs\DownloadVehicleGenerationImageJob::dispatch((int) $id, $context['url'], $run->id, $context['alternative_urls'] ?? [], $log->id)
+                ->onQueue('imports-images');
+        }
+    }
+    $this->info($this->option('apply') ? 'Задания поставлены в очередь; результаты появятся в журнале.' : 'Только список. Для повтора используйте --apply.');
+    return 0;
+});

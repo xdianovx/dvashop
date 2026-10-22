@@ -6,15 +6,18 @@ use App\Support\CatalogText;
 
 final class CatalogImportCell
 {
-    /** Only numeric/textual one means present; every other product value is absent. */
+    /** Only one or boolean/textual true means present. */
     public static function parse(mixed $value): ?array
     {
+        if ($value === true) {
+            $value = 'true';
+        }
         if (! is_string($value) && ! is_int($value) && ! is_float($value)) {
             return null;
         }
-        $normalized = str_replace(',', '.', CatalogText::plain($value, 1000));
+        $normalized = mb_strtolower(CatalogText::plain($value, 1000));
 
-        return preg_match('/^1(?:\.0+)?$/D', $normalized) === 1
+        return $normalized === 'true' || preg_match('/^1(?:\.0+)?$/D', $normalized) === 1
             ? ['image_url' => null, 'price' => null, 'is_standard' => true]
             : null;
     }

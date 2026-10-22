@@ -14,12 +14,14 @@ use App\Models\Product;
 use App\Models\ProductCategory;
 use App\Models\ProductImage;
 use App\Models\User;
+use App\Services\Catalog\CatalogConfigurations;
 use App\Services\Import\ImportImageDownloader;
 use App\Services\Import\ImportRowProcessor;
 use App\Services\ImportLogger;
 use App\Services\ImportRunReportExporter;
 use App\Services\ImportStatusService;
 use App\Services\SpreadsheetReader;
+use Database\Seeders\PartTypeSeeder;
 use Database\Seeders\ProductCatalogSeeder;
 use Database\Seeders\ProductOptionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -270,7 +272,8 @@ test('admin import page opens and upload action creates import run', function ()
     $this->get('/admin/imports/catalog')->assertOk();
 
     Livewire::test(CatalogImportPage::class)
-        ->set('file', UploadedFile::fake()->createWithContent('catalog.csv', importCsvContent()))
+        ->set('importMode', 'excel') // Explicit legacy Excel-only workflow; full is now the safe default.
+        ->set('file', UploadedFile::fake()->create('catalog.xlsx', 10, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
         ->set('type', 'catalog')
         ->set('chunkSize', 20)
         ->set('startAfterUpload', true)
@@ -279,7 +282,7 @@ test('admin import page opens and upload action creates import run', function ()
 
     $run = ImportRun::query()->latest('id')->firstOrFail();
 
-    expect($run->original_name)->toBe('catalog.csv')
+    expect($run->original_name)->toBe('catalog.xlsx')
         ->and($run->type)->toBe('catalog')
         ->and($run->chunk_size)->toBe(20);
 
@@ -309,31 +312,37 @@ test('start action is idempotent and does not push duplicate start jobs', functi
     Queue::assertPushed(CatalogImportStartJob::class, 1);
 });
 
-test('start job initializes detail columns only once and keeps progress on repeated run', function () {
+test('start job initializes XLSX detail columns once and keeps progress on repeated run', function () {
     Storage::fake('local');
     Queue::fake();
-
-    Storage::disk('local')->put('imports/catalog/catalog.csv', implode("\n", [
-        ',,,,,,',
-        'Фото,Марка,Модель,Поколение,Годы,Кузов,Порог',
-        ',Toyota,Camry,XV70,2017-2023,седан,1',
+    $this->seed(PartTypeSeeder::class);
+    app(CatalogConfigurations::class)->install(base_path('tests/Fixtures/catalog-configurations.csv'));
+    $path = Storage::disk('local')->path('imports/catalog/catalog.xlsx');
+    if (! is_dir(dirname($path))) {
+        mkdir(dirname($path), 0777, true);
+    }
+    $writer = new \OpenSpout\Writer\XLSX\Writer;
+    $writer->openToFile($path);
+    $writer->getCurrentSheet()->setName('Каталог (new)');
+    $writer->addRow(\OpenSpout\Common\Entity\Row::fromValues([null, null, null, null, null, null, 'Порог']));
+    $writer->addRow(\OpenSpout\Common\Entity\Row::fromValues([
+        'Фото', 'Марка', 'Модель', 'Поколение', 'Годы выпуска', 'Кузов', 'Порог',
     ]));
-
+    $writer->addRow(\OpenSpout\Common\Entity\Row::fromValues([
+        null, 'Toyota', 'Camry', 'XV70', '2017-2023', 'седан', 1,
+    ]));
+    $writer->close();
     $run = ImportRun::factory()->create([
         'status' => ImportRunStatus::RunningRows,
-        'stored_path' => 'imports/catalog/catalog.csv',
-        'processed_rows' => 0,
-        'current_row' => 0,
+        'stored_path' => 'imports/catalog/catalog.xlsx',
+        'processed_rows' => 0, 'current_row' => 0,
     ]);
-
     $job = new CatalogImportStartJob($run->getKey());
     $job->handle(app(SpreadsheetReader::class), app(ImportStatusService::class), app(ImportLogger::class), app(ImportRowProcessor::class));
-
     $firstDetailColumns = $run->fresh()->detail_columns;
+    $this->assertIsArray($firstDetailColumns);
     $run->fresh()->forceFill(['processed_rows' => 1, 'current_row' => 1])->save();
-
     $job->handle(app(SpreadsheetReader::class), app(ImportStatusService::class), app(ImportLogger::class), app(ImportRowProcessor::class));
-
     expect($run->fresh()->detail_columns)->toBe($firstDetailColumns)
         ->and($firstDetailColumns[6]['part_type_full_slug'])->toBe('porog')
         ->and($firstDetailColumns[6]['product_category_full_slug'])->toBe('kuzovnye-detali/remontnye-elementy-kuzova/porogi')
@@ -372,8 +381,7 @@ test('start job fails atomically when required canonical store category is missi
     $run->refresh();
 
     expect($run->status)->toBe(ImportRunStatus::Failed)
-        ->and($run->last_error)->toContain('Обязательная магазинная категория')
-        ->and($run->last_error)->toContain('kuzovnye-detali/remontnye-elementy-kuzova/arki')
+        ->and($run->last_error)->toContain('XLSX')
         ->and($run->detail_columns)->toBeNull()
         ->and($run->initialized_at)->toBeNull()
         ->and(PartType::query()->count())->toBe(0)

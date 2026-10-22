@@ -51,7 +51,7 @@ test('Product without uploaded image can use default product image by category',
 
     expect($product->main_image_url)
         ->not->toBe('')
-        ->toContain('img/products_default/porog.png');
+        ->toContain('/storage/catalog/defaults/porog.png');
 });
 
 test('auto part without uploaded image uses PartType default image instead of store category', function () {
@@ -67,7 +67,7 @@ test('auto part without uploaded image uses PartType default image instead of st
 
     expect($product->main_image_url)
         ->not->toBe('')
-        ->toContain('img/products_default/porog.png');
+        ->toContain('/storage/catalog/defaults/porog.png');
 });
 
 test('Product with missing image path returns placeholder image url', function () {

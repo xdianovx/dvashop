@@ -77,6 +77,8 @@ test('part type seeder assigns exact default image keys only to final types', fu
         'penka/zadnei-dveri' => 'penka-zadnei-dveri',
         'remkomplekt-pola' => 'remkomplekt-pola',
         'tortsevaia-zaglushka' => 'torcevaia-zagluska',
+        'usilitel' => 'usilitel',
+        'soedinitel' => 'soedinitel',
         'usilitel/soedinitel-porogov' => 'usilitel-soedinitel-porogov',
     ];
 
@@ -84,7 +86,7 @@ test('part type seeder assigns exact default image keys only to final types', fu
         expect(PartType::query()->where('full_slug', $fullSlug)->value('default_image_key'))->toBe($imageKey);
     }
 
-    expect(PartType::query()->whereIn('full_slug', ['arka', 'penka', 'usilitel'])->whereNotNull('default_image_key')->exists())
+    expect(PartType::query()->whereIn('full_slug', ['arka', 'penka'])->whereNotNull('default_image_key')->exists())
         ->toBeFalse();
 });
 

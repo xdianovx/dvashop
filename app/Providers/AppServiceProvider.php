@@ -72,6 +72,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Database\Events\ConnectionEstablished::class,
+            fn ($event) => \App\Services\Catalog\CatalogImportContext::register($event->connection));
         foreach ([VehicleMake::class, VehicleModel::class, VehicleGeneration::class, ProductVariant::class, ProductFitment::class, ProductOptionValue::class, ProductOptionGroup::class] as $model) {
             $model::observe(CatalogSearchDependencyObserver::class);
         }
